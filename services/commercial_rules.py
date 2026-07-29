@@ -180,6 +180,35 @@ def validate_last_administrator_suspension(
         raise HTTPException(409, "No se puede suspender al último administrador activo sin sustituto.")
 
 
+def effective_administrator_limit(
+    *, base_limit: int | None, overrides: list[dict], at: datetime
+) -> int | None:
+    applicable = [
+        row for row in overrides
+        if row.get("override_code") == "administrator_limit"
+        and row.get("status", "active") == "active"
+        and row.get("starts_at") <= at
+        and row.get("ends_at") > at
+    ]
+    if not applicable:
+        return base_limit
+    latest = max(applicable, key=lambda row: row.get("created_at") or row.get("starts_at"))
+    return int(latest["integer_value"])
+
+
+def is_operator_portal_effective(*, addon: dict | None, at: datetime) -> bool:
+    if not addon or addon.get("status") not in {"trial", "active"}:
+        return False
+    starts_at = addon.get("starts_at")
+    ends_at = addon.get("ends_at")
+    return bool(starts_at and starts_at <= at and (ends_at is None or ends_at > at))
+
+
+def validate_override_period(*, starts_at: datetime, ends_at: datetime) -> None:
+    if ends_at <= starts_at:
+        raise HTTPException(400, "El override requiere una vigencia futura válida.")
+
+
 def require_no_trip_package(item_type: str) -> None:
     if item_type in {"trip_package", "additional_trips", "travel_topup"}:
         raise HTTPException(400, "No se venden paquetes de viajes; se requiere cambio de plan.")

@@ -112,6 +112,24 @@ def validate_authoritative_scope(
     }
 
 
+def validate_subscription_membership(
+    *, auth_user_id: str, tenant_id: str, perfil_id: int,
+    subscription_id: int, memberships: list[dict],
+) -> dict:
+    """Resolve one Auth user to one explicit subscription/RFC membership."""
+    matches = [
+        row for row in memberships
+        if str(row.get("user_id") or "") == str(auth_user_id)
+        and str(row.get("tenant_id") or "") == str(tenant_id)
+        and int(row.get("perfil_id") or 0) == int(perfil_id)
+        and int(row.get("subscription_id") or 0) == int(subscription_id)
+        and row.get("status") == "active"
+    ]
+    if len(matches) != 1:
+        raise HTTPException(404, "Suscripción/RFC no encontrada.")
+    return matches[0]
+
+
 def resolve_tenant_context(token: str, section: str, requested_perfil_id: int | str | None = None) -> TenantContext:
     """Resolve membership from the validated token, never from client IDs."""
     if not token:

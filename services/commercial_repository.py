@@ -17,6 +17,10 @@ COMMERCIAL_TABLES = (
     "commercial_prospect_activities",
     "commercial_prospect_tasks",
     "commercial_prospect_stage_events",
+    "subscription_administrator_memberships",
+    "subscription_limit_overrides",
+    "commercial_fiscal_trip_ledger",
+    "subscription_vehicle_state_events",
     "commercial_customers",
     "commercial_tax_entities",
     "commercial_plans",
@@ -168,14 +172,43 @@ class CommercialRepository:
             raise HTTPException(500, "La conversión no devolvió un cliente contractual.")
         return result
 
+    def rpc(self, function_name: str, params: dict) -> dict:
+        allowed = {"commercial_invite_subscription_admin", "commercial_change_admin_membership_status"}
+        if function_name not in allowed:
+            raise ValueError("RPC comercial no permitida.")
+        try:
+            result = self.sb.rpc(function_name, params).execute().data
+        except Exception as exc:
+            raise self._schema_error(exc) from exc
+        if isinstance(result, list):
+            result = result[0] if result else None
+        if not result:
+            raise HTTPException(500, "La operación comercial no devolvió resultado.")
+        return result
+
     def bootstrap(self) -> dict:
         try:
+            try:
+                runtime_subscriptions = (
+                    self.sb.table("subscriptions")
+                    .select("id,tenant_id,plan_name,max_companies,status,expires_at,limits_json,notes_internal")
+                    .order("created_at", desc=True).limit(100).execute().data or []
+                )
+            except Exception:
+                runtime_subscriptions = []
             return {
                 "ready": True,
                 "prospects": self.list("commercial_prospects"),
                 "prospect_contacts": self.list("commercial_prospect_contacts"),
                 "prospect_activities": self.list("commercial_prospect_activities", order="occurred_at"),
                 "prospect_tasks": self.list("commercial_prospect_tasks", order="due_at", desc=False),
+                "administrator_memberships": self.list("subscription_administrator_memberships"),
+                "limit_overrides": self.list("subscription_limit_overrides"),
+                "subscription_terms": self.list("subscription_term_versions"),
+                "subscription_addons": self.list("subscription_addons"),
+                "fiscal_trip_ledger": self.list("commercial_fiscal_trip_ledger", order="occurred_at"),
+                "vehicle_state_events": self.list("subscription_vehicle_state_events", order="occurred_at"),
+                "runtime_subscriptions_pending_reconciliation": runtime_subscriptions,
                 "customers": self.list("commercial_customers"),
                 "tax_entities": self.list("commercial_tax_entities"),
                 "plans": self.list("commercial_plans", order="code", desc=False),
@@ -196,6 +229,13 @@ class CommercialRepository:
                 "prospect_contacts": [],
                 "prospect_activities": [],
                 "prospect_tasks": [],
+                "administrator_memberships": [],
+                "limit_overrides": [],
+                "subscription_terms": [],
+                "subscription_addons": [],
+                "fiscal_trip_ledger": [],
+                "vehicle_state_events": [],
+                "runtime_subscriptions_pending_reconciliation": [],
                 "customers": [],
                 "tax_entities": [],
                 "plans": [],
