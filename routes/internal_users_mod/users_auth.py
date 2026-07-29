@@ -190,12 +190,25 @@ async def list_internal_users(
     fleet_ids = [int(row["id"]) for row in rows if row.get("portal_scope") == "fleet"]
     scope_rows = []
     if fleet_ids:
-        scope_rows = (
-            get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
-            .select("internal_user_id,group_id,fleet_groups(name,path)")
-            .in_("internal_user_id", fleet_ids)
-            .execute().data or []
-        )
+        try:
+            scope_rows = (
+                get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
+                .select("internal_user_id,group_id,fleet_groups(name,path)")
+                .in_("internal_user_id", fleet_ids)
+                .execute().data or []
+            )
+        except Exception:
+            # La lista de usuarios debe seguir disponible aunque la relación
+            # embebida de PostgREST todavía no esté en su caché de esquema.
+            try:
+                scope_rows = (
+                    get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
+                    .select("internal_user_id,group_id")
+                    .in_("internal_user_id", fleet_ids)
+                    .execute().data or []
+                )
+            except Exception:
+                scope_rows = []
     scopes_by_user: dict[int, list[dict]] = {}
     for scope in scope_rows:
         scopes_by_user.setdefault(int(scope["internal_user_id"]), []).append({
@@ -538,13 +551,19 @@ async def fleet_internal_login(payload: FleetInternalLogin):
     if not login or not payload.pin:
         raise HTTPException(400, "Usuario y contraseña son obligatorios.")
     sb = get_supabase_admin()
-    candidates = (
+    rows = (
         sb.table("internal_users").select("*")
         .eq("section", "gas_lp")
-        .eq("portal_scope", "fleet")
-        .eq("code", _normalize_gas_lp_username(payload.code))
-        .limit(2).execute().data or []
+        .limit(500).execute().data or []
     )
+    candidates = [
+        row for row in rows
+        if _matches_login(row, login)
+        and (
+            row.get("portal_scope") == "fleet"
+            or row.get("role") in {"flotilla_gerente", "flotilla_direccion"}
+        )
+    ]
     user = candidates[0] if candidates else None
     if not user or len(candidates) != 1:
         raise HTTPException(401, "Usuario o contraseña incorrectos.")
