@@ -24,3 +24,8 @@
 .commercial-stage article{display:grid;gap:4px;background:#fff;border:1px solid #e4ddd4;border-radius:10px;padding:10px;margin-bottom:8px}
 .commercial-stage article small{color:#756d65}
 .commercial-stage article select{margin-top:5px}
+.commercial-row-button{width:100%;background:transparent;border:0;text-align:left;cursor:pointer}
+.commercial-row-button:hover{background:#faf7f2}
+.commercial-360{margin-top:14px;padding:16px;border:1px solid #d9cfc3;border-radius:14px;background:#faf8f5}
+.commercial-360-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.commercial-360-grid span{padding:10px;background:#fff;border-radius:9px}
