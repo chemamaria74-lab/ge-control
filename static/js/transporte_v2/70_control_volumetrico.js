@@ -4,7 +4,7 @@ const TRV2_MONTHS = [
   ['9', 'Septiembre'], ['10', 'Octubre'], ['11', 'Noviembre'], ['12', 'Diciembre'],
 ];
 let TRV2_CV_EXTERNAL = [];
-let TRV2_CV_EXTERNAL_DOCUMENT_TYPE = 'carta_porte';
+const TRV2_CV_EXTERNAL_DOCUMENT_TYPE = 'carta_ingreso';
 const TRV2_CV_VIEW_CACHE_MS = 5 * 60 * 1000;
 let TRV2_CV_LAST_SEARCH = null;
 
@@ -531,9 +531,6 @@ function trv2RefreshCvView() {
 }
 
 function trv2ChooseCvExternal() {
-  TRV2_CV_EXTERNAL_DOCUMENT_TYPE = document.getElementById('trv2-cv-external-document-type')?.value === 'carta_ingreso'
-    ? 'carta_ingreso'
-    : 'carta_porte';
   if (!trv2CvSelectedPermitValue()) {
     trv2OpenCvReview();
     trv2Toast('Selecciona primero el permiso y el periodo del movimiento externo.', 'error');

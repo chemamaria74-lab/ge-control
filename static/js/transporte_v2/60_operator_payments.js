@@ -12,6 +12,40 @@ let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 let TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = 'pendientes';
 let TRV2_PAYROLL_WORKSPACE = 'pending';
 let TRV2_OPERATOR_PAYMENT_FILTER_TOUCHED = false;
+let TRV2_OPERATOR_PAYMENT_CATALOGS_PROFILE = 0;
+let TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE = null;
+
+async function trv2LoadOperatorPaymentCatalogs(options = {}) {
+  const profileId = Number(TRV2_PERFIL?.id || 0);
+  const alreadyLoaded = TRV2_OPERATOR_PAYMENT_CATALOGS_PROFILE === profileId
+    && Array.isArray(TRV2_CATALOGS.operadores)
+    && Array.isArray(TRV2_CATALOGS.rutas);
+  if (alreadyLoaded && !options.force) {
+    trv2OperatorPaymentCatalogOptions();
+    return;
+  }
+  if (TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE && !options.force) {
+    await TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE;
+    return;
+  }
+  TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE = (async () => {
+    const requestOptions = {silent: true, force: Boolean(options.force)};
+    const [operatorsData, routesData] = await Promise.all([
+      trv2Api('GET', '/api/tr-v2/catalogos/operadores', undefined, requestOptions),
+      trv2Api('GET', '/api/tr-v2/catalogos/rutas', undefined, requestOptions),
+    ]);
+    TRV2_CATALOGS.operadores = operatorsData?.items || [];
+    TRV2_CATALOGS.rutas = routesData?.items || [];
+    TRV2_OPERATOR_PAYMENT_CATALOGS_PROFILE = profileId;
+    trv2OperatorPaymentCatalogOptions();
+    trv2RenderOperatorPayrollBases();
+  })();
+  try {
+    await TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE;
+  } finally {
+    TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE = null;
+  }
+}
 
 function trv2SetPayrollWorkspace(workspace = 'pending') {
   TRV2_PAYROLL_WORKSPACE = ['pending', 'history', 'config'].includes(workspace) ? workspace : 'pending';
@@ -28,6 +62,7 @@ function trv2SetPayrollWorkspace(workspace = 'pending') {
     trv2SetPaymentPeriodView('historial');
   } else if (TRV2_PAYROLL_WORKSPACE === 'config') {
     trv2SetOperatorPaymentView('tarifas');
+    trv2LoadOperatorTariffs();
   } else {
     trv2SetOperatorPaymentView('liquidaciones');
     trv2SetPaymentPeriodView('pendientes');
@@ -401,13 +436,13 @@ async function trv2PrepareConciliacionTab(options = {}) {
     trv2ResetOperatorPaymentResults('Presiona Buscar para consultar los pendientes del periodo.');
     TRV2_OPERATOR_PAYMENT_INITIALIZED = true;
   }
+  await trv2LoadOperatorPaymentCatalogs();
   trv2SetPayrollWorkspace(TRV2_PAYROLL_WORKSPACE);
 }
 
 async function trv2SearchOperatorPayments() {
   const loads = [];
-  const catalogsReady = ['operadores', 'rutas'].every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
-  if (!catalogsReady && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
+  loads.push(trv2LoadOperatorPaymentCatalogs());
   if (!window.TRV2_TRANSPORTE_SETTINGS) {
     loads.push(trv2Api('GET', '/api/tr-v2/admin/settings', undefined, {silent: true}).then(data => {
       if (data?.ok) window.TRV2_TRANSPORTE_SETTINGS = data.data || {};
@@ -774,7 +809,7 @@ function trv2RenderOperatorTariffs() {
     const route = trv2FindCatalog('rutas', item.ruta_id) || {};
     const operator = trv2FindCatalog('operadores', item.operador_id) || {};
     return `<tr><td><strong>${trv2Esc(trv2OperatorPaymentRouteLabel(route))}</strong></td><td>${trv2Esc(operator.nombre || 'Todos los operadores')}</td><td>${trv2Esc(trv2OperatorPaymentModeLabel(item.modalidad))}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.tarifa)}</strong></td><td><span class="trv2-status ${item.activo === false ? 'inactive' : 'active'}">${item.activo === false ? 'Inactiva' : 'Activa'}</span></td><td><div class="trv2-row-actions"><button class="trv2-mini-btn" type="button" onclick="trv2EditOperatorTariff(${Number(item.id)})">Editar</button>${item.activo === false ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeactivateOperatorTariff(${Number(item.id)})">Desactivar</button>`}</div></td></tr>`;
-  }).join('') : '<tr><td colspan="6"><div class="trv2-empty">Todavía no hay tarifas para operadores.</div></td></tr>';
+  }).join('') : '<tr><td colspan="6"><div class="trv2-empty"><strong>Sin tarifas dadas de alta</strong><span>Presiona “Nueva tarifa” para configurar el pago de una ruta.</span></div></td></tr>';
 }
 
 function trv2OpenOperatorTariffForm(item = null, defaults = {}, returnView = '') {
