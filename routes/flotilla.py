@@ -518,6 +518,61 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         if allowed_vehicle_ids is None or int(row["id"]) in allowed_vehicle_ids
     ]
     expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    # Gastos propios de GE Control son independientes de Motive Card y de CFDI.
+    # Se consultan con service role, siempre acotados por tenant/empresa.
+    try:
+        expense_sb = get_supabase_admin()
+        profile_id = int(ctx.get("perfil_id") or 0)
+        own_invoices = (
+            expense_sb.table("gas_lp_expense_invoices")
+            .select("id,supplier_id,concept_id,expense_type,invoice_number,invoice_date,total_mxn,description,group_id,status,created_by")
+            .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
+            .in_("status", ["accepted", "sent_to_accountant", "paid"])
+            .gte("invoice_date", start.isoformat()).lte("invoice_date", end.isoformat())
+            .execute().data or []
+        )
+        invoice_ids = [int(row["id"]) for row in own_invoices]
+        own_links = (
+            expense_sb.table("gas_lp_expense_invoice_vouchers")
+            .select("invoice_id,voucher_id,amount_mxn").in_("invoice_id", invoice_ids)
+            .execute().data or []
+        ) if invoice_ids else []
+        voucher_ids = [int(row["voucher_id"]) for row in own_links]
+        own_vouchers = (
+            expense_sb.table("gas_lp_expense_vouchers")
+            .select("id,vehicle_id,group_id,description,driver_name,created_by_name")
+            .eq("tenant_id", tenant_id).eq("profile_id", profile_id).in_("id", voucher_ids)
+            .execute().data or []
+        ) if voucher_ids else []
+        invoice_by_id = {int(row["id"]): row for row in own_invoices}
+        voucher_by_id = {int(row["id"]): row for row in own_vouchers}
+        linked_invoice_ids: set[int] = set()
+        for link in own_links:
+            invoice = invoice_by_id.get(int(link["invoice_id"]))
+            voucher = voucher_by_id.get(int(link["voucher_id"]))
+            if not invoice or not voucher:
+                continue
+            linked_invoice_ids.add(int(invoice["id"]))
+            expenses.append({
+                "vehicle_id": voucher.get("vehicle_id"), "occurred_at": invoice.get("invoice_date"),
+                "vehicle_number": "", "group_name": "", "zone_name": "",
+                "expense_type": "gasto_con_vale", "category": "", "description": voucher.get("description") or "",
+                "amount_mxn": link.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
+                "source": "ge_control_voucher",
+            })
+        for invoice in own_invoices:
+            if int(invoice["id"]) in linked_invoice_ids:
+                continue
+            expenses.append({
+                "vehicle_id": None, "occurred_at": invoice.get("invoice_date"), "vehicle_number": "",
+                "group_name": "", "zone_name": "", "expense_type": "gasto_directo",
+                "category": "", "description": invoice.get("description") or "",
+                "amount_mxn": invoice.get("total_mxn"), "submitted_by": "Gastos y pagos",
+                "source": "ge_control_direct",
+            })
+    except Exception:
+        # Despliegues anteriores a la migración siguen mostrando la caché vigente.
+        pass
     fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
     events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,duration_seconds,location"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     speeding = _collect(_between(sb.table("fleet_speeding_events").select("vehicle_id,started_at,ended_at,driver_name,severity,duration_seconds,location,posted_limit_kph,max_over_kph,avg_over_kph,avg_speed_kph,distance_km"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))

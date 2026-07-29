@@ -68,6 +68,7 @@ TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
 TBL_COVOL_CIERRES = "tr_covol_month_closures"
 TBL_COVOL_EXTERNOS = "tr_covol_external_movements"
+TBL_COMPANY_REQUESTS = "tr_company_activation_requests"
 TRV2_LIST_LIMIT_DEFAULT = 100
 TRV2_LIST_LIMIT_MAX = 1000
 TRV2_CFDI_LIST_SELECT = ",".join([
@@ -188,7 +189,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "origenes": {
         "table": TBL_ORIGENES,
-        "required": ["nombre", "cp"],
+        "required": ["nombre", "cp", "permiso_cre"],
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
             "proveedor_id", "proveedor_nombre", "cliente_id", "cliente_nombre",
@@ -199,7 +200,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
     },
     "destinos": {
         "table": TBL_DESTINOS,
-        "required": ["nombre", "cp"],
+        "required": ["nombre", "cp", "permiso_cre"],
         "allowed": [
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte", "cliente_id",
             "cliente_nombre", "proveedor_id", "proveedor_nombre",
@@ -325,6 +326,11 @@ class TransporteV2OperatorLoginRequest(BaseModel):
     usuario: str = ""
     pin: str = ""
     token: str = ""
+
+
+class TransporteV2OperatorPasswordReset(BaseModel):
+    perfil_id: Optional[int] = None
+    password: str = ""
 
 
 class TransporteV2SettingsPayload(BaseModel):
@@ -1084,6 +1090,65 @@ def _hash_operator_token(token_plain: str) -> str:
     return hashlib.sha256(str(token_plain or "").encode("utf-8")).hexdigest()
 
 
+OPERATOR_PASSWORD_ITERATIONS = 210_000
+OPERATOR_MAX_FAILED_LOGINS = 5
+OPERATOR_LOCK_MINUTES = 15
+
+
+def _normalize_operator_username(value: str) -> str:
+    return re.sub(r"[^a-z0-9._-]+", "", str(value or "").strip().lower())
+
+
+def _hash_operator_password(password: str, *, salt: bytes | None = None) -> str:
+    raw = str(password or "")
+    if len(raw) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
+    actual_salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        raw.encode("utf-8"),
+        actual_salt,
+        OPERATOR_PASSWORD_ITERATIONS,
+    )
+    return "pbkdf2_sha256${}${}${}".format(
+        OPERATOR_PASSWORD_ITERATIONS,
+        base64.urlsafe_b64encode(actual_salt).decode("ascii").rstrip("="),
+        base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
+    )
+
+
+def _verify_operator_password(password: str, encoded: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_text, digest_text = str(encoded or "").split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_text)
+        salt = base64.urlsafe_b64decode(salt_text + "=" * (-len(salt_text) % 4))
+        expected = base64.urlsafe_b64decode(digest_text + "=" * (-len(digest_text) % 4))
+        actual = hashlib.pbkdf2_hmac("sha256", str(password or "").encode("utf-8"), salt, iterations)
+        return secrets.compare_digest(actual, expected)
+    except (TypeError, ValueError):
+        return False
+
+
+def _operator_locked_until(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _suggest_operator_username(name: str, chofer_id: int) -> str:
+    normalized = unicodedata.normalize("NFKD", str(name or "operador"))
+    ascii_name = "".join(char for char in normalized if not unicodedata.combining(char))
+    parts = re.findall(r"[a-z0-9]+", ascii_name.lower())
+    base = ".".join(parts[:2]) or "operador"
+    return f"{base}.{int(chofer_id)}"
+
+
 def _operator_token_from_header(authorization: str = "") -> str:
     if authorization.startswith("Bearer "):
         return authorization[7:].strip()
@@ -1096,6 +1161,23 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     sb = get_supabase_admin()
     token_hash = _hash_operator_token(token_plain)
     rows = []
+    # Formal sessions use a random session secret, separate from the password.
+    # The fallback below remains active until the deferred production migration
+    # adds session_hash/password_hash.
+    try:
+        rows = (
+            sb.table(TBL_OPERADOR_ACCESOS)
+            .select("*")
+            .eq("session_hash", token_hash)
+            .eq("status", "activo")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        if _missing_column_from_error(exc) != "session_hash":
+            raise
     if usuario:
         try:
             rows = (
@@ -1149,6 +1231,53 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     except Exception:
         pass
     return sb, acc
+
+
+def _operator_password_login(usuario: str, password: str) -> tuple[Any, dict[str, Any], str] | None:
+    normalized_user = _normalize_operator_username(usuario)
+    if not normalized_user or not password:
+        return None
+    sb = get_supabase_admin()
+    rows = (
+        sb.table(TBL_OPERADOR_ACCESOS)
+        .select("*")
+        .eq("usuario_normalizado", normalized_user)
+        .eq("status", "activo")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
+    row = rows[0]
+    password_hash = row.get("password_hash")
+    if not password_hash:
+        return None
+    now = datetime.now(timezone.utc)
+    locked_until = _operator_locked_until(row.get("locked_until"))
+    if locked_until and locked_until > now:
+        raise HTTPException(423, "Acceso bloqueado temporalmente. Intenta nuevamente en 15 minutos o solicita desbloqueo a Administración.")
+    if not _verify_operator_password(password, password_hash):
+        failures = int(row.get("failed_login_attempts") or 0) + 1
+        update: dict[str, Any] = {"failed_login_attempts": failures, "updated_at": _now_iso()}
+        if failures >= OPERATOR_MAX_FAILED_LOGINS:
+            update["locked_until"] = (now + timedelta(minutes=OPERATOR_LOCK_MINUTES)).isoformat()
+        sb.table(TBL_OPERADOR_ACCESOS).update(update).eq("id", row.get("id")).execute()
+        if failures >= OPERATOR_MAX_FAILED_LOGINS:
+            raise HTTPException(423, "Acceso bloqueado durante 15 minutos por cinco intentos fallidos.")
+        raise HTTPException(401, "Usuario o contraseña incorrectos.")
+    session_plain = secrets.token_urlsafe(32)
+    sb.table(TBL_OPERADOR_ACCESOS).update({
+        "session_hash": _hash_operator_token(session_plain),
+        "failed_login_attempts": 0,
+        "locked_until": None,
+        "last_login_at": _now_iso(),
+        "last_used_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }).eq("id", row.get("id")).execute()
+    session_sb, access = _operator_context(session_plain)
+    return session_sb, access, session_plain
 
 
 def _operator_trip_bitacora(row: dict[str, Any]) -> dict[str, Any]:
@@ -1732,6 +1861,26 @@ def _operator_create_trip(
     factura_total = _num(detected.get("total"))
     valor_mercancia = factura_total or factura_subtotal
     product_name = _first_text(product.get("nombre"), detected.get("producto"))
+    pretrip = _parse_json_value(acc.get("pretrip_json"), {})
+    pretrip_events = pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else []
+    bitacora = {}
+    if pretrip_events:
+        transferred_at = _now_iso()
+        bitacora = {
+            "estado": "EN_CURSO",
+            "etapa": "TRASLADO_CON_CARGA",
+            "eventos": [
+                *pretrip_events,
+                {
+                    "accion": "LLEGADA_CARGA",
+                    "estado": "EN_CURSO",
+                    "etapa": "TRASLADO_CON_CARGA",
+                    "nota": "Factura recibida; inicia el tramo con carga.",
+                    "created_at": transferred_at,
+                    "operador_id": acc.get("chofer_id"),
+                },
+            ],
+        }
     metadata = {
         "source": "portal_operador",
         "cliente_id": client.get("id"),
@@ -1758,6 +1907,9 @@ def _operator_create_trip(
         "factura_sha256": invoice_sha256,
         "documento_detectado": detected,
     }
+    if bitacora:
+        metadata["bitacora_operador"] = bitacora
+        metadata["pretrip_transferido_at"] = _now_iso()
     row = {
         "user_id": acc.get("user_id"),
         "perfil_id": acc.get("perfil_id"),
@@ -1837,6 +1989,19 @@ def _operator_create_trip(
         except Exception as exc:
             logger.warning("Viaje operador creado, pero no se pudo adjuntar factura viaje=%s: %s", trip.get("id"), exc)
     return trip
+
+
+def _clear_operator_pretrip(sb: Any, acc: dict[str, Any]) -> None:
+    if not _parse_json_value(acc.get("pretrip_json"), {}).get("eventos"):
+        return
+    try:
+        sb.table(TBL_OPERADOR_ACCESOS).update({
+            "pretrip_json": {},
+            "updated_at": _now_iso(),
+        }).eq("id", acc.get("id")).execute()
+        acc["pretrip_json"] = {}
+    except Exception as exc:
+        logger.warning("No se pudo limpiar prebitácora transferida acceso=%s: %s", acc.get("id"), exc)
 
 
 def _update_operator_trip_metadata(sb: Any, trip: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
@@ -2777,8 +2942,15 @@ def _validate_catalog_payload(catalogo: str, row: dict[str, Any]) -> None:
             raise HTTPException(400, f"Cliente {row.get('nombre') or ''} tiene RFC inválido.")
         if "cp" in row and not _valid_cp(row.get("cp")):
             raise HTTPException(400, f"Cliente {row.get('nombre') or ''} no tiene CP fiscal válido de 5 dígitos.")
-    if catalogo in {"origenes", "destinos"} and row.get("cp") and not _valid_cp(row.get("cp")):
-        raise HTTPException(400, f"Instalación {row.get('nombre') or ''} no tiene CP válido de 5 dígitos.")
+    if catalogo in {"origenes", "destinos"}:
+        if row.get("cp") and not _valid_cp(row.get("cp")):
+            raise HTTPException(400, f"Instalación {row.get('nombre') or ''} no tiene CP válido de 5 dígitos.")
+        if "permiso_cre" in row:
+            permit = _first_text(row.get("permiso_cre")).upper()
+            if not permit:
+                raise HTTPException(400, f"Instalación {row.get('nombre') or ''} requiere permiso CRE.")
+            if not re.fullmatch(r"[A-Z0-9][A-Z0-9./_-]{5,79}", permit):
+                raise HTTPException(400, f"Instalación {row.get('nombre') or ''} tiene permiso CRE con formato inválido.")
     if catalogo == "operadores":
         meta = _meta(row)
         operador_cp = _first_text(row.get("cp"), meta.get("cp"))
@@ -3565,19 +3737,31 @@ def _operator_payment_preview(
 ) -> dict[str, Any]:
     start, end = _operator_payment_dates(fecha_desde, fecha_hasta)
     sb = _sb(token)
-    query = (
-        sb.table(TBL_VIAJES)
-        .select("*")
-        .eq("user_id", uid)
-        .eq("perfil_id", pid)
-        .gte("fecha_hora_salida", start.isoformat())
-        .lt("fecha_hora_salida", end.isoformat())
-        .order("fecha_hora_salida")
-        .limit(TRV2_LIST_LIMIT_MAX)
-    )
-    if operador_id:
-        query = query.eq("chofer_id", operador_id)
-    trips = query.execute().data or []
+    trips: list[dict[str, Any]] = []
+    page_size = min(TRV2_LIST_LIMIT_MAX, 1000)
+    max_rows = 20_000
+    while len(trips) < max_rows:
+        query = (
+            sb.table(TBL_VIAJES)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .gte("fecha_hora_salida", start.isoformat())
+            .lt("fecha_hora_salida", end.isoformat())
+            .order("fecha_hora_salida")
+            .range(len(trips), len(trips) + page_size - 1)
+        )
+        if operador_id:
+            query = query.eq("chofer_id", operador_id)
+        page = query.execute().data or []
+        trips.extend(page)
+        if len(page) < page_size:
+            break
+    if len(trips) >= max_rows:
+        raise HTTPException(
+            422,
+            "Hay más de 20,000 viajes en el rango. Reduce las fechas o filtra por operador para calcular la nómina completa.",
+        )
     payable = []
     for row in trips:
         meta = _parse_json_value(row.get("defaults_json") or row.get("metadata"), {})
@@ -3766,6 +3950,10 @@ def _normalize_producto_value(value: Any) -> str:
         .replace(".", "")
     )
     compact = re.sub(r"\s+", "", text)
+    if compact == "15111510":
+        return "GASLP"
+    if compact.startswith("151015"):
+        return "PETROLIFEROS"
     if "PETROLIF" in compact:
         return "PETROLIFEROS"
     if ("GAS" in compact and "LP" in compact) or "GASLICUADODEPETROLEO" in compact:
@@ -5282,16 +5470,16 @@ def _delete_unstamped_operator_trip(sb: Any, acc: dict[str, Any], trip: dict[str
         return False
     if _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte"), _meta(trip).get("cfdi_uuid")):
         return False
-    cfdi_rows = (
+    cfdi_query = (
         sb.table(TBL_CFDI)
         .select("id,uuid_sat,status")
         .eq("user_id", uid)
         .eq("viaje_id", viaje_id)
         .limit(25)
-        .execute()
-        .data
-        or []
     )
+    if pid:
+        cfdi_query = cfdi_query.eq("perfil_id", pid)
+    cfdi_rows = cfdi_query.execute().data or []
     if any(_first_text(row.get("uuid_sat")) and _first_text(row.get("status")).lower() != "cancelada" for row in cfdi_rows):
         return False
     for client in (sb, get_supabase_admin()):
@@ -5989,6 +6177,89 @@ def _covol_month_closed(sb: Any, uid: str, pid: int, periodo: str, permiso: str)
         raise HTTPException(409, "Falta aplicar la migración de cierre mensual Transporte.")
 
 
+def _covol_validate_rows(
+    selected_permit: dict[str, Any],
+    trip_rows: list[dict[str, Any]],
+    external_rows: list[dict[str, Any]],
+    permit_number: str,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    movement_count = 0
+    seen: set[tuple[str, str]] = set()
+    if not selected_permit:
+        errors.append("El permiso seleccionado no existe o no está activo para esta empresa.")
+    elif not _producto_permiso_family(selected_permit.get("producto")):
+        errors.append("El permiso seleccionado no tiene una familia de producto válida.")
+
+    for row in trip_rows:
+        meta = _meta(row)
+        if _status_cancelado(row.get("status"), row.get("estatus"), meta.get("carta_porte_status")) and _cancelacion_fiscal_confirmada(row, meta):
+            continue
+        row_permit = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"))
+        if row_permit != permit_number:
+            continue
+        movement_count += 1
+        uuid = _first_text(row.get("uuid_cfdi"), meta.get("uuid_carta_porte"))
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid or ""):
+            errors.append(f"Viaje {row.get('id')}: UUID Carta Porte inválido o faltante.")
+        key = ("sistema", uuid.lower())
+        if uuid and key in seen:
+            errors.append(f"UUID duplicado en viajes del sistema: {uuid}.")
+        seen.add(key)
+        products = _parse_json_value(row.get("productos_json"), [])
+        descriptions = [
+            _first_text(item.get("descripcion"), item.get("producto"), item.get("clave_subproducto"), item.get("clave_producto"))
+            for item in (products if isinstance(products, list) else [])
+            if isinstance(item, dict)
+        ]
+        descriptions.extend([
+            _first_text(row.get("producto_descripcion")),
+            _first_text(row.get("producto")),
+            _first_text(meta.get("producto_descripcion")),
+            _first_text(meta.get("producto")),
+        ])
+        descriptions = [value for value in descriptions if value]
+        if not descriptions or not all(_permiso_product_family_match(selected_permit, value) for value in descriptions):
+            errors.append(f"Viaje {row.get('id')}: producto incompatible con el permiso {permit_number}.")
+        volume = sum(
+            _num(item.get("volumen_litros") or item.get("cantidad_litros"))
+            for item in (products if isinstance(products, list) else [])
+            if isinstance(item, dict)
+        ) or _num(row.get("volumen_total_litros") or row.get("volumen_litros"))
+        if volume <= 0:
+            errors.append(f"Viaje {row.get('id')}: volumen inválido o faltante.")
+        if not _first_text(row.get("fecha_hora_salida"), row.get("fecha_salida")):
+            errors.append(f"Viaje {row.get('id')}: falta fecha de carga.")
+        if not _first_text(row.get("fecha_hora_llegada"), row.get("fecha_llegada_estimada")):
+            errors.append(f"Viaje {row.get('id')}: falta fecha de descarga.")
+
+    for row in external_rows:
+        if _first_text(row.get("num_permiso_cne")) != permit_number:
+            continue
+        movement_count += 1
+        movement_type = _first_text(row.get("tipo_movimiento")).lower()
+        uuid = _first_text(row.get("uuid_cfdi"))
+        if movement_type not in {"carga", "descarga"}:
+            errors.append(f"Movimiento externo {row.get('id')}: tipo inválido.")
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", uuid or ""):
+            errors.append(f"Movimiento externo {row.get('id')}: UUID inválido o faltante.")
+        key = (movement_type or "externo", uuid.lower())
+        if uuid and key in seen:
+            errors.append(f"UUID externo duplicado para {movement_type}: {uuid}.")
+        seen.add(key)
+        product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
+        if not product_text or not _permiso_product_family_match(selected_permit, product_text):
+            errors.append(f"Movimiento externo {row.get('id')}: producto incompatible con el permiso {permit_number}.")
+        if _num(row.get("volumen_litros")) <= 0:
+            errors.append(f"Movimiento externo {row.get('id')}: volumen inválido o faltante.")
+        if not _first_text(row.get("fecha_hora")):
+            errors.append(f"Movimiento externo {row.get('id')}: fecha faltante.")
+
+    if movement_count == 0:
+        errors.append("No hay movimientos válidos para el permiso y periodo seleccionados.")
+    return {"ok": not errors, "errors": errors, "movement_count": movement_count}
+
+
 def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str, permiso: str) -> dict[str, Any]:
     root = ET.fromstring(content)
     detected = _detect_xml_document(content).get("detected") or {}
@@ -6073,7 +6344,28 @@ async def transporte_v2_subir_covol_externos(
     _require_profile_if_present(uid, token, pid)
     if not pid:
         raise HTTPException(400, "perfil_id requerido.")
-    tipo = "carga" if tipo_movimiento == "carga" else "descarga"
+    if tipo_movimiento not in {"carga", "descarga"}:
+        raise HTTPException(400, "El tipo de movimiento debe ser carga o descarga.")
+    tipo = tipo_movimiento
+    selected_permiso = _first_text(num_permiso_cne)
+    if not selected_permiso:
+        raise HTTPException(400, "Selecciona un permiso CRE/CNE antes de subir movimientos externos.")
+    sb = _sb(token)
+    permit_rows = (
+        sb.table(TBL_PROVEEDORES)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("activo", True)
+        .eq("permiso_cre", selected_permiso)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not permit_rows:
+        raise HTTPException(400, "El permiso seleccionado no existe o no está activo para esta empresa.")
+    selected_permit = permit_rows[0]
     xml_files: list[tuple[str, bytes]] = []
     for uploaded in files:
         content = await uploaded.read()
@@ -6096,10 +6388,12 @@ async def transporte_v2_subir_covol_externos(
         raise HTTPException(413, "El ZIP contiene más de 100 XML; divídelo en varios archivos.")
     rows = []
     errors = []
-    sb = _sb(token)
     for filename, content in xml_files:
         try:
-            row = _covol_external_from_xml(content, filename, tipo, _first_text(num_permiso_cne))
+            row = _covol_external_from_xml(content, filename, tipo, selected_permiso)
+            product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
+            if not _permiso_product_family_match(selected_permit, product_text):
+                raise HTTPException(400, f"{filename}: el producto no corresponde al permiso {selected_permiso}.")
             row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
             saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
                 row,
@@ -6137,6 +6431,53 @@ async def transporte_v2_cerrar_mes_control_volumetrico(
     if not selected_permiso:
         raise HTTPException(400, "Selecciona permiso CRE/CNE transportista.")
     sb = _sb(token)
+    permit_rows = (
+        sb.table(TBL_PROVEEDORES)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .eq("activo", True)
+        .eq("permiso_cre", selected_permiso)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    trip_rows = (
+        sb.table(TBL_VIAJES)
+        .select("*")
+        .eq("user_id", uid)
+        .eq("perfil_id", pid)
+        .in_("status", ["timbrado", "cancelado"])
+        .like("fecha_hora_salida", f"{periodo}%")
+        .execute()
+        .data
+        or []
+    )
+    try:
+        external_rows = (
+            sb.table(TBL_COVOL_EXTERNOS)
+            .select("*")
+            .eq("user_id", uid)
+            .eq("perfil_id", pid)
+            .eq("periodo", periodo)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        external_rows = []
+    validation = _covol_validate_rows(
+        permit_rows[0] if permit_rows else {},
+        trip_rows,
+        external_rows,
+        selected_permiso,
+    )
+    if not validation["ok"]:
+        raise HTTPException(409, {
+            "message": "No se puede cerrar el mes hasta corregir los movimientos.",
+            "errors": validation["errors"],
+        })
     now = _now_iso()
     metadata = {
         "descripcion_instalacion": _first_text(payload.descripcion_instalacion),
@@ -6270,13 +6611,13 @@ async def transporte_v2_generar_control_volumetrico(
             _first_text(meta.get("producto")),
         ])
         productos_texto = [text for text in productos_texto if text]
-        producto_match_permiso = bool(selected_permiso_row) and any(
+        producto_match_permiso = bool(selected_permiso_row) and bool(productos_texto) and all(
             _permiso_product_family_match(selected_permiso_row, producto_text)
             for producto_text in productos_texto
         )
-        if permiso_viaje and permiso_viaje != selected_permiso and not producto_match_permiso:
+        if permiso_viaje != selected_permiso:
             continue
-        if not permiso_viaje and selected_permiso_row and not producto_match_permiso:
+        if not producto_match_permiso:
             continue
         enriched_products = []
         for product in (productos_json if isinstance(productos_json, list) else []):
@@ -6320,7 +6661,10 @@ async def transporte_v2_generar_control_volumetrico(
         )
         for external in external_rows:
             external_permit = _first_text(external.get("num_permiso_cne"))
-            if external_permit and external_permit != selected_permiso:
+            if external_permit != selected_permiso:
+                continue
+            external_product = _first_text(external.get("producto"), external.get("clave_producto"), external.get("clave_subproducto"))
+            if not selected_permiso_row or not _permiso_product_family_match(selected_permiso_row, external_product):
                 continue
             viajes_para_covol.append({
                 "uuid_cfdi": external.get("uuid_cfdi") or "",
@@ -6445,9 +6789,12 @@ async def transporte_v2_operator_accesses(
                 "status": row.get("status") or "",
                 "expires_at": row.get("expires_at"),
                 "last_used_at": row.get("last_used_at"),
+                "locked_until": row.get("locked_until"),
+                "failed_login_attempts": row.get("failed_login_attempts") or 0,
                 "created_at": row.get("created_at"),
             })
-        return {"ok": True, "items": items, "mode": "token_temporal"}
+        formal_enabled = any("password_hash" in row for row in rows)
+        return {"ok": True, "items": items, "mode": "usuario_password" if formal_enabled else "compatibilidad_hasta_migracion"}
     except Exception as exc:
         if _is_missing_table_error(exc):
             return JSONResponse(_missing_schema_payload(TBL_OPERADOR_ACCESOS), status_code=409)
@@ -6501,7 +6848,28 @@ async def transporte_v2_operator_dashboard(
             continue
         active_rows.append(row)
 
-    chofer_ids = sorted({int(_first_text(row.get("chofer_id"), row.get("operador_id")) or 0) for row in active_rows if _first_text(row.get("chofer_id"), row.get("operador_id"))})
+    pretrip_rows: list[dict[str, Any]] = []
+    try:
+        aq = (
+            _sb(token).table(TBL_OPERADOR_ACCESOS)
+            .select("id,perfil_id,chofer_id,pretrip_json")
+            .eq("user_id", uid)
+            .eq("status", "activo")
+        )
+        if pid:
+            aq = aq.eq("perfil_id", pid)
+        for access in aq.limit(250).execute().data or []:
+            pretrip = _parse_json_value(access.get("pretrip_json"), {})
+            if _first_text(pretrip.get("estado")).upper() in {"EN_RUTA_VACIO", "EN_TERMINAL"}:
+                pretrip_rows.append({**access, "pretrip": pretrip})
+    except Exception as exc:
+        if _missing_column_from_error(exc) != "pretrip_json":
+            logger.info("Dashboard operador continuará sin recorridos vacíos: %s", exc)
+
+    chofer_ids = sorted({
+        *{int(_first_text(row.get("chofer_id"), row.get("operador_id")) or 0) for row in active_rows if _first_text(row.get("chofer_id"), row.get("operador_id"))},
+        *{int(row.get("chofer_id") or 0) for row in pretrip_rows if row.get("chofer_id")},
+    })
     vehiculo_ids = sorted({int(row.get("vehiculo_id")) for row in active_rows if row.get("vehiculo_id")})
     choferes: dict[int, dict[str, Any]] = {}
     vehiculos: dict[int, dict[str, Any]] = {}
@@ -6535,7 +6903,10 @@ async def transporte_v2_operator_dashboard(
         bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
         estado = _first_text(bitacora.get("estado")).upper()
         events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
-        start_event = next((event for event in events if _first_text(event.get("accion")).upper() == "INICIAR"), None)
+        start_event = next((
+            event for event in events
+            if _first_text(event.get("accion")).upper() in {"INICIAR", "INICIAR_VACIO"}
+        ), None)
         last_event = events[-1] if events else {}
         descansos = sum(1 for event in events if _first_text(event.get("accion")).upper() == "DESCANSO")
         incidencias = sum(1 for event in events if _first_text(event.get("accion")).upper() == "INCIDENCIA")
@@ -6573,9 +6944,44 @@ async def transporte_v2_operator_dashboard(
                     "fecha": _operator_dashboard_event_time(event.get("created_at")),
                     "accion": _first_text(event.get("accion")),
                     "descripcion": _first_text(event.get("nota"), event.get("estado")),
+                    "etapa": _first_text(event.get("etapa"), "TRASLADO_CON_CARGA"),
+                    "ubicacion": event.get("ubicacion") if isinstance(event.get("ubicacion"), dict) else {},
                 }
                 for event in events[-8:]
             ],
+        })
+    for access in pretrip_rows:
+        pretrip = access["pretrip"]
+        events = pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else []
+        last_event = events[-1] if events else {}
+        chofer_id = int(access.get("chofer_id") or 0)
+        estado = _first_text(pretrip.get("estado")).upper()
+        incidencias = sum(1 for event in events if _first_text(event.get("accion")).upper() == "INCIDENCIA")
+        summary["incidencias"] += incidencias
+        summary["en_ruta"] += 1
+        items.append({
+            "viaje_id": 0,
+            "access_id": access.get("id"),
+            "estado": estado,
+            "operador_id": chofer_id,
+            "operador_nombre": _first_text(choferes.get(chofer_id, {}).get("nombre"), f"Operador #{chofer_id}"),
+            "origen": "Salida de base",
+            "destino": "Terminal de carga",
+            "producto": "Unidad vacía",
+            "vehiculo": "Asignación del operador",
+            "tiempo_ruta": _operator_dashboard_elapsed((events[0] if events else {}).get("created_at"), now),
+            "tiempo_estado": _operator_dashboard_elapsed(last_event.get("created_at"), now),
+            "descansos": 0,
+            "incidencias": incidencias,
+            "ultimo_evento": _operator_dashboard_event_time(last_event.get("created_at")),
+            "etapa": "TRASLADO_VACIO",
+            "eventos": [{
+                "fecha": _operator_dashboard_event_time(event.get("created_at")),
+                "accion": _first_text(event.get("accion")),
+                "descripcion": _first_text(event.get("nota"), event.get("estado")),
+                "etapa": "TRASLADO_VACIO",
+                "ubicacion": event.get("ubicacion") if isinstance(event.get("ubicacion"), dict) else {},
+            } for event in events[-8:]],
         })
     return {"ok": True, "summary": summary, "items": items}
 
@@ -6678,31 +7084,74 @@ async def transporte_v2_operator_access_create(
         raise HTTPException(404, "Operador/chofer no encontrado para esta empresa.")
     if chofer_rows[0].get("activo") is False:
         raise HTTPException(400, "No puedes crear acceso para un operador inactivo.")
-    token_plain = (payload.token or "").strip() or secrets.token_urlsafe(24)
-    usuario = (payload.usuario or "").strip()
+    password_plain = (payload.token or "").strip()
+    if len(password_plain) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
+    usuario = _normalize_operator_username(payload.usuario) or _suggest_operator_username(
+        chofer_rows[0].get("nombre") or "operador",
+        payload.chofer_id,
+    )
+    if len(usuario) < 4:
+        raise HTTPException(400, "El usuario debe tener al menos 4 caracteres.")
     try:
         _sb(token).table(TBL_OPERADOR_ACCESOS).update({"status": "reemplazado"}).eq("user_id", uid).eq("perfil_id", pid).eq("chofer_id", payload.chofer_id).eq("status", "activo").execute()
     except Exception as exc:
         logger.info("No se pudieron reemplazar accesos previos operador %s/%s: %s", pid, payload.chofer_id, exc)
     try:
-        inserted = (
-            _sb(token)
-            .table(TBL_OPERADOR_ACCESOS)
-            .insert({
+        formal_row = {
             "user_id": uid,
             "perfil_id": pid,
             "chofer_id": payload.chofer_id,
             "usuario": usuario,
-            "token_hash": _hash_operator_token(token_plain),
-            "pin_hash": _hash_operator_token(token_plain),
+            "usuario_normalizado": usuario,
+            "password_hash": _hash_operator_password(password_plain),
+            "token_hash": "",
+            "pin_hash": "",
+            "session_hash": None,
+            "failed_login_attempts": 0,
+            "locked_until": None,
             "status": "activo" if payload.activo else "inactivo",
             "expires_at": None,
             "updated_at": _now_iso(),
-            })
-            .execute()
-            .data
-            or []
-        )
+        }
+        try:
+            inserted = (
+                _sb(token)
+                .table(TBL_OPERADOR_ACCESOS)
+                .insert(formal_row)
+                .execute()
+                .data
+                or []
+            )
+            mode = "usuario_password"
+        except Exception as formal_exc:
+            missing = _missing_column_from_error(formal_exc)
+            if missing not in {
+                "usuario_normalizado", "password_hash", "session_hash",
+                "failed_login_attempts", "locked_until",
+            }:
+                raise
+            # Production-safe compatibility until the deferred migration is
+            # explicitly applied after the seven phases.
+            inserted = (
+                _sb(token)
+                .table(TBL_OPERADOR_ACCESOS)
+                .insert({
+                    "user_id": uid,
+                    "perfil_id": pid,
+                    "chofer_id": payload.chofer_id,
+                    "usuario": usuario,
+                    "token_hash": _hash_operator_token(password_plain),
+                    "pin_hash": _hash_operator_token(password_plain),
+                    "status": "activo" if payload.activo else "inactivo",
+                    "expires_at": None,
+                    "updated_at": _now_iso(),
+                })
+                .execute()
+                .data
+                or []
+            )
+            mode = "compatibilidad_hasta_migracion"
         item = inserted[0] if inserted else {}
         return {
             "ok": True,
@@ -6715,9 +7164,9 @@ async def transporte_v2_operator_access_create(
                 "status": item.get("status") or ("activo" if payload.activo else "inactivo"),
                 "expires_at": item.get("expires_at"),
             },
-            "token": token_plain,
-            "operator_url": f"/transporte-v2/login-operador?token={token_plain}&next=/transporte-v2/operador",
-            "mode": "token_temporal",
+            "password": password_plain,
+            "operator_url": "/transporte-v2/login-operador?next=/transporte-v2/operador",
+            "mode": mode,
         }
     except Exception as exc:
         if _missing_column_from_error(exc) in {"usuario", "pin_hash", "updated_at"}:
@@ -6743,6 +7192,67 @@ async def transporte_v2_operator_access_deactivate(
     return {"ok": True}
 
 
+@router.post("/tr-v2/operator/accesses/{access_id}/unlock")
+async def transporte_v2_operator_access_unlock(
+    access_id: int,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    query = (
+        _sb(token).table(TBL_OPERADOR_ACCESOS)
+        .update({"failed_login_attempts": 0, "locked_until": None, "updated_at": _now_iso()})
+        .eq("id", access_id).eq("user_id", uid).eq("perfil_id", pid)
+    )
+    try:
+        rows = query.execute().data or []
+    except Exception as exc:
+        if _missing_column_from_error(exc) in {"failed_login_attempts", "locked_until"}:
+            return _migration_pending_response()
+        raise
+    if not rows:
+        raise HTTPException(404, "Acceso operador no encontrado.")
+    _audit(uid, token, pid, TBL_OPERADOR_ACCESOS, access_id, "desbloquear_acceso_operador", {})
+    return {"ok": True}
+
+
+@router.post("/tr-v2/operator/accesses/{access_id}/reset-password")
+async def transporte_v2_operator_access_reset_password(
+    access_id: int,
+    payload: TransporteV2OperatorPasswordReset,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    password = str(payload.password or "")
+    password_hash = _hash_operator_password(password)
+    update = {
+        "password_hash": password_hash,
+        "session_hash": None,
+        "failed_login_attempts": 0,
+        "locked_until": None,
+        "updated_at": _now_iso(),
+    }
+    query = (
+        _sb(token).table(TBL_OPERADOR_ACCESOS).update(update)
+        .eq("id", access_id).eq("user_id", uid).eq("perfil_id", pid)
+    )
+    try:
+        rows = query.execute().data or []
+    except Exception as exc:
+        if _missing_column_from_error(exc) in {"password_hash", "session_hash", "failed_login_attempts", "locked_until"}:
+            return _migration_pending_response()
+        raise
+    if not rows:
+        raise HTTPException(404, "Acceso operador no encontrado.")
+    _audit(uid, token, pid, TBL_OPERADOR_ACCESOS, access_id, "restablecer_password_operador", {})
+    return {"ok": True, "password": password}
+
+
 @router.post("/tr-v2/operator/accesses/{access_id}/eliminar")
 async def transporte_v2_operator_access_delete(
     access_id: int,
@@ -6761,37 +7271,39 @@ async def transporte_v2_operator_access_delete(
         raise HTTPException(404, "Acceso operador no encontrado para este perfil.")
     row = rows[0]
     chofer_id = row.get("chofer_id")
-    if chofer_id:
-        linked: list[dict[str, Any]] = []
-        for field in ("chofer_id", "operador_id"):
-            try:
-                trips = (
-                    _sb(token)
-                    .table(TBL_VIAJES)
-                    .select("id,status,uuid_cfdi,defaults_json")
-                    .eq("user_id", uid)
-                    .eq(field, chofer_id)
-                    .limit(5)
-                )
-                if pid:
-                    trips = trips.eq("perfil_id", pid)
-                linked.extend(trips.execute().data or [])
-            except Exception:
-                continue
-        active_linked = [
-            item for item in linked
-            if not (_meta(item).get("eliminado_transporte_v2") or _first_text(item.get("status"), item.get("estatus")).lower() == "eliminado")
-        ]
-        if active_linked:
-            raise HTTPException(409, "Este acceso está ligado a viajes del operador. Desactívalo o elimina primero los movimientos de prueba.")
-    deleted = _sb(token).table(TBL_OPERADOR_ACCESOS).delete().eq("id", access_id).eq("user_id", uid)
-    if pid:
-        deleted = deleted.eq("perfil_id", pid)
-    result = deleted.execute().data or []
+    revoked_at = _now_iso()
+    update = {
+        "status": "eliminado",
+        "session_hash": None,
+        "updated_at": revoked_at,
+    }
+    try:
+        revoked = _sb(token).table(TBL_OPERADOR_ACCESOS).update(update).eq("id", access_id).eq("user_id", uid)
+        if pid:
+            revoked = revoked.eq("perfil_id", pid)
+        result = revoked.execute().data or []
+    except Exception as exc:
+        if _missing_column_from_error(exc) != "session_hash":
+            raise
+        fallback = _sb(token).table(TBL_OPERADOR_ACCESOS).update({
+            "status": "eliminado",
+            "updated_at": revoked_at,
+        }).eq("id", access_id).eq("user_id", uid)
+        if pid:
+            fallback = fallback.eq("perfil_id", pid)
+        result = fallback.execute().data or []
     if not result:
-        raise HTTPException(404, "Acceso operador no encontrado para eliminar.")
-    _audit(uid, token, pid, TBL_OPERADOR_ACCESOS, access_id, "eliminar_acceso_operador", {"chofer_id": chofer_id})
-    return {"ok": True, "item": result[0]}
+        raise HTTPException(404, "Acceso operador no encontrado para revocar.")
+    _audit(uid, token, pid, TBL_OPERADOR_ACCESOS, access_id, "revocar_acceso_operador", {
+        "chofer_id": chofer_id,
+        "retention_days": 365,
+        "physical_delete": False,
+    })
+    return {
+        "ok": True,
+        "item": result[0],
+        "message": "Acceso revocado. El historial operativo se conserva al menos 365 días.",
+    }
 
 
 @router.post("/tr-v2/operator/login")
@@ -6804,12 +7316,27 @@ async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest
         limit=20,
         window_seconds=300,
     )
-    enforce_rate_limit(
-        f"operator-login:credential:{credential_key}",
-        limit=8,
-        window_seconds=300,
-    )
-    sb, acc = _operator_context(token_plain, usuario)
+    formal_login = None
+    if usuario and token_plain:
+        try:
+            formal_login = _operator_password_login(usuario, token_plain)
+        except Exception as exc:
+            if _missing_column_from_error(exc) not in {"usuario_normalizado", "password_hash"}:
+                raise
+    if formal_login:
+        sb, acc, session_plain = formal_login
+    else:
+        try:
+            sb, acc = _operator_context(token_plain, usuario)
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                enforce_rate_limit(
+                    f"operator-login:credential:{credential_key}",
+                    limit=5,
+                    window_seconds=900,
+                )
+            raise
+        session_plain = token_plain
     empresa = {}
     try:
         rows = sb.table("perfiles_empresa").select("id,nombre,rfc").eq("id", acc.get("perfil_id")).limit(1).execute().data or []
@@ -6818,7 +7345,7 @@ async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest
         empresa = {}
     return {
         "ok": True,
-        "token": token_plain,
+        "token": session_plain,
         "operator": {
             "access_id": acc.get("id"),
             "perfil_id": acc.get("perfil_id"),
@@ -6829,6 +7356,23 @@ async def transporte_v2_operator_login(payload: TransporteV2OperatorLoginRequest
             "expires_at": acc.get("expires_at"),
         },
     }
+
+
+@router.post("/tr-v2/operator/logout")
+async def transporte_v2_operator_logout(authorization: str = Header(default="")):
+    session_plain = _operator_token_from_header(authorization)
+    if not session_plain:
+        return {"ok": True}
+    sb, acc = _operator_context(session_plain)
+    try:
+        sb.table(TBL_OPERADOR_ACCESOS).update({
+            "session_hash": None,
+            "updated_at": _now_iso(),
+        }).eq("id", acc.get("id")).execute()
+    except Exception as exc:
+        if _missing_column_from_error(exc) != "session_hash":
+            raise
+    return {"ok": True}
 
 
 @router.get("/tr-v2/operator/me")
@@ -6851,8 +7395,92 @@ async def transporte_v2_operator_me(authorization: str = Header(default="")):
             "licencia": (acc.get("chofer") or {}).get("licencia") or "",
             "empresa": empresa,
             "expires_at": acc.get("expires_at"),
+            "privacy_notice_version": acc.get("privacy_notice_version"),
+            "privacy_accepted_at": acc.get("privacy_accepted_at"),
+            "pretrip": _parse_json_value(acc.get("pretrip_json"), {}),
         },
     }
+
+
+@router.post("/tr-v2/operator/privacy/accept")
+async def transporte_v2_operator_privacy_accept(authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    accepted_at = _now_iso()
+    try:
+        sb.table(TBL_OPERADOR_ACCESOS).update({
+            "privacy_notice_version": "transport-location-v1",
+            "privacy_accepted_at": accepted_at,
+            "updated_at": accepted_at,
+        }).eq("id", acc.get("id")).execute()
+    except Exception as exc:
+        if _missing_column_from_error(exc) in {"privacy_notice_version", "privacy_accepted_at"}:
+            raise HTTPException(409, "La migración diferida de autenticación y aviso de ubicación aún no ha sido aplicada.") from exc
+        raise
+    return {"ok": True, "version": "transport-location-v1", "accepted_at": accepted_at}
+
+
+@router.post("/tr-v2/operator/pretrip")
+async def transporte_v2_operator_pretrip(payload: dict[str, Any], authorization: str = Header(default="")):
+    token_plain = _operator_token_from_header(authorization)
+    sb, acc = _operator_context(token_plain)
+    try:
+        _operator_assigned_trip(sb, acc)
+        raise HTTPException(409, "Ya existe un viaje asignado; registra el evento en su bitácora.")
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+    action = _first_text(payload.get("action")).upper()
+    if action not in {"INICIAR_VACIO", "LLEGADA_TERMINAL", "INCIDENCIA"}:
+        raise HTTPException(400, "Acción de prebitácora inválida.")
+    pretrip = _parse_json_value(acc.get("pretrip_json"), {})
+    current = _first_text(pretrip.get("estado"), "SIN_INICIAR").upper()
+    if action == "INICIAR_VACIO":
+        if current != "SIN_INICIAR":
+            raise HTTPException(409, "El recorrido vacío ya fue iniciado.")
+        new_state = "EN_RUTA_VACIO"
+    elif action == "LLEGADA_TERMINAL":
+        if current != "EN_RUTA_VACIO":
+            raise HTTPException(409, "Primero inicia el recorrido vacío.")
+        new_state = "EN_TERMINAL"
+    else:
+        if current not in {"EN_RUTA_VACIO", "EN_TERMINAL"}:
+            raise HTTPException(409, "Primero inicia el recorrido vacío.")
+        new_state = current
+    location_payload = payload.get("ubicacion") if isinstance(payload.get("ubicacion"), dict) else {}
+    location: dict[str, Any] = {}
+    try:
+        if location_payload:
+            location = {
+                "lat": float(location_payload.get("lat")),
+                "lng": float(location_payload.get("lng")),
+                "accuracy_m": _num(location_payload.get("accuracy_m")),
+            }
+    except (TypeError, ValueError):
+        location = {}
+    event = {
+        "accion": action,
+        "estado": new_state,
+        "etapa": "TRASLADO_VACIO",
+        "nota": _first_text(payload.get("nota")),
+        "created_at": _now_iso(),
+        "operador_id": acc.get("chofer_id"),
+    }
+    if location:
+        event["ubicacion"] = location
+    events = pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else []
+    events.append(event)
+    pretrip = {"estado": new_state, "etapa": "TRASLADO_VACIO", "eventos": events}
+    try:
+        sb.table(TBL_OPERADOR_ACCESOS).update({
+            "pretrip_json": pretrip,
+            "updated_at": _now_iso(),
+        }).eq("id", acc.get("id")).execute()
+    except Exception as exc:
+        if _missing_column_from_error(exc) == "pretrip_json":
+            raise HTTPException(409, "La migración diferida de prebitácora aún no ha sido aplicada.") from exc
+        raise
+    return {"ok": True, "pretrip": pretrip}
 
 
 @router.get("/tr-v2/operator/mi-viaje")
@@ -6964,6 +7592,7 @@ async def transporte_v2_operator_crear_viaje(
             "ok": False,
             "message": f"No se pudo crear el viaje antes de timbrar Carta Porte: {exc}",
         }) from exc
+    _clear_operator_pretrip(sb, acc)
     return {"ok": True, "viaje": _normalize_viaje_row(trip), "metadata": _meta(trip), "has_trip": True}
 
 
@@ -7000,6 +7629,7 @@ async def transporte_v2_operator_crear_y_timbrar(
     trip_id = int(trip.get("id") or 0)
     existing_uuid = _first_text(trip.get("uuid_cfdi"), _meta(trip).get("uuid_carta_porte"), _meta(trip).get("cfdi_uuid"))
     if existing_uuid:
+        _clear_operator_pretrip(sb, acc)
         refreshed = _operator_trip_by_id(sb, acc, trip_id)
         carta_porte = _operator_carta_porte_payload(sb, acc, refreshed)
         return {
@@ -7024,6 +7654,7 @@ async def transporte_v2_operator_crear_y_timbrar(
         )
         stamped = _stamp_carta_porte_context(context)
         refreshed = _operator_trip_by_id(sb, acc, trip_id)
+        _clear_operator_pretrip(sb, acc)
         meta = _meta(refreshed)
         carta_porte = _operator_carta_porte_payload(sb, acc, refreshed, stamped)
         return {
@@ -7578,16 +8209,16 @@ async def transporte_v2_eliminar_viaje(
         if uuid or "timbr" in status:
             raise HTTPException(409, "No se puede eliminar una Carta Porte timbrada desde esta acción. Cancela o revisa el CFDI fiscal.")
         sb = _sb(token)
-        cfdi_rows = (
+        cfdi_query = (
             sb.table(TBL_CFDI)
             .select("id,uuid_sat,status")
             .eq("user_id", uid)
             .eq("viaje_id", viaje_id)
             .limit(25)
-            .execute()
-            .data
-            or []
         )
+        if row_pid:
+            cfdi_query = cfdi_query.eq("perfil_id", row_pid)
+        cfdi_rows = cfdi_query.execute().data or []
         if any(_first_text(item.get("uuid_sat")) and _first_text(item.get("status")).lower() != "cancelada" for item in cfdi_rows):
             raise HTTPException(409, "No se puede eliminar un movimiento con CFDI/UUID guardado. Cancela o revisa el documento fiscal.")
         try:
@@ -8126,13 +8757,16 @@ async def transporte_v2_carta_porte_cancelar(
                     str(error_payload),
                 )
             try:
-                sb.table(TBL_CFDI).update({
+                error_query = sb.table(TBL_CFDI).update({
                     "cancelacion_status": "error",
                     "cancelacion_motivo": motivo,
                     "cancelacion_uuid_sustitucion": _first_text(payload.uuid_sustitucion),
                     "cancelacion_resultado": {"ok": False, "error": error_message, "diagnostic": error_payload},
                     "canceled_by": uid,
-                }).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+                }).eq("id", cfdi.get("id")).eq("user_id", uid)
+                if pid:
+                    error_query = error_query.eq("perfil_id", pid)
+                error_query.execute()
             except Exception:
                 pass
             raise HTTPException(400, {"message": f"SW Sapiens no aceptó la cancelación: {error_message}. La Carta Porte sigue vigente.", "diagnostic": error_payload}) from exc
@@ -8150,16 +8784,25 @@ async def transporte_v2_carta_porte_cancelar(
         "canceled_by": uid,
     }
     try:
-        sb.table(TBL_CFDI).update(cfdi_update).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+        update_query = sb.table(TBL_CFDI).update(cfdi_update).eq("id", cfdi.get("id")).eq("user_id", uid)
+        if pid:
+            update_query = update_query.eq("perfil_id", pid)
+        update_query.execute()
     except Exception as exc:
         logger.info("Columnas extendidas de cancelación no disponibles en tr_cfdi; usando status simple: %s", exc)
         try:
-            sb.table(TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi.get("id")).eq("user_id", uid).execute()
+            fallback_query = sb.table(TBL_CFDI).update({"status": "Cancelada"}).eq("id", cfdi.get("id")).eq("user_id", uid)
+            if pid:
+                fallback_query = fallback_query.eq("perfil_id", pid)
+            fallback_query.execute()
         except Exception as fallback_exc:
             raise HTTPException(500, f"No se pudo marcar Carta Porte como cancelada: {fallback_exc}") from fallback_exc
 
     try:
-        trip_rows = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1).execute().data or []
+        trip_query = sb.table(TBL_VIAJES).select("*").eq("id", viaje_id).eq("user_id", uid).limit(1)
+        if pid:
+            trip_query = trip_query.eq("perfil_id", pid)
+        trip_rows = trip_query.execute().data or []
         trip = trip_rows[0] if trip_rows else {}
         metadata = _meta(trip)
         metadata.update({
@@ -8974,6 +9617,213 @@ async def transporte_v2_settings_save(
     return {"ok": True, "data": _save_settings(token, uid, pid, payload.data)}
 
 
+@router.get("/tr-v2/admin/subscription-summary")
+async def transporte_v2_subscription_summary(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    sb = _sb(token)
+    tenant_rows = sb.table("user_sections").select("tenant_id").eq("user_id", uid).limit(1).execute().data or []
+    tenant_id = (tenant_rows[0] if tenant_rows else {}).get("tenant_id")
+    subscription: dict[str, Any] = {}
+    if tenant_id:
+        try:
+            rows = (
+                sb.table("subscriptions")
+                .select("plan_name,status,expires_at,max_companies,limits_json")
+                .eq("tenant_id", tenant_id).in_("status", ["active", "trialing"])
+                .order("created_at", desc=True).limit(1).execute().data or []
+            )
+            subscription = rows[0] if rows else {}
+        except Exception as exc:
+            if _missing_column_from_error(exc) == "limits_json":
+                rows = (
+                    sb.table("subscriptions").select("plan_name,status,expires_at,max_companies")
+                    .eq("tenant_id", tenant_id).in_("status", ["active", "trialing"])
+                    .order("created_at", desc=True).limit(1).execute().data or []
+                )
+                subscription = rows[0] if rows else {}
+            else:
+                raise
+    limits_json = _parse_json_value(subscription.get("limits_json"), {})
+    transport_limits = limits_json.get("transporte") if isinstance(limits_json.get("transporte"), dict) else {}
+    included_raw = transport_limits.get("timbres_included_monthly")
+    try:
+        timbres_included = max(0, int(included_raw)) if included_raw is not None else None
+    except (TypeError, ValueError):
+        timbres_included = None
+    retention_days = max(365, int(transport_limits.get("retention_days") or 365))
+    enforcement = _first_text(transport_limits.get("stamp_enforcement"), "meter_only").lower()
+    if enforcement not in {"meter_only", "hard_limit"}:
+        enforcement = "meter_only"
+
+    local_now = datetime.now(ZoneInfo("America/Mexico_City"))
+    month_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    cfdi_rows: list[dict[str, Any]] = []
+    while len(cfdi_rows) < 50_000:
+        page = (
+            sb.table(TBL_CFDI).select("id,uuid_sat,status")
+            .eq("user_id", uid).eq("perfil_id", pid)
+            .gte("created_at", month_start.astimezone(timezone.utc).isoformat())
+            .range(len(cfdi_rows), len(cfdi_rows) + 999).execute().data or []
+        )
+        cfdi_rows.extend(page)
+        if len(page) < 1000:
+            break
+    used_uuids = {
+        _first_text(row.get("uuid_sat")).upper()
+        for row in cfdi_rows
+        if _first_text(row.get("uuid_sat"))
+        and _first_text(row.get("status")).lower() not in {"cancelado", "cancelled", "eliminado"}
+    }
+    timbres_used = len(used_uuids)
+    remaining = max(0, timbres_included - timbres_used) if timbres_included is not None else None
+
+    settings = _load_settings(token, uid, pid)
+    fiscal = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
+
+    def has_row(table: str, filters: dict[str, Any]) -> bool:
+        query = sb.table(table).select("id").eq("user_id", uid).eq("perfil_id", pid)
+        for field, value in filters.items():
+            query = query.eq(field, value)
+        return bool(query.limit(1).execute().data or [])
+
+    onboarding = [
+        {
+            "key": "fiscal",
+            "label": "Datos fiscales",
+            "complete": bool(_valid_rfc(fiscal.get("rfc_contribuyente")) and _valid_cp(fiscal.get("cp_fiscal")) and fiscal.get("regimen_fiscal")),
+            "detail": "RFC, razón social, CP y régimen fiscal.",
+        },
+        {
+            "key": "permit",
+            "label": "Permiso CRE transportista",
+            "complete": has_row(TBL_PROVEEDORES, {"activo": True}),
+            "detail": "Al menos un permiso activo para el transportista.",
+        },
+        {
+            "key": "catalogs",
+            "label": "Catálogos operativos",
+            "complete": all(has_row(table, {"activo": True}) for table in (TBL_OPERADORES, TBL_VEHICULOS, TBL_RUTAS)),
+            "detail": "Operador, vehículo y ruta activos.",
+        },
+        {
+            "key": "installations",
+            "label": "Instalaciones con permiso",
+            "complete": has_row(TBL_ORIGENES, {"activo": True}) and has_row(TBL_DESTINOS, {"activo": True}),
+            "detail": "Origen y destino activos con permiso CRE.",
+        },
+        {
+            "key": "operator_access",
+            "label": "Acceso del operador",
+            "complete": has_row(TBL_OPERADOR_ACCESOS, {"status": "activo"}),
+            "detail": "Usuario y contraseña activos para al menos un chofer.",
+        },
+    ]
+    return {
+        "ok": True,
+        "plan_name": subscription.get("plan_name") or "Pendiente de contrato",
+        "subscription_status": subscription.get("status") or "pending",
+        "expires_at": subscription.get("expires_at"),
+        "limits": {
+            "companies": transport_limits.get("companies", subscription.get("max_companies")),
+            "timbres_included_monthly": timbres_included,
+            "retention_days": retention_days,
+        },
+        "usage": {
+            "period": month_start.strftime("%Y-%m"),
+            "timbres_used": timbres_used,
+            "timbres_remaining": remaining,
+        },
+        "enforcement": enforcement,
+        "onboarding": onboarding,
+    }
+
+
+@router.get("/tr-v2/admin/company-requests")
+async def transporte_v2_company_requests_list(
+    authorization: str = Header(default=""),
+    perfil_id: Optional[int] = Query(default=None),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    try:
+        rows = (
+            _sb(token).table(TBL_COMPANY_REQUESTS).select("id,nombre,rfc,status,validation_notes,created_at,updated_at")
+            .eq("user_id", uid).order("created_at", desc=True).limit(50).execute().data or []
+        )
+        return {"ok": True, "items": rows}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_COMPANY_REQUESTS), status_code=409)
+        raise
+
+
+@router.post("/tr-v2/admin/company-requests")
+async def transporte_v2_company_request_create(
+    payload: TransporteV2SettingsPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    nombre = _first_text(payload.data.get("nombre")).strip()
+    rfc = _first_text(payload.data.get("rfc")).strip().upper()
+    if len(nombre) < 3:
+        raise HTTPException(400, "Captura la razón social completa.")
+    if not _valid_rfc(rfc):
+        raise HTTPException(400, "RFC inválido. Debe tener 12 o 13 caracteres fiscales.")
+    sb = _sb(token)
+    active = (
+        sb.table("perfiles_empresa").select("id")
+        .eq("user_id", uid).eq("rfc", rfc).eq("activo", True).limit(1).execute().data or []
+    )
+    if active:
+        raise HTTPException(409, "Ese RFC ya está activo en tu cuenta.")
+    try:
+        pending = (
+            sb.table(TBL_COMPANY_REQUESTS).select("id,status")
+            .eq("user_id", uid).eq("rfc", rfc).in_("status", ["pendiente", "en_revision"]).limit(1).execute().data or []
+        )
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            raise HTTPException(409, "La migración diferida de solicitudes de empresa aún no ha sido aplicada.") from exc
+        raise
+    if pending:
+        raise HTTPException(409, "Ese RFC ya tiene una solicitud pendiente de validación.")
+    tenant_rows = sb.table("user_sections").select("tenant_id").eq("user_id", uid).limit(1).execute().data or []
+    tenant_id = (tenant_rows[0] if tenant_rows else {}).get("tenant_id")
+    try:
+        inserted = sb.table(TBL_COMPANY_REQUESTS).insert({
+            "user_id": uid,
+            "tenant_id": tenant_id,
+            "requested_from_perfil_id": pid,
+            "nombre": nombre,
+            "rfc": rfc,
+            "status": "pendiente",
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        }).execute().data or []
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            raise HTTPException(409, "La migración diferida de solicitudes de empresa aún no ha sido aplicada.") from exc
+        raise
+    item = inserted[0] if inserted else {"nombre": nombre, "rfc": rfc, "status": "pendiente"}
+    _audit(uid, token, pid, TBL_COMPANY_REQUESTS, item.get("id"), "solicitar_empresa", {"rfc": rfc})
+    return {
+        "ok": True,
+        "item": item,
+        "message": "Solicitud enviada. GE Control activará la empresa después de validar RFC, contrato y suscripción.",
+    }
+
+
 @router.get("/tr-v2/operator-payments/tariffs")
 def transporte_v2_operator_tariffs_list(
     authorization: str = Header(default=""),
@@ -9109,6 +9959,7 @@ def transporte_v2_operator_payments_history(
     fecha_desde: str = Query(default=""),
     fecha_hasta: str = Query(default=""),
     operador_id: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=250),
     authorization: str = Header(default=""),
     perfil_id: Optional[int] = Query(default=None),
     x_perfil_id: str = Header(default=""),
@@ -9116,11 +9967,25 @@ def transporte_v2_operator_payments_history(
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
+    today = datetime.now(ZoneInfo("America/Mexico_City")).date()
+    if not fecha_hasta:
+        fecha_hasta = today.isoformat()
+    if not fecha_desde:
+        fecha_desde = (today - timedelta(days=59)).isoformat()
+    try:
+        start_date = datetime.strptime(fecha_desde, "%Y-%m-%d").date()
+        end_date = datetime.strptime(fecha_hasta, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(400, "Las fechas del historial deben usar formato YYYY-MM-DD.") from exc
+    if start_date > end_date:
+        raise HTTPException(400, "La fecha inicial del historial no puede ser posterior a la final.")
+    if (end_date - start_date).days > 366:
+        raise HTTPException(400, "Consulta como máximo un año de pagos por búsqueda.")
     sb = _sb(token)
     query = (
         sb.table("tr_liquidaciones").select("*")
         .eq("user_id", uid).eq("perfil_id", pid)
-        .order("created_at", desc=True).limit(250)
+        .order("created_at", desc=True).limit(500)
     )
     if operador_id:
         query = query.eq("chofer_id", operador_id)
@@ -9132,6 +9997,7 @@ def transporte_v2_operator_payments_history(
         rows = [row for row in rows if _first_text(row.get("periodo_fin"), row.get("created_at"))[:10] >= fecha_desde]
     if fecha_hasta:
         rows = [row for row in rows if _first_text(row.get("periodo_inicio"), row.get("created_at"))[:10] <= fecha_hasta]
+    rows = rows[:limit]
     operator_ids = {int(row.get("chofer_id") or 0) for row in rows if row.get("chofer_id")}
     operators = _operator_payment_catalog_map(sb, TBL_OPERADORES, operator_ids, uid, pid)
     liquidation_ids = [int(row["id"]) for row in rows if row.get("id")]

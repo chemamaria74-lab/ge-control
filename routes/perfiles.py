@@ -471,6 +471,11 @@ async def create_perfil(payload: PerfilPayload,
     nombre = (payload.nombre or "").strip()
     if not nombre:
         raise HTTPException(400, "El nombre de la empresa es requerido.")
+    if module == "transporte":
+        raise HTTPException(
+            403,
+            "Las nuevas empresas Transporte requieren validación de RFC, contrato y suscripción por GE Control. Envía la solicitud desde el selector de empresas.",
+        )
 
     usage = _assert_can_create_company(user_id, token, module=module)
     try:

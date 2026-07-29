@@ -313,7 +313,13 @@ def _friendly_tenant_name(tenant: dict, profiles: list[dict], sections: list[dic
     return f"Cliente {_short_id(tid)}"
 
 
-def _audit(actor_id: str, action: str, target_type: str = "", target_id: str = "", detail: dict | None = None) -> None:
+def _audit(actor_id: str, action: str, target_type: str = "", target_id: str = "", detail: dict | None = None) -> bool:
+    """Persist a Superadmin audit event and make failures observable.
+
+    Audit used to swallow every exception. Phase 0 keeps business mutations
+    backward compatible, but a missing audit trail is now emitted as an error
+    and returned to callers/tests instead of being silently ignored.
+    """
     try:
         _sb_admin().table("admin_saas_audit").insert({
             "actor_user_id": actor_id,
@@ -323,8 +329,75 @@ def _audit(actor_id: str, action: str, target_type: str = "", target_id: str = "
             "detail": detail or {},
             "created_at": _now(),
         }).execute()
-    except Exception:
-        pass
+        return True
+    except Exception as exc:
+        logger.error(
+            "admin_saas_audit_write_failed action=%s target_type=%s target_id=%s actor=%s error=%s",
+            action,
+            target_type,
+            target_id,
+            actor_id,
+            _clean_error_message(exc, "audit write failed"),
+        )
+        return False
+
+
+def _validate_user_section_scope(sb, row: dict) -> None:
+    """Validate tenant/RFC membership using server-side database state.
+
+    Browser-provided tenant_id/perfil_id values are selectors only. They are
+    accepted after proving that the tenant and active profile exist and match.
+    """
+    status = str(row.get("status") or "active").strip().lower()
+    tenant_id = str(row.get("tenant_id") or "").strip()
+    perfil_id = row.get("perfil_id")
+    section = str(row.get("section") or "").strip().lower()
+    role = str(row.get("role") or "user").strip().lower()
+
+    if status == "active" and not tenant_id:
+        raise HTTPException(400, "Selecciona un tenant/cliente antes de activar el acceso del usuario.")
+    if tenant_id:
+        tenant = sb.table("tenants").select("id,status").eq("id", tenant_id).limit(1).execute().data or []
+        if not tenant:
+            raise HTTPException(400, "El tenant seleccionado no existe.")
+        if status == "active" and str(tenant[0].get("status") or "active").lower() != "active":
+            raise HTTPException(400, "El tenant seleccionado no está activo.")
+    if perfil_id is not None:
+        try:
+            perfil_id = int(perfil_id)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "La empresa/RFC seleccionada no tiene un identificador válido.")
+        profile = (
+            sb.table("perfiles_empresa")
+            .select("id,tenant_id,activo")
+            .eq("id", perfil_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not profile:
+            raise HTTPException(400, "La empresa/RFC seleccionada no existe.")
+        profile_tenant = str(profile[0].get("tenant_id") or "")
+        if tenant_id and profile_tenant != tenant_id:
+            raise HTTPException(400, "La empresa/RFC seleccionada no pertenece al tenant indicado.")
+        if status == "active" and not profile[0].get("activo"):
+            raise HTTPException(400, "La empresa/RFC seleccionada está inactiva.")
+
+    if status == "active" and tenant_id:
+        bucket = "transporte_admins" if section == "transporte" and role == "admin" else None
+        existing = (
+            sb.table("user_sections")
+            .select("user_id")
+            .eq("user_id", row.get("user_id"))
+            .eq("section", section)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        _assert_tenant_can_add(tenant_id, section=section, bucket=None if existing else bucket)
 
 
 def _auth_users_by_id() -> dict[str, dict]:
@@ -1181,12 +1254,6 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
         created_auth = True
     if not target_uid:
         raise HTTPException(500, "Supabase no devolvió user_id.")
-    if payload.tenant_id:
-        bucket = None
-        if payload.section == "transporte" and payload.role == "admin":
-            bucket = "transporte_admins"
-        existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", target_uid).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
-        _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     section = {
         "user_id": target_uid,
         "section": payload.section,
@@ -1196,7 +1263,9 @@ async def create_saas_user(payload: CreateUserPayload, authorization: str = Head
         "tenant_id": payload.tenant_id,
         "perfil_id": payload.perfil_id,
     }
-    _sb_admin().table("user_sections").upsert(section, on_conflict="user_id,section").execute()
+    sb = _sb_admin()
+    _validate_user_section_scope(sb, section)
+    sb.table("user_sections").upsert(section, on_conflict="user_id,section").execute()
     _audit(uid, "create_or_extend_user", "user", str(target_uid), {"email": email, "section": section, "created_auth": created_auth})
     return JSONResponse({"ok": True, "user_id": target_uid, "created_auth": created_auth, "extended_existing": not created_auth})
 
@@ -1206,14 +1275,10 @@ async def upsert_user_section(payload: UserSectionPayload, authorization: str = 
     uid, _, _ = _require_superadmin(authorization)
     if payload.section not in SECTIONS or payload.role not in ROLES:
         raise HTTPException(400, "Sección o rol inválido.")
-    if payload.status == "active" and payload.tenant_id:
-        bucket = None
-        if payload.section == "transporte" and payload.role == "admin":
-            bucket = "transporte_admins"
-        existing_section = _sb_admin().table("user_sections").select("user_id").eq("user_id", payload.user_id).eq("section", payload.section).eq("status", "active").limit(1).execute().data or []
-        _assert_tenant_can_add(str(payload.tenant_id), section=payload.section, bucket=None if existing_section else bucket)
     row = payload.model_dump()
-    _sb_admin().table("user_sections").upsert(row, on_conflict="user_id,section").execute()
+    sb = _sb_admin()
+    _validate_user_section_scope(sb, row)
+    sb.table("user_sections").upsert(row, on_conflict="user_id,section").execute()
     _audit(uid, "upsert_user_section", "user", payload.user_id, row)
     return JSONResponse({"ok": True})
 
