@@ -1,0 +1,26 @@
+#panel-comercial .commercial-notice{padding:12px 14px;border-radius:12px;margin:0 0 14px;background:#fff7db;border:1px solid #ead48b;color:#644e00}
+#panel-comercial .commercial-notice.ready{background:#e9f8ef;border-color:#9cd2ae;color:#185c31}
+.commercial-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.commercial-tabs button{border:1px solid #d8d3cb;background:#fff;border-radius:999px;padding:8px 13px;cursor:pointer}
+.commercial-tabs button.active{background:#6f1d2b;color:#fff;border-color:#6f1d2b}
+.commercial-tab{display:none}.commercial-tab.active{display:block}
+.commercial-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.commercial-plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.commercial-plan{border:1px solid #ddd5cb;border-radius:14px;padding:14px;background:#fff}
+.commercial-plan.legacy{border-style:dashed;background:#faf7f2}
+.commercial-plan strong{font-size:18px;display:block;margin-bottom:5px}
+.commercial-plan small{display:block;color:#6e665f;line-height:1.5}
+.commercial-form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;align-items:end}
+.commercial-form-row h3,.commercial-form-row .status{grid-column:1/-1}
+.commercial-list{display:grid;gap:8px}
+.commercial-row{display:flex;justify-content:space-between;gap:15px;padding:10px;border-bottom:1px solid #ece7e1}
+.commercial-row small{color:#756d65}
+.commercial-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.commercial-toolbar input{max-width:320px}
+.commercial-pipeline{display:grid;grid-template-columns:repeat(7,minmax(190px,1fr));gap:10px;overflow-x:auto;padding-bottom:8px}
+.commercial-stage{background:#f6f3ef;border:1px solid #e4ddd4;border-radius:12px;padding:9px;min-height:190px}
+.commercial-stage header{display:flex;justify-content:space-between;margin-bottom:9px;color:#4c4540}
+.commercial-stage header span{background:#fff;border-radius:999px;padding:1px 7px}
+.commercial-stage article{display:grid;gap:4px;background:#fff;border:1px solid #e4ddd4;border-radius:10px;padding:10px;margin-bottom:8px}
+.commercial-stage article small{color:#756d65}
+.commercial-stage article select{margin-top:5px}

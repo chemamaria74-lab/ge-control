@@ -296,7 +296,9 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-cv-metrics span{color:var(--trv2-muted);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
 .trv2-cv-metrics strong{font-size:20px;line-height:1.1;overflow-wrap:anywhere}
 .trv2-cv-metrics small{color:var(--trv2-muted);font-weight:700}
-.trv2-cv-table-wrap table{min-width:900px}
+.trv2-cv-table-wrap{max-height:430px;overflow:auto;overscroll-behavior:contain}
+.trv2-cv-table-wrap table{min-width:1250px}
+.trv2-cv-table-wrap thead th{position:sticky;top:0;z-index:2;background:var(--trv2-soft)}
 .trv2-awaiting-search::before{content:'Selecciona el periodo y presiona Buscar para cargar la información.';display:block;margin:12px;border:1px dashed var(--trv2-line);border-radius:8px;padding:24px;text-align:center;color:var(--trv2-muted);font-weight:800;background:#faf8f5}
 .trv2-form-admin{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:14px}
 .trv2-permiso-editor{border:1px solid var(--trv2-line);border-radius:8px;background:#fff;padding:16px;margin:14px 0 18px;box-shadow:0 10px 24px rgba(38,25,8,.05)}
@@ -488,3 +490,5 @@ tbody tr:last-child td{border-bottom:0}
 .trv2-payment-paid-row{background:#f3fff8}
 .trv2-trip-expense-modal .trv2-form{grid-template-columns:minmax(0,2fr) minmax(180px,1fr);margin:18px 0}
 @media(max-width:720px){.trv2-trip-expense-modal .trv2-form{grid-template-columns:1fr}}
+.trv2-config-section-title{display:flex;align-items:center;gap:12px;margin-top:8px;padding:12px 14px;border-radius:8px;background:#faf7f2;border:1px solid #eadfce}.trv2-config-section-title i{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;background:#fff;color:#7a1e2c}.trv2-config-section-title strong,.trv2-config-section-title span{display:block}.trv2-config-section-title span{margin-top:2px;color:#756f68;font-size:.88rem}
+.trv2-onboarding-checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.trv2-onboarding-checklist article{display:flex;gap:11px;align-items:flex-start;padding:13px;border:1px solid #eadfce;border-radius:8px;background:#fff}.trv2-onboarding-checklist article.complete{background:#effcf6;border-color:#a7e8ca}.trv2-onboarding-checklist article.pending{background:#fff9e9;border-color:#f0d38a}.trv2-onboarding-checklist article i{margin-top:3px}.trv2-onboarding-checklist article.complete i{color:#078554}.trv2-onboarding-checklist article.pending i{color:#9a6700}.trv2-onboarding-checklist strong,.trv2-onboarding-checklist span{display:block}.trv2-onboarding-checklist span{margin-top:3px;color:#6f6962;font-size:.88rem}
