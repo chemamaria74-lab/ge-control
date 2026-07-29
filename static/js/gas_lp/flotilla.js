@@ -131,13 +131,13 @@
     }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
   }
 
-  async function loadReportCatalog(){
+  async function loadReportCatalog({prepare=true,scroll=true}={}){
     const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
     $('runAnalysis').disabled=true;
     $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Consultando…';
     notice('Preparando el análisis gerencial…');
     try{
-      await api(`/reports/prepare?${p}`,{method:'POST'});
+      if(prepare) await api(`/reports/prepare?${p}`,{method:'POST'});
       const data=await api(`/reports/catalog?${p}`), counts=data.counts||{}, totals=data.totals||{};
       $('executiveDashboard').hidden=false;
       $('reportExpenses').textContent=totals.expense_available?`${money(totals.expenses_mxn,'MXN')}${totals.expense_complete?'':' · parcial'}`:'No disponible';
@@ -150,8 +150,11 @@
       const submitters=data.submitters||[];
       $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
       renderManagerBrief(data.analytics||{},counts);
+      localStorage.setItem('ge_manager_fleet_report',JSON.stringify({
+        start:$('startDate').value,end:$('endDate').value,group:$('reportGroup').value,
+      }));
       notice('');
-      $('executiveDashboard').scrollIntoView({behavior:'smooth',block:'start'});
+      if(scroll)$('executiveDashboard').scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){ notice(error.message,'error'); }
     finally{$('runAnalysis').disabled=false;$('runAnalysis').innerHTML='<i class="fa-solid fa-chart-column"></i> Generar análisis';}
   }
@@ -315,14 +318,22 @@
     finally{button.disabled=false;}
   }
 
-  function initializeDates(){ const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1); $('endDate').value=today.toISOString().slice(0,10); $('startDate').value=first.toISOString().slice(0,10); }
+  function initializeDates(){
+    const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1);
+    let saved={};try{saved=JSON.parse(localStorage.getItem('ge_manager_fleet_report')||'{}')}catch(_error){}
+    $('endDate').value=saved.end||today.toISOString().slice(0,10);
+    $('startDate').value=saved.start||first.toISOString().slice(0,10);
+  }
   async function loadGroups(){
     try{
       const data=await api('/groups');
       const internal=state.identity?.identity_type==='internal';
       const groups=data.items||[];
       $('reportGroup').innerHTML=`<option value="">${internal?'Todas mis zonas':'Toda la flotilla'}</option>`+groups.map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
-      if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
+      let saved={};try{saved=JSON.parse(localStorage.getItem('ge_manager_fleet_report')||'{}')}catch(_error){}
+      if(saved.group&&groups.some(g=>String(g.id)===String(saved.group)))$('reportGroup').value=String(saved.group);
+      else if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
+      await loadReportCatalog({prepare:false,scroll:false});
     }catch(error){notice(error.message,'error');}
   }
   initializeDates();
@@ -332,7 +343,7 @@
   $('searchVehicle').onclick=()=>{state.page=1;loadVehicles();};
   $('vehicleSearch').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();state.page=1;loadVehicles();}});
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
-  $('runAnalysis').onclick=loadReportCatalog;
+  $('runAnalysis').onclick=()=>loadReportCatalog();
   $('explorerType').onchange=()=>{
     const unit=$('explorerType').value==='unit';
     $('explorerUnitLabel').hidden=!unit;$('explorerDriverLabel').hidden=unit;$('explorerResults').hidden=true;
