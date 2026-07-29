@@ -1766,7 +1766,7 @@
     <div>
       <h2 style="margin:0"><i class="fa-solid fa-users-gear" style="margin-right:.35rem"></i>Usuarios y permisos</h2>
       <div id="gasInternalScopeHint" style="font-size:.78rem;color:#64748b;margin-top:.3rem;line-height:1.45">
-        Crea accesos separados para Asistente Gas LP o Flotilla 360 dentro de la empresa activa.
+        Crea accesos separados para Asistente Gas LP o Portal de Gerentes dentro de la empresa activa.
       </div>
     </div>
     <button onclick="loadInternalUsersGasLp()" style="
@@ -1798,7 +1798,7 @@
     <div class="field"><label>Acceso</label>
       <select id="gasInternalPortal" onchange="updateGasInternalPortalFields()">
         <option value="assistant">Asistente Gas LP</option>
-        <option value="fleet">Flotilla 360</option>
+        <option value="fleet">Portal de Gerentes</option>
       </select>
       <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Cada usuario solo podrá iniciar sesión en el portal seleccionado.</div>
     </div>
@@ -1824,7 +1824,7 @@
   </div>
   <div style="display:flex;gap:.5rem;margin-top:1rem">
     <button id="gasInternalTabAssistant" onclick="showGasInternalTab('assistant')" style="padding:.4rem .9rem;border:1px solid #7f1d1d;background:#7f1d1d;color:#fff;border-radius:999px;cursor:pointer">Asistentes</button>
-    <button id="gasInternalTabFleet" onclick="showGasInternalTab('fleet')" style="padding:.4rem .9rem;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;cursor:pointer">Flotilla 360</button>
+    <button id="gasInternalTabFleet" onclick="showGasInternalTab('fleet')" style="padding:.4rem .9rem;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;cursor:pointer">Gerentes</button>
   </div>
   <div style="overflow-x:auto;margin-top:.6rem">
     <table style="width:100%;border-collapse:collapse;font-size:.84rem">
