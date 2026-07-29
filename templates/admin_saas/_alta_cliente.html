@@ -1,0 +1,99 @@
+<section class="panel" id="panel-alta-cliente">
+  <div class="onboarding-shell">
+    <div class="onboarding-header">
+      <div>
+        <button class="back-link" type="button" onclick="showPanel('inicio')"><i class="fa-solid fa-arrow-left"></i> Volver al inicio</button>
+        <span class="eyebrow">Alta guiada</span>
+        <h2>Nuevo cliente de Portal Transporte</h2>
+        <p>Captura lo esencial. El alta quedará en borrador y no activará accesos todavía.</p>
+      </div>
+      <span class="safe-draft-badge"><i class="fa-solid fa-shield-halved"></i> Sin activación automática</span>
+    </div>
+
+    <ol class="onboarding-steps" aria-label="Progreso del alta">
+      <li class="active" data-onboarding-indicator="1"><span>1</span><small>Cliente</small></li>
+      <li data-onboarding-indicator="2"><span>2</span><small>RFC</small></li>
+      <li data-onboarding-indicator="3"><span>3</span><small>Plan</small></li>
+      <li data-onboarding-indicator="4"><span>4</span><small>Administrador</small></li>
+      <li data-onboarding-indicator="5"><span>5</span><small>Revisar</small></li>
+    </ol>
+
+    <form id="customerOnboardingForm" class="card onboarding-card" onsubmit="submitCustomerOnboarding(event)">
+      <div class="onboarding-pane active" data-onboarding-step="1">
+        <span class="eyebrow">Paso 1 de 5</span>
+        <h3>¿A quién estamos dando de alta?</h3>
+        <p class="step-help">Con estos datos también puedes guardarlo solamente como prospecto.</p>
+        <div class="friendly-form-grid">
+          <label>Nombre del cliente o empresa<input id="obCustomerName" required maxlength="180" autocomplete="organization" placeholder="Ej. Transportes del Centro"></label>
+          <label>Nombre del contacto<input id="obContactName" maxlength="180" autocomplete="name" placeholder="Persona con quien estás hablando"></label>
+          <label>Correo de contacto<input id="obContactEmail" type="email" maxlength="180" autocomplete="email" placeholder="contacto@empresa.com"></label>
+          <label>Teléfono <span>opcional</span><input id="obPhone" maxlength="40" autocomplete="tel" placeholder="449 000 0000"></label>
+        </div>
+        <div class="onboarding-actions">
+          <button class="btn btn-ghost" type="button" onclick="saveOnboardingAsProspect()">Guardar sólo como prospecto</button>
+          <button class="btn" type="button" onclick="moveCustomerOnboarding(2)">Continuar con RFC <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+
+      <div class="onboarding-pane" data-onboarding-step="2">
+        <span class="eyebrow">Paso 2 de 5</span>
+        <h3>RFC que contratará la suscripción</h3>
+        <p class="step-help">Cada RFC tendrá su propio plan, límites, administradores y consumo.</p>
+        <div class="friendly-form-grid">
+          <label>RFC<input id="obRfc" required minlength="12" maxlength="13" autocomplete="off" placeholder="ABC010203AB1"></label>
+          <label>Razón social<input id="obLegalName" required maxlength="220" autocomplete="organization" placeholder="Nombre fiscal"></label>
+          <label>Régimen fiscal <span>puede completarse después</span><input id="obFiscalRegime" maxlength="10" inputmode="numeric" placeholder="Ej. 601"></label>
+          <label>Código postal fiscal <span>puede completarse después</span><input id="obFiscalPostalCode" maxlength="5" inputmode="numeric" placeholder="00000"></label>
+        </div>
+        <label>Domicilio fiscal <span>puede completarse después</span><textarea id="obFiscalAddress" maxlength="500" rows="3"></textarea></label>
+        <div class="onboarding-actions">
+          <button class="btn btn-ghost" type="button" onclick="moveCustomerOnboarding(1)">Atrás</button>
+          <button class="btn" type="button" onclick="moveCustomerOnboarding(3)">Elegir plan <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+
+      <div class="onboarding-pane" data-onboarding-step="3">
+        <span class="eyebrow">Paso 3 de 5</span>
+        <h3>Selecciona el plan para este RFC</h3>
+        <p class="step-help">Los planes siguen en borrador comercial. Esta selección no publica tarifas ni activa restricciones.</p>
+        <div id="onboardingPlanOptions" class="onboarding-plan-options"></div>
+        <div class="friendly-form-grid compact">
+          <label>Periodicidad<select id="obBillingPeriod" onchange="renderOnboardingPlanOptions();updateOnboardingReview()"><option value="monthly">Mensual</option><option value="annual">Anual prepago</option></select></label>
+          <label class="toggle-card"><input id="obOperatorPortal" type="checkbox" onchange="updateOnboardingReview()"><span><b>Portal del Operador</b><small>Dejar previsto como complemento; no se activa en esta etapa.</small></span></label>
+        </div>
+        <div class="onboarding-actions">
+          <button class="btn btn-ghost" type="button" onclick="moveCustomerOnboarding(2)">Atrás</button>
+          <button class="btn" type="button" onclick="moveCustomerOnboarding(4)">Continuar <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+
+      <div class="onboarding-pane" data-onboarding-step="4">
+        <span class="eyebrow">Paso 4 de 5</span>
+        <h3>Administrador del cliente</h3>
+        <p class="step-help">Cada administrador usa su propio correo. Una invitación pendiente ocupa cupo del plan.</p>
+        <label class="toggle-card standalone"><input id="obInviteAdmin" type="checkbox" checked onchange="toggleOnboardingAdmin();updateOnboardingReview()"><span><b>Registrar invitación de administrador</b><small>No crea contraseña ni comparte credenciales.</small></span></label>
+        <div id="onboardingAdminFields" class="friendly-form-grid">
+          <label>Nombre<input id="obAdminName" maxlength="180" autocomplete="name"></label>
+          <label>Correo<input id="obAdminEmail" type="email" maxlength="180" autocomplete="email"></label>
+        </div>
+        <div class="onboarding-actions">
+          <button class="btn btn-ghost" type="button" onclick="moveCustomerOnboarding(3)">Atrás</button>
+          <button class="btn" type="button" onclick="moveCustomerOnboarding(5)">Revisar alta <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </div>
+
+      <div class="onboarding-pane" data-onboarding-step="5">
+        <span class="eyebrow">Paso 5 de 5</span>
+        <h3>Revisa antes de guardar</h3>
+        <p class="step-help">Se crearán cliente, RFC y suscripción comercial en estado borrador.</p>
+        <div id="onboardingReview" class="onboarding-review"></div>
+        <div class="draft-warning"><i class="fa-solid fa-circle-info"></i><span>No se creará tenant operativo, no se modificará Supabase Auth y no se activará Portal Transporte.</span></div>
+        <div class="onboarding-actions">
+          <button class="btn btn-ghost" type="button" onclick="moveCustomerOnboarding(4)">Atrás</button>
+          <button class="btn" id="obSubmitButton" type="submit"><i class="fa-solid fa-check"></i> Guardar alta en borrador</button>
+        </div>
+        <div class="status onboarding-status" id="obStatus" role="status"></div>
+      </div>
+    </form>
+  </div>
+</section>

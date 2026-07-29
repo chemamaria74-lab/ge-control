@@ -1,0 +1,27 @@
+<section class="panel active" id="panel-inicio">
+  <div class="welcome-hero">
+    <div>
+      <span class="eyebrow">Portal Transporte</span>
+      <h2>Tu operación comercial, en orden.</h2>
+      <p>Da de alta clientes, revisa suscripciones y atiende pendientes sin entrar a herramientas técnicas.</p>
+    </div>
+    <button class="btn btn-lg" onclick="openCustomerOnboarding()"><i class="fa-solid fa-plus"></i> Dar de alta cliente</button>
+  </div>
+  <div class="business-kpis" id="businessKpis"></div>
+  <div class="business-home-grid">
+    <section class="card action-card">
+      <div class="section-heading">
+        <div><span class="eyebrow">Por atender</span><h3>Siguientes acciones</h3></div>
+        <button class="text-button" onclick="openCommercial('overview')">Ver resumen</button>
+      </div>
+      <div id="businessActionList" class="action-list"></div>
+    </section>
+    <section class="card">
+      <div class="section-heading">
+        <div><span class="eyebrow">Catálogo</span><h3>Planes de Portal Transporte</h3></div>
+        <button class="text-button" onclick="openCommercial('catalog')">Ver planes</button>
+      </div>
+      <div id="businessPlanSummary" class="home-plan-list"></div>
+    </section>
+  </div>
+</section>
