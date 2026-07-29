@@ -154,7 +154,7 @@ def test_operator_payment_screen_replaces_invoice_reconciliation():
     assert "trv2SaveOperatorPayrollBases" in frontend
     assert "trv2OperatorPayrollBase" in frontend
     assert "bases_json" in frontend
-    assert "payroll-history-tabs-20260724" in shell
+    assert "60_operator_payments.js?v=transport-ondemand-20260729b" in shell
     assert 'id="trv2-payment-history-table"' in section
     assert "operator-payments/history" in frontend
     assert "trv2ExportHistoricalOperatorPayment" in frontend
@@ -277,7 +277,7 @@ def test_carta_ingreso_historica_permite_tarifa_manual_sin_recrear_ruta():
     assert "override_tarifa: tarifa" in source
     assert "Ruta o destino histórico ya no disponible" in source
     assert "${!tariff ?" in source
-    assert "service-summary-labels-20260721a" in shell
+    assert "transporte_v2.css?v=transport-clean-operator-20260729d" in shell
 
 
 def test_resumen_cartas_ingreso_distingue_estimado_facturado_y_pendiente_pago():
@@ -511,6 +511,7 @@ def test_transport_subscription_metering_stays_backend_only_and_retention_is_pre
 def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_duplicated():
     root = Path(__file__).parents[1]
     template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    shell = (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
     api_js = (root / "static/js/transporte_v2/10_api.js").read_text(encoding="utf-8")
     payroll_js = (root / "static/js/transporte_v2/60_operator_payments.js").read_text(encoding="utf-8")
     admin_js = (root / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
@@ -528,6 +529,9 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
         "async function trv2AdminFinalizeTrip", 1
     )[0]
     assert 'data-payment-config-nav hidden style="display:none"' in template
+    assert shell.count("transport-ondemand-20260729b") == 3
+    assert shell.count("transport-sat-operator-20260729c") == 1
+    assert "transport-clean-operator-20260729d" in shell
 
 
 def test_external_sat_upload_uses_document_type_instead_of_manual_load_unload():
@@ -542,4 +546,6 @@ def test_external_sat_upload_uses_document_type_instead_of_manual_load_unload():
     assert "Subir entrega" not in template
     assert "form.append('tipo_documento', TRV2_CV_EXTERNAL_DOCUMENT_TYPE)" in frontend
     assert 'for movement_type in ("carga", "descarga")' in backend
-    assert "_covol_external_ingreso_from_xml" in backend
+    assert '"document_type": document_type' in backend
+    assert 'expected_type = "I" if document_type == "carta_ingreso" else "T"' in backend
+    assert 'existing_meta.get("document_type") == "carta_ingreso"' in backend

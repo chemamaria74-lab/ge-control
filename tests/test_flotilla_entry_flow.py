@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,7 @@ from main import app
 
 
 client = TestClient(app)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_flotilla_role_always_requires_its_own_login():
@@ -35,7 +37,9 @@ def test_flotilla_has_a_dedicated_branded_login():
     assert "Flotilla o a Vales y gastos" in response.text
     assert '<span></span> Gas LP' in response.text
     assert '>Iniciar sesión</button>' in response.text
-    assert "fetch('/api/flotilla/grant'" in response.text
+    assert "fetch('/api/internal-auth/flotilla/login'" in response.text
+    assert 'id="adminMode"' not in response.text
+    assert ">Administración</button>" not in response.text
     assert "sessionStorage.setItem(FLOTILLA_ACCESS_KEY" in response.text
     assert "location.replace('/gas-lp/gerentes/inicio')" in response.text
 
@@ -63,3 +67,14 @@ def test_regular_gas_lp_login_keeps_existing_app_destination():
 
     assert response.status_code == 200
     assert '"/app" + \'?lang=\'' in response.text
+
+
+def test_admin_separates_company_motive_settings_from_manager_assignments():
+    template = (ROOT / "templates/app/_body.html").read_text(encoding="utf-8")
+    script = (ROOT / "static/js/app/70_admin_catalogs_users.js").read_text(encoding="utf-8")
+
+    assert 'id="gasAdminUsersView"' in template
+    assert "Motive y zonas" in template
+    assert "Configura una sola vez" in template
+    assert "aquí solo asignas permisos a este gerente" in template
+    assert "document.getElementById('gasAdminUsersView')" in script

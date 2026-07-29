@@ -79,7 +79,8 @@ def test_supplier_optional_fields_are_validated_when_present():
 def test_workspace_selector_keeps_expenses_outside_fiscal_tabs():
     selector = (ROOT / "templates" / "conciliacion_gastos_selector.html").read_text(encoding="utf-8")
     fiscal = (ROOT / "templates" / "gas_lp" / "conciliacion" / "_header_kpis_tabs.html").read_text(encoding="utf-8")
-    assert "Gastos y pagos" in selector
+    assert "<h2>Gastos</h2>" in selector
+    assert "<h2>Flotilla</h2>" in selector
     assert 'data-tab="gastos"' not in fiscal
 
 
@@ -99,8 +100,9 @@ def test_new_pages_are_mounted_without_replacing_fiscal_conciliation():
     assert client.get("/gas-lp/gastos").status_code == 200
     selector = client.get("/gas-lp/conciliacion/inicio")
     assert selector.status_code == 200
-    assert "Conciliación fiscal" in selector.text
-    assert "Gastos y pagos" in selector.text
+    assert "<h2>Contable</h2>" in selector.text
+    assert "<h2>Gastos</h2>" in selector.text
+    assert "<h2>Flotilla</h2>" in selector.text
 
 
 def test_invoice_history_exposes_linked_vouchers_and_mobile_layout():
