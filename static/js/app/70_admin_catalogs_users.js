@@ -681,7 +681,7 @@ function renderInternalUsersGasLp() {
     if (empty) {
       empty.style.display = '';
       empty.textContent = _gasInternalActiveTab === 'fleet'
-        ? 'No hay usuarios de Flotilla 360 para esta empresa.'
+        ? 'No hay usuarios del Portal de Gerentes para esta empresa.'
         : 'No hay asistentes para esta empresa.';
     }
     return;
@@ -770,7 +770,7 @@ async function createInternalUserGasLp() {
   if (payload.portal_scope === 'fleet' && !payload.fleet_group_ids.length) {
     if (statusEl) {
       statusEl.style.color = '#dc2626';
-      statusEl.textContent = 'Selecciona al menos una zona para el usuario de Flotilla 360.';
+      statusEl.textContent = 'Selecciona al menos una zona para el usuario del Portal de Gerentes.';
     }
     return;
   }
