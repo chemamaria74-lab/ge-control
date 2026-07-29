@@ -28,6 +28,12 @@
     margin-left: 0;
     padding-bottom: 2px;
   }
+  .top-company {
+    order: 2;
+    flex: 1 1 230px;
+    min-width: 0;
+  }
+  .top-company select { min-width: 0; }
 
   .expense-top > a,
   .expense-top > button { margin-left: auto; }
@@ -82,6 +88,11 @@
 
   .expense-top a,
   .expense-top button { padding: 8px 10px; }
+  .top-company {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .expense-top nav { order: 4; }
   .kpi { padding: 14px; }
   .kpi strong { font-size: 22px; }
   .bar { grid-template-columns: 1fr auto; }
