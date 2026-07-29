@@ -714,8 +714,8 @@ async def frontend_gastos_administracion():
 
 @app.get("/gas-lp/conciliacion/inicio", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_conciliacion_workspace_selector():
-    """Selector independiente para no saturar las pestañas de Conciliación."""
-    return _render_html_file("conciliacion_gastos_selector.html")
+    """Compatibilidad: Supervisión ahora selecciona el área antes de iniciar sesión."""
+    return RedirectResponse(url="/gas-lp/conciliacion", status_code=307)
 
 
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
