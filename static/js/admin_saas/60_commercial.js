@@ -31,10 +31,10 @@ function renderCommercial(){
   n.className='commercial-notice '+(COMMERCIAL.ready?'ready':'');
   n.textContent=COMMERCIAL.ready?'Esquema comercial disponible. Todas las operaciones continúan restringidas a Superadmin.':(COMMERCIAL.message||'Esquema pendiente de consolidación; vista previa de Fase 1.');
   const plans=COMMERCIAL.ready?COMMERCIAL.plans:COMMERCIAL.draft_plan_preview;
-  commercialStats.innerHTML=[['Prospectos',COMMERCIAL.prospects.length],['Clientes',COMMERCIAL.customers.length],['RFC',COMMERCIAL.tax_entities.length],['Suscripciones',COMMERCIAL.subscriptions.length],['Cotizaciones',COMMERCIAL.quotes.length]].map(x=>`<div class="stat"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong></div>`).join('');
+  commercialStats.innerHTML=[['Prospectos',COMMERCIAL.prospects.length],['Clientes comerciales',COMMERCIAL.customers.length],['Cuentas actuales',(COMMERCIAL.runtime_subscriptions_pending_reconciliation||[]).length],['RFC comerciales',COMMERCIAL.tax_entities.length],['Suscripciones',COMMERCIAL.subscriptions.length],['Cotizaciones',COMMERCIAL.quotes.length]].map(x=>`<div class="stat"><span>${esc(x[0])}</span><strong>${esc(x[1])}</strong></div>`).join('');
   commercialDraftPlans.innerHTML=plans.map(p=>{const v=COMMERCIAL.ready?latestPlanVersion(p.id):p;const price=COMMERCIAL.ready?priceForVersion(v?.id,'monthly'):null;return `<article class="commercial-plan ${p.legacy?'legacy':''}"><div class="plan-title-row"><strong>${esc(p.name)}</strong>${p.commercializable===false?'<span class="plan-label">Legado</span>':'<span class="plan-label draft">Borrador</span>'}</div><small>${v?.vehicle_limit??v?.vehicles??'Configurable'} vehículos · ${v?.monthly_fiscal_trip_limit??v?.trips??'Configurable'} viajes · ${v?.administrator_limit??v?.admins??'Configurable'} administradores</small><b class="plan-price">${esc(price?money(price.subtotal):(p.monthly?money(p.monthly):'Cotización personalizada'))}${price||p.monthly?' + IVA/mes':''}</b></article>`;}).join('');
   renderCommercialCustomers();
-  commercialCatalog.innerHTML=commercialRows(COMMERCIAL.plan_versions,x=>{const p=(COMMERCIAL.plans||[]).find(y=>Number(y.id)===Number(x.plan_id));return `${p?.name||'Plan'} · versión ${x.version_number}`;},x=>`${commercialStatus(x.status)} · ${x.vehicle_limit??'Configurable'} vehículos · ${x.monthly_fiscal_trip_limit??'Configurable'} viajes · ${x.administrator_limit??'Configurable'} administradores`);
+  commercialCatalog.innerHTML=commercialRows(COMMERCIAL.plan_versions,x=>{const p=(COMMERCIAL.plans||[]).find(y=>Number(y.id)===Number(x.plan_id));return `${p?.name||'Plan'} · versión ${x.version_number}`;},x=>{const price=priceForVersion(x.id,'monthly');return `${commercialStatus(x.status)} · ${x.vehicle_limit??'Configurable'} vehículos · ${x.monthly_fiscal_trip_limit??'Configurable'} viajes · ${x.administrator_limit??'Configurable'} administradores · ${price?`${money(price.subtotal)} + IVA/mes`:'Sin precio mensual'}`;});
   commercialSubscriptions.innerHTML=`<div class="commercial-list">${COMMERCIAL.subscriptions.map(x=>{const tax=COMMERCIAL.tax_entities.find(t=>Number(t.id)===Number(x.tax_entity_id));const pv=planForVersion(x.plan_version_id);return `<button class="commercial-row commercial-row-button" onclick="loadCommercialSubscription360(${Number(x.id)})"><b>${esc(tax?.legal_name||tax?.rfc||'Suscripción')}</b><small>${esc(pv.plan?.name||'Plan por definir')} · ${esc(commercialStatus(x.status))} · ${x.billing_period==='annual'?'Anual':'Mensual'}</small></button>`;}).join('')||'<div class="empty-state"><i class="fa-solid fa-id-card"></i><b>Aún no hay suscripciones comerciales</b><span>Usa “Dar de alta cliente” para crear la primera en borrador.</span></div>'}</div>${(COMMERCIAL.runtime_subscriptions_pending_reconciliation||[]).length?`<div class="reconciliation-callout"><div><b>${COMMERCIAL.runtime_subscriptions_pending_reconciliation.length} cuenta(s) actual(es) pendientes de integrar</b><span>Se conservarán sin cambios hasta realizar una conciliación manual.</span></div><span class="pill warn">Sin conciliación automática</span></div>`:''}<div id="commercialSubscription360"></div>`;
   commercialAdministrators.innerHTML=commercialRows(COMMERCIAL.administrator_memberships||[],x=>x.display_name,x=>`${x.status} · ${x.email} · suscripción ${x.subscription_id}`);
   commercialOverrides.innerHTML=commercialRows((COMMERCIAL.limit_overrides||[]).filter(x=>x.status==='active'&&new Date(x.ends_at)>new Date()),x=>x.override_code,x=>`suscripción ${x.subscription_id} · vence ${new Date(x.ends_at).toLocaleString('es-MX')}`);
@@ -48,6 +48,14 @@ function renderCommercial(){
   const convertSelect=document.getElementById('cpcProspect');if(convertSelect)convertSelect.innerHTML=commercialOptions(COMMERCIAL.prospects.filter(x=>['qualified','proposal','negotiation','won'].includes(x.stage)&&!x.converted_customer_id),x=>`${x.business_name} · ${x.stage}`);
   ['ctCustomer','csCustomer','cqCustomer'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=commercialOptions(COMMERCIAL.customers,x=>x.name);});
   const pv=document.getElementById('csPlanVersion');if(pv)pv.innerHTML=commercialOptions(COMMERCIAL.plan_versions,x=>`Plan ${x.plan_id} · v${x.version_number}`);
+  const editorPlan=document.getElementById('cpvPlan');
+  if(editorPlan){
+    const selected=editorPlan.value;
+    editorPlan.innerHTML=commercialOptions((COMMERCIAL.plans||[]).filter(x=>x.commercializable!==false&&!x.legacy),x=>x.name);
+    if([...editorPlan.options].some(x=>x.value===selected))editorPlan.value=selected;
+    if(!editorPlan.value&&editorPlan.options.length>1)editorPlan.selectedIndex=1;
+    prefillCommercialPlanEditor();
+  }
   ['csaSubscription','csoSubscription'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=commercialOptions(COMMERCIAL.subscriptions,x=>`Suscripción ${x.id} · RFC ${x.tax_entity_id}`);});
   fillCommercialTaxEntities();
   renderCommercialHome();
@@ -60,6 +68,53 @@ function fillCommercialTaxEntities(){const c=Number(document.getElementById('csC
 async function createCommercialCustomer(ev){ev.preventDefault();try{await commercialApi('/customers',{method:'POST',headers:H(),body:JSON.stringify({name:ccName.value,authorized_contact:ccContact.value,contractual_email:ccEmail.value,address:ccAddress.value})});msg('ccMsg','Cliente creado');ev.target.reset();await loadCommercial();}catch(e){msg('ccMsg',e.message,false);}}
 async function createCommercialTaxEntity(ev){ev.preventDefault();try{await commercialApi('/tax-entities',{method:'POST',headers:H(),body:JSON.stringify({customer_id:Number(ctCustomer.value),rfc:ctRfc.value,legal_name:ctLegalName.value,fiscal_regime:ctRegime.value,fiscal_postal_code:ctPostalCode.value,fiscal_address:ctAddress.value})});msg('ctMsg','RFC creado');ev.target.reset();await loadCommercial();}catch(e){msg('ctMsg',e.message,false);}}
 async function createCommercialSubscription(ev){ev.preventDefault();try{await commercialApi('/subscriptions',{method:'POST',headers:H(),body:JSON.stringify({customer_id:Number(csCustomer.value),tax_entity_id:Number(csTaxEntity.value),plan_version_id:Number(csPlanVersion.value),billing_period:csPeriod.value,status:'draft'})});msg('csMsg','Suscripción borrador creada');await loadCommercial();}catch(e){msg('csMsg',e.message,false);}}
+function toggleCommercialPlanLimits(){
+  const configurable=document.getElementById('cpvConfigurable')?.checked;
+  ['cpvVehicleLimit','cpvTripLimit','cpvAdminLimit'].forEach(id=>{const el=document.getElementById(id);if(el){el.disabled=configurable;el.required=!configurable;if(configurable)el.value='';}});
+}
+function prefillCommercialPlanEditor(){
+  const planId=Number(document.getElementById('cpvPlan')?.value||0),version=latestPlanVersion(planId);
+  if(!version)return;
+  const configurable=version.vehicle_limit==null&&version.monthly_fiscal_trip_limit==null&&version.administrator_limit==null;
+  document.getElementById('cpvConfigurable').checked=configurable;
+  document.getElementById('cpvVehicleLimit').value=version.vehicle_limit??'';
+  document.getElementById('cpvTripLimit').value=version.monthly_fiscal_trip_limit??'';
+  document.getElementById('cpvAdminLimit').value=version.administrator_limit??'';
+  const price=priceForVersion(version.id,'monthly');
+  document.getElementById('cpvMonthlyPrice').value=price?.subtotal??'';
+  toggleCommercialPlanLimits();
+}
+async function createCommercialPlanVersion(event){
+  event.preventDefault();
+  const planId=Number(document.getElementById('cpvPlan').value),plan=(COMMERCIAL.plans||[]).find(x=>Number(x.id)===planId);
+  if(!plan||plan.legacy||plan.commercializable===false)return msg('cpvMsg','Ese plan está protegido y no puede editarse aquí.',false);
+  const configurable=document.getElementById('cpvConfigurable').checked,button=document.getElementById('cpvSubmit');
+  button.disabled=true;msg('cpvMsg','Creando versión en borrador…');
+  try{
+    const notes=document.getElementById('cpvNotes').value.trim();
+    const versionResult=await commercialApi('/plan-versions',{method:'POST',headers:H(),body:JSON.stringify({
+      plan_id:planId,
+      vehicle_limit:configurable?null:Number(document.getElementById('cpvVehicleLimit').value),
+      monthly_fiscal_trip_limit:configurable?null:Number(document.getElementById('cpvTripLimit').value),
+      administrator_limit:configurable?null:Number(document.getElementById('cpvAdminLimit').value),
+      pin_operator_limit:null,
+      notes
+    })});
+    const version=versionResult.plan_version;
+    await commercialApi('/price-versions',{method:'POST',headers:H(),body:JSON.stringify({
+      plan_version_id:Number(version.id),
+      billing_period:'monthly',
+      subtotal:Number(document.getElementById('cpvMonthlyPrice').value),
+      tax_rate:Number(document.getElementById('cpvTaxRate').value),
+      notes
+    })});
+    await loadCommercial();
+    const confirmed=(COMMERCIAL.plan_versions||[]).some(x=>Number(x.id)===Number(version.id));
+    msg('cpvMsg',confirmed?`Versión ${version.version_number} guardada y confirmada en Supabase. Sigue en borrador.`:'La versión respondió como guardada, pero no apareció al verificar. Actualiza antes de continuar.',confirmed);
+    if(confirmed)document.getElementById('cpvNotes').value='';
+  }catch(e){msg('cpvMsg',`${e.message}. Si se creó la versión antes del error de precio, permanecerá como borrador para revisión.`,false);}
+  finally{button.disabled=false;}
+}
 async function inviteCommercialAdministrator(ev){ev.preventDefault();try{await commercialApi('/administrator-invitations',{method:'POST',headers:H(),body:JSON.stringify({subscription_id:Number(csaSubscription.value),email:csaEmail.value,display_name:csaName.value,reason:csaReason.value})});msg('csaMsg','Invitación registrada; ocupa cupo');ev.target.reset();await loadCommercial();}catch(e){msg('csaMsg',e.message,false);}}
 async function createCommercialOverride(ev){ev.preventDefault();try{const code=csoCode.value,isBool=['operator_portal_access','subscription_access'].includes(code);const payload={subscription_id:Number(csoSubscription.value),override_code:code,integer_value:isBool?null:Number(csoValue.value),boolean_value:isBool?(csoValue.value.trim().toLowerCase()==='true'):null,starts_at:new Date(csoStart.value).toISOString(),ends_at:new Date(csoEnd.value).toISOString(),reason:csoReason.value};await commercialApi('/subscription-overrides',{method:'POST',headers:H(),body:JSON.stringify(payload)});msg('csoMsg','Override aprobado');ev.target.reset();await loadCommercial();}catch(e){msg('csoMsg',e.message,false);}}
 async function loadCommercialSubscription360(id){try{const d=await commercialApi(`/subscriptions/${id}/360`,{headers:H(false)}),u=d.fiscal_usage||{};const el=document.getElementById('commercialSubscription360');if(el)el.innerHTML=`<div class="commercial-360"><h3>${esc(d.customer.name)} · ${esc(d.tax_entity.rfc)}</h3><p><b>${esc(d.plan.name)}</b> · Suscripción ${esc(d.subscription.id)} · ${esc(d.subscription.status)}</p><div class="commercial-360-grid"><span>${esc(d.plan_version.vehicle_limit??'Config.')} vehículos activos</span><span>${esc(u.consumed??0)} / ${esc(u.limit??'Config.')} viajes fiscales (${esc(u.percent??0)}%)</span><span>${d.administrators.length} administradores/membresías</span><span>Portal Operador: ${d.addons.some(x=>['trial','active'].includes(x.status)&&(!x.ends_at||new Date(x.ends_at)>new Date()))?'Activo':'No activo'}</span><span>${d.overrides.length} overrides</span><span>${d.renewals.length} renovaciones</span></div></div>`;}catch(e){alert(e.message);}}
@@ -237,16 +292,17 @@ function renderCommercialHome(){
   const pendingTasks=(COMMERCIAL.prospect_tasks||[]).filter(x=>x.status==='pending');
   kpis.innerHTML=[
     ['Prospectos activos',(COMMERCIAL.prospects||[]).filter(x=>!['won','lost','disqualified'].includes(x.stage)).length,'fa-address-book'],
-    ['Clientes',(COMMERCIAL.customers||[]).length,'fa-building-user'],
+    ['Clientes comerciales',(COMMERCIAL.customers||[]).length,'fa-building-user'],
+    ['Cuentas actuales',(COMMERCIAL.runtime_subscriptions_pending_reconciliation||[]).length,'fa-building-shield'],
     ['Suscripciones',(COMMERCIAL.subscriptions||[]).length,'fa-id-card'],
     ['Cotizaciones pendientes',(COMMERCIAL.quotes||[]).filter(x=>['draft','sent','viewed'].includes(x.status)).length,'fa-file-signature'],
   ].map(([label,value,icon])=>`<article><i class="fa-solid ${icon}"></i><div><strong>${esc(value)}</strong><span>${esc(label)}</span></div></article>`).join('');
   const actions=[];
-  if((COMMERCIAL.runtime_subscriptions_pending_reconciliation||[]).length)actions.push(['Revisar cuentas existentes',`${COMMERCIAL.runtime_subscriptions_pending_reconciliation.length} pendientes de conciliación manual`,'warn']);
-  if(pendingTasks.length)actions.push(['Seguimientos pendientes',`${pendingTasks.length} tarea(s) por atender`,'normal']);
-  if(!(COMMERCIAL.customers||[]).length)actions.push(['Registra tu primer cliente','El alta guiada lo dejará en borrador y sin activar','normal']);
-  if(!actions.length)actions.push(['Todo en orden','No hay pendientes comerciales urgentes','ok']);
-  document.getElementById('businessActionList').innerHTML=actions.map(([title,detail,state])=>`<div class="action-item ${state}"><span class="action-icon"><i class="fa-solid ${state==='warn'?'fa-triangle-exclamation':state==='ok'?'fa-check':'fa-arrow-right'}"></i></span><div><b>${esc(title)}</b><small>${esc(detail)}</small></div></div>`).join('');
+  if((COMMERCIAL.runtime_subscriptions_pending_reconciliation||[]).length)actions.push(['Revisar cuentas existentes',`${COMMERCIAL.runtime_subscriptions_pending_reconciliation.length} pendientes de conciliación manual`,'warn',"openCommercial('reconciliation')"]);
+  if(pendingTasks.length)actions.push(['Seguimientos pendientes',`${pendingTasks.length} tarea(s) por atender`,'normal',"openCommercial('crm')"]);
+  if(!(COMMERCIAL.customers||[]).length)actions.push(['Registra tu primer cliente','El alta guiada lo dejará en borrador y sin activar','normal','openCustomerOnboarding()']);
+  if(!actions.length)actions.push(['Todo en orden','No hay pendientes comerciales urgentes','ok','']);
+  document.getElementById('businessActionList').innerHTML=actions.map(([title,detail,state,action])=>`<button type="button" class="action-item ${state}" ${action?`onclick="${action}"`:''}><span class="action-icon"><i class="fa-solid ${state==='warn'?'fa-triangle-exclamation':state==='ok'?'fa-check':'fa-arrow-right'}"></i></span><span><b>${esc(title)}</b><small>${esc(detail)}</small></span>${action?'<i class="fa-solid fa-chevron-right action-chevron"></i>':''}</button>`).join('');
   const visible=(COMMERCIAL.plans||[]).filter(x=>x.commercializable!==false).slice(0,4);
   document.getElementById('businessPlanSummary').innerHTML=visible.map(plan=>{const v=latestPlanVersion(plan.id),p=priceForVersion(v?.id,'monthly');return `<div class="home-plan-row"><div><b>${esc(plan.name)}</b><small>${v?.vehicle_limit??'Config.'} vehículos · ${v?.monthly_fiscal_trip_limit??'Config.'} viajes</small></div><strong>${esc(p?money(p.subtotal):'A cotizar')}</strong></div>`;}).join('')||'<div class="empty-state">Los planes aparecerán aquí cuando el esquema comercial esté disponible.</div>';
 }
@@ -335,9 +391,13 @@ async function submitCustomerOnboarding(event){
     if(onboardingEl('obInviteAdmin').checked){
       await commercialApi('/administrator-invitations',{method:'POST',headers:H(),body:JSON.stringify({subscription_id:Number(subscription.id),email:onboardingEl('obAdminEmail').value.trim(),display_name:onboardingEl('obAdminName').value.trim(),reason:'Administrador registrado durante el alta guiada'})});
     }
-    msg('obStatus','Alta guardada correctamente. La suscripción sigue en borrador.');
     await loadCommercial();
-    setTimeout(()=>{resetCustomerOnboarding();openCommercial('customers');},700);
+    const customerConfirmed=(COMMERCIAL.customers||[]).some(x=>Number(x.id)===Number(customer.id));
+    const taxConfirmed=(COMMERCIAL.tax_entities||[]).some(x=>Number(x.id)===Number(taxEntity.id)&&Number(x.customer_id)===Number(customer.id));
+    const subscriptionConfirmed=(COMMERCIAL.subscriptions||[]).some(x=>Number(x.id)===Number(subscription.id)&&Number(x.tax_entity_id)===Number(taxEntity.id));
+    if(!customerConfirmed||!taxConfirmed||!subscriptionConfirmed)throw new Error('Supabase respondió, pero el alta completa no pudo confirmarse al volver a consultarla');
+    msg('obStatus','Alta guardada y confirmada en Supabase. Cliente, RFC y suscripción permanecen en borrador; no se activó ningún acceso.');
+    setTimeout(()=>{resetCustomerOnboarding();openCommercial('customers');},1200);
   }catch(e){
     const partial=customer?` El cliente${taxEntity?' y su RFC':''}${subscription?' y la suscripción':''} quedó guardado en borrador; no se activó ningún acceso.`:'';
     msg('obStatus',`${e.message}.${partial}`,false);
