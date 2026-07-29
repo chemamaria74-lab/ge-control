@@ -1775,22 +1775,28 @@
   </div>
   <div style="display:flex;gap:.55rem;align-items:center;flex-wrap:wrap;margin:.9rem 0">
     <button id="gasAdminAddUserViewBtn" onclick="showGasAdminUserView()" style="padding:.55rem 1rem;background:#7f1d1d;color:#fff;border:1px solid #7f1d1d;border-radius:8px;font-weight:700;cursor:pointer">
-      <i class="fa-solid fa-user-plus" style="margin-right:.35rem"></i>Agregar usuario
+      <i class="fa-solid fa-users" style="margin-right:.35rem"></i>Usuarios
     </button>
     <button id="gasAdminMotiveViewBtn" onclick="showGasAdminMotiveView()" style="padding:.55rem 1rem;background:#fff;color:#334155;border:1px solid #cbd5e1;border-radius:8px;font-weight:700;cursor:pointer">
-      <i class="fa-solid fa-sliders" style="margin-right:.35rem"></i>Configurar Motive
+      <i class="fa-solid fa-sitemap" style="margin-right:.35rem"></i>Motive y zonas
     </button>
     <span id="gasFleetConfigurationSummary" style="font-size:.76rem;color:#64748b"></span>
   </div>
   <div id="gasFleetProfileSettings" hidden style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem;margin:.8rem 0">
-    <div style="font-weight:700;margin-bottom:.2rem"><i class="fa-solid fa-sitemap" style="margin-right:.35rem"></i>Relación de esta empresa con Motive</div>
-    <div style="font-size:.74rem;color:#64748b;margin-bottom:.7rem">Elige la empresa en Motive. GE Control detectará automáticamente todas sus zonas.</div>
+    <div style="font-weight:700;margin-bottom:.2rem"><i class="fa-solid fa-sitemap" style="margin-right:.35rem"></i>Motive y zonas de la empresa</div>
+    <div style="font-size:.74rem;color:#64748b;margin-bottom:.7rem;line-height:1.5">
+      Configura una sola vez qué empresa de Motive corresponde a esta empresa. GE Control detectará sus zonas y después podrás asignarlas a cada gerente desde <b>Usuarios</b>.
+    </div>
     <div class="field"><label>Empresa en Motive</label><select id="gasFleetRootGroup" onchange="updateFleetDetectedZones()"><option value="">Selecciona una empresa</option></select></div>
     <div class="field"><label>Zonas detectadas</label>
       <div id="gasFleetDetectedZones" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.45rem;padding:.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px;color:#64748b">Selecciona una empresa.</div>
     </div>
     <button id="gasFleetSaveSettingsBtn" onclick="saveFleetProfileSettings()" style="padding:.45rem .9rem;background:#7f1d1d;color:#fff;border:0;border-radius:7px;font-weight:600;cursor:pointer">Guardar relación con Motive</button>
     <span id="gasFleetSettingsStatus" style="font-size:.78rem;margin-left:.6rem"></span>
+  </div>
+  <div id="gasAdminUsersView">
+  <div style="padding:.65rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;color:#64748b;font-size:.75rem;line-height:1.45">
+    Crea y administra los accesos. Al crear un gerente, únicamente eliges cuáles de las zonas detectadas en <b>Motive y zonas</b> podrá consultar.
   </div>
   <div id="gasInternalUserEditor">
   <div class="grid2" style="margin-top:.6rem">
@@ -1803,12 +1809,13 @@
       <div style="font-size:.68rem;color:#64748b;margin-top:.25rem">Cada usuario solo podrá iniciar sesión en el portal seleccionado.</div>
     </div>
     <div class="field"><label>Usuario</label><input id="gasInternalCode" type="text" placeholder="Ej. MARTHA" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
-    <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="text" placeholder="Ej. MARTHA"></div>
+    <div class="field"><label>Contraseña</label><input id="gasInternalPin" type="password" autocomplete="new-password" placeholder="Crea una contraseña segura"></div>
   </div>
   <div id="gasInternalFleetFields" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:.75rem;margin-top:.7rem">
     <div class="grid2">
       <div class="field"><label>Tipo de acceso</label><div style="padding:.65rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px"><b>Gerente de zona</b><br><small style="color:#64748b">Solo verá las zonas que le asignes.</small></div></div>
       <div class="field"><label>Zonas asignadas</label>
+        <div style="font-size:.68rem;color:#64748b;margin-bottom:.4rem">Estas zonas vienen de la configuración de Motive; aquí solo asignas permisos a este gerente.</div>
         <div id="gasInternalFleetZones" style="display:grid;gap:.4rem"></div>
       </div>
     </div>
@@ -1841,6 +1848,7 @@
     <div id="gasInternalEmpty" style="display:none;text-align:center;padding:1.5rem;color:#94a3b8;font-size:.85rem">
       No hay usuarios internos para esta empresa.
     </div>
+  </div>
   </div>
 </div>
 
