@@ -307,3 +307,20 @@ class SubscriptionOverrideCreate(BaseModel):
 class AddonStatusChange(BaseModel):
     target_status: Literal["active", "suspended", "expired", "canceled"]
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class ReconciliationRfcMapping(BaseModel):
+    tax_entity_id: int = Field(gt=0)
+    perfil_id: int = Field(gt=0)
+
+
+class ReconciliationPreviewRequest(BaseModel):
+    customer_id: int = Field(gt=0)
+    tenant_id: str = Field(min_length=8, max_length=80)
+    mappings: list[ReconciliationRfcMapping] = Field(min_length=1, max_length=100)
+
+
+class ReconciliationApplyRequest(ReconciliationPreviewRequest):
+    preview_fingerprint: str = Field(min_length=64, max_length=64)
+    confirmation: Literal["VINCULAR RFC"]
+    reason: str = Field(min_length=10, max_length=1000)
