@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GE CONTROL | Gerentes · Gastos</title>
+  <link rel="icon" href="/static/img/favicon.svg"><link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=20260728a">
+</head>
+<body>
+  <header class="expense-top"><img src="/static/img/ge-isotype-light.svg" alt="GE"><h1>Portal de Gerentes</h1>
+    <nav><a href="/gas-lp/flotilla">Flotilla</a><a class="active" href="/gas-lp/gerentes/gastos">Vales y gastos</a></nav>
+    <button id="logout">Salir</button>
+  </header>
+  <main class="expense-shell">
+    <div class="hero"><div><span class="eyebrow">Control operativo</span><h2>Vales y gastos</h2><p id="companyName">Cargando empresa y zonas…</p></div></div>
+    <div class="tabs">
+      <button class="active" data-panel="vouchers">Vales</button><button data-panel="invoice">Formar factura</button>
+      <button data-panel="history">Historial</button><button data-panel="catalogs">Catálogos</button>
+    </div>
+    <section class="panel active" data-content="vouchers">
+      <div class="grid">
+        <article class="card half"><h3>Generar vale</h3><p>El folio se asigna al confirmar. El monto se captura después.</p>
+          <form id="voucherForm" class="form-grid">
+            <label>Zona<select id="voucherGroup" required></select></label>
+            <label>Unidad<select id="voucherVehicle" required></select></label>
+            <label>Chofer<input id="voucherDriver" readonly></label>
+            <label>Proveedor validado<select id="voucherSupplier" required></select></label>
+            <label>Concepto<select id="voucherConcept" required></select></label>
+            <label>Fecha<input id="voucherDate" type="date" required></label>
+            <label class="wide">Motivo<textarea id="voucherDescription"></textarea></label>
+            <div class="actions wide"><button class="btn primary">Confirmar y generar folio</button></div>
+          </form><div class="status" id="voucherMsg"></div>
+        </article>
+        <article class="card half"><h3>Vales abiertos</h3><p>Captura el monto cuando recibas el comprobante.</p>
+          <div id="openVouchers" class="checkbox-list"><div class="empty">Cargando…</div></div>
+        </article>
+      </div>
+    </section>
+    <section class="panel" data-content="invoice">
+      <div class="grid"><article class="card half"><h3>Vales listos</h3><p>Selecciona vales del mismo proveedor.</p>
+        <div id="readyVouchers" class="checkbox-list"></div></article>
+        <article class="card half"><h3>Datos de la factura</h3>
+          <form id="invoiceForm" class="form-grid">
+            <label>Número de factura<input id="invoiceNumber" required></label>
+            <label>Fecha<input id="invoiceDate" type="date" required></label>
+            <label class="wide">Total<input id="invoiceTotal" type="number" min=".01" step=".01" required></label>
+            <div class="actions wide"><button class="btn primary">Enviar a Gastos y pagos</button></div>
+          </form><div class="status" id="invoiceMsg"></div>
+        </article></div>
+    </section>
+    <section class="panel" data-content="history"><div class="grid"><article class="card"><h3>Historial de facturas</h3><div class="table-wrap"><table><thead><tr><th>Factura</th><th>Fecha</th><th>Total</th><th>Estado</th></tr></thead><tbody id="historyRows"></tbody></table></div></article>
+      <article class="card"><h3>Historial de vales</h3><div class="table-wrap"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Monto</th><th>Estado / motivo</th></tr></thead><tbody id="voucherHistoryRows"></tbody></table></div></article></div></section>
+    <section class="panel" data-content="catalogs">
+      <div class="grid">
+        <article class="card half"><h3>Conceptos</h3><p>Quedan disponibles inmediatamente en la lista del vale.</p>
+          <form id="conceptForm" class="actions"><input id="conceptName" placeholder="Ej. Balatas" required><button class="btn primary">Agregar</button></form>
+          <div id="conceptList"></div></article>
+        <article class="card half"><h3>Proveedores</h3><p>La asistente debe validarlos antes de utilizarlos.</p>
+          <form id="supplierForm" class="form-grid"><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label>
+            <label>RFC<input id="supplierRfc"></label><label>Teléfono<input id="supplierPhone"></label><label class="wide">Correo de pagos (opcional)<input id="supplierEmail" type="email"></label>
+            <div class="actions wide"><button class="btn primary">Enviar a validación</button></div></form><div id="supplierList"></div>
+        </article>
+      </div>
+    </section>
+  </main>
+  <script src="/static/js/gas_lp/gerentes_gastos.js?v=20260728a"></script>
+</body></html>

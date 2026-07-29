@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>GE CONTROL | Flotilla 360</title>
+  <title>GE CONTROL | Portal de Gerentes</title>
   <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
@@ -29,7 +29,7 @@
   <section class="fleet-auth-gate" id="fleetAuthGate" role="status" aria-live="polite">
     <img src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     <div class="fleet-auth-spinner" id="fleetAuthSpinner" aria-hidden="true"></div>
-    <h1 id="fleetAuthTitle">Validando acceso a Flotilla 360</h1>
+    <h1 id="fleetAuthTitle">Validando acceso al Portal de Gerentes</h1>
     <p id="fleetAuthMessage">Estamos comprobando tu sesión oficial y empresa asignada.</p>
     <div class="fleet-auth-actions" id="fleetAuthActions" hidden>
       <button class="btn-primary" id="fleetAuthRetry" type="button">Reintentar</button>
@@ -38,8 +38,9 @@
   </section>
   <header class="fleet-topbar">
     <a class="fleet-brand" href="/choice" aria-label="GE Control"><img src="/static/img/ge-isotype-light.svg" alt="GE"></a>
-    <div class="fleet-title"><span class="fleet-module">Gas LP</span><h1>Flotilla 360</h1></div>
+    <div class="fleet-title"><span class="fleet-module">Gas LP</span><h1>Gerentes · Flotilla</h1></div>
     <div class="fleet-top-actions">
+      <a class="btn-light" href="/gas-lp/gerentes/gastos"><i class="fa-solid fa-receipt"></i> Vales y gastos</a>
       <span class="fleet-user" id="fleetUser">—</span>
       <button class="btn-light" id="fleetBack" type="button"><i class="fa-solid fa-layer-group"></i> Portales</button>
       <button class="btn-light" id="fleetLogout" type="button"><i class="fa-solid fa-arrow-right-from-bracket"></i> Salir</button>
@@ -66,7 +67,7 @@
       <div class="query-copy">
         <span class="eyebrow"><i class="fa-solid fa-filter"></i> Preparar informe</span>
         <h3>¿Qué zona quieres revisar?</h3>
-        <p>GE Control consultará Supabase solamente cuando presiones “Generar análisis”.</p>
+        <p>Mostramos automáticamente el último análisis guardado. “Actualizar desde Motive” permanece como una acción separada.</p>
       </div>
       <div class="dashboard-filters" aria-label="Filtros del informe">
         <label>Desde<input id="startDate" type="date"></label>

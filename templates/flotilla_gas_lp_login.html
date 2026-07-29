@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GE CONTROL | Acceso Flotilla 360</title>
+  <title>GE CONTROL | Acceso Gerentes</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
@@ -28,6 +28,7 @@
     <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
     <div class="portal-mark"><span></span> Integración Motive</div>
     <h1>Flotilla 360</h1>
+    <p><strong>Acceso al Portal de Gerentes</strong></p>
     <div class="sub">Inicia sesión para consultar gastos, consumo, inspecciones, mantenimiento y rendimiento.</div>
     <div class="mode">
       <button id="internalMode" class="active" type="button">Gerente</button>
@@ -61,7 +62,7 @@
       loginMode = mode;
       const internal = mode === 'internal';
       document.getElementById('userLabel').textContent = internal ? 'Usuario' : 'Correo oficial';
-      document.getElementById('user').placeholder = internal ? 'Tu usuario de Flotilla 360' : 'correo@empresa.com';
+      document.getElementById('user').placeholder = internal ? 'Tu usuario de Gerente' : 'correo@empresa.com';
       document.getElementById('internalMode').classList.toggle('active', internal);
       document.getElementById('adminMode').classList.toggle('active', !internal);
       document.getElementById('errorMessage').textContent = '';

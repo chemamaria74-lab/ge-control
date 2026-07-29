@@ -71,7 +71,7 @@
         }
         localStorage.setItem(CONCILIACION_TOKEN_KEY, token);
         window.GESessionTimeout?.markLogin();
-        location.href = '/conciliacion/gas-lp';
+        location.href = '/gas-lp/conciliacion/inicio';
       } catch(ex) { err.textContent = ex.message; }
     });
   </script>

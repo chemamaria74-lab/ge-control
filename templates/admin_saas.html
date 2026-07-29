@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="/static/css/admin_saas.css">
+  <link rel="stylesheet" href="/static/css/admin_commercial.css">
 </head>
 <body class="admin-locked">
   <!-- ge-include: admin_saas/_login.html -->
@@ -15,6 +16,7 @@
   <div class="layout">
     <aside><div class="nav" id="nav">
       <button class="active" data-panel="clientes" onclick="showPanel('clientes')"><i class="fa-solid fa-building-user"></i> Clientes</button>
+      <button data-panel="comercial" onclick="showPanel('comercial')"><i class="fa-solid fa-briefcase"></i> Comercial</button>
       <button data-panel="facturacion-ge" onclick="showPanel('facturacion-ge')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación GE Control</button>
       <button data-panel="administracion" onclick="showPanel('administracion')"><i class="fa-solid fa-sliders"></i> Administración</button>
       <details class="advanced-nav">
@@ -31,6 +33,7 @@
     <main>
   <!-- ge-include: admin_saas/_dashboard.html -->
   <!-- ge-include: admin_saas/_clientes.html -->
+  <!-- ge-include: admin_saas/_commercial.html -->
   <!-- ge-include: admin_saas/_empresas.html -->
   <!-- ge-include: admin_saas/_usuarios.html -->
   <!-- ge-include: admin_saas/_suscripciones.html -->
@@ -48,6 +51,7 @@
 <script src="/static/js/admin_saas/30_settings_billing_catalogs.js"></script>
 <script src="/static/js/admin_saas/40_billing_invoices.js"></script>
 <script src="/static/js/admin_saas/50_users_repair_audit.js"></script>
+<script src="/static/js/admin_saas/60_commercial.js"></script>
 <script src="/static/js/admin_saas/90_init.js"></script>
 </body>
 </html>
