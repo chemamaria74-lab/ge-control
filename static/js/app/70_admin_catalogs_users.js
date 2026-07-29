@@ -501,7 +501,7 @@ function updateGasInternalPortalFields() {
 function setGasAdminView(view) {
   const motive = view === 'motive';
   const motivePanel = document.getElementById('gasFleetProfileSettings');
-  const userPanel = document.getElementById('gasInternalUserEditor');
+  const userPanel = document.getElementById('gasAdminUsersView');
   const userButton = document.getElementById('gasAdminAddUserViewBtn');
   const motiveButton = document.getElementById('gasAdminMotiveViewBtn');
   if (motivePanel) motivePanel.hidden = !motive;
@@ -739,7 +739,7 @@ async function loadInternalUsersGasLp() {
   } catch(e) {
     if (empty) {
       empty.style.display = '';
-      empty.textContent = 'No se pudieron cargar permisos';
+      empty.textContent = e.message || 'No se pudieron cargar los usuarios y sus permisos.';
     }
   }
 }
@@ -784,7 +784,7 @@ async function createInternalUserGasLp() {
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible crear usuario interno.');
     if (statusEl) {
       statusEl.style.color = '#15803d';
-      statusEl.innerHTML = `Creado. Código: <b>${data.user.code}</b> | PIN temporal: <b>${data.temporary_pin}</b>`;
+      statusEl.innerHTML = `Gerente creado. Usuario: <b>${data.user.code}</b>. La contraseña quedó guardada de forma segura.`;
     }
     ['gasInternalName','gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showGasInternalTab(payload.portal_scope);
@@ -829,13 +829,15 @@ async function editInternalRoleGasLp(id, currentRole) {
 }
 
 async function resetInternalPinGasLp(id) {
+  const password = prompt('Escribe la nueva contraseña para este usuario:');
+  if (!password) return;
   const res = await fetch(`/api/internal-users/${id}/reset-pin`, {
     method: 'POST',
     headers: { ...authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify({pin: password}),
   });
   const data = await res.json();
-  if (data.ok) showToast(`PIN temporal: ${data.temporary_pin}`, 'success');
+  if (data.ok) showToast('Contraseña actualizada correctamente.', 'success');
   await loadInternalUsersGasLp();
 }
 
