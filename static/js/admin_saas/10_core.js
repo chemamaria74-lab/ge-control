@@ -15,6 +15,7 @@ function showPanel(name){
   const panel=document.getElementById('panel-'+name);
   if(panel) panel.classList.add('active');
   if(name==='clientes')loadTenants();
+  if(name==='comercial')loadCommercial();
   if(name==='empresas')loadCompanies();
   if(name==='usuarios')loadUsers();
   if(name==='auditoria')loadAudit();
