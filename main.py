@@ -604,7 +604,7 @@ async def module_role_view(modulo: str, lang: str = "es"):
         else [
             ("Administrador", "Selecciona empresa y entra al dashboard completo."),
             ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación."),
-            ("Conciliación", "Complementos de pago, consulta y cancelación por empresa."),
+            ("Supervisión", "Contable, gastos y flotilla con accesos separados."),
             ("Gerentes", "Flotilla, vales, gastos y rendimiento de las zonas asignadas."),
         ]
     )
