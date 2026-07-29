@@ -587,13 +587,13 @@
     <div class="trv2-section-head">
       <div>
         <h1>Reportes SAT</h1>
-        <p>Control volumétrico mensual de transporte. La Carta Porte define litros y trayecto; la Carta Ingreso sólo complementa el importe, sin duplicar volumen.</p>
+        <p>Control volumétrico mensual de transporte. Cada viaje se registra una sola vez con el CFDI que contiene su complemento Carta Porte.</p>
       </div>
     </div>
     <div class="trv2-cv-action-grid">
       <article class="trv2-cv-action-card trv2-cv-action-upload">
         <h2><i class="fa-solid fa-cloud-arrow-up"></i> Subir pendientes externos</h2>
-        <p>Importa documentos hechos en otra plataforma. La Carta Porte genera su carga y descarga; la Carta Ingreso sólo complementa el importe.</p>
+        <p>Importa documentos hechos en otra plataforma. Si la Carta Ingreso ya contiene Carta Porte, úsala sola: incluye el traslado y la tarifa sin duplicar movimientos.</p>
         <label>Documento
           <select id="trv2-cv-external-document-type">
             <option value="carta_porte">Carta Porte</option>
@@ -661,26 +661,30 @@
       <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
     </nav>
     <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
-      <section class="trv2-panel">
-        <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
-        <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
-        <div class="trv2-alert trv2-alert-info">Cada operador usa un usuario y contraseña propios. Sólo puede mantener una sesión activa y Administración puede desactivar o restablecer su acceso.</div>
-        <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
+      <section class="trv2-panel trv2-operator-admin-panel">
+        <div class="trv2-operator-admin-heading">
+          <div>
+            <h2>Usuarios operador</h2>
+            <p class="trv2-muted">Accesos sencillos y exclusivos para los choferes de esta empresa.</p>
+          </div>
+          <span><i class="fa-solid fa-mobile-screen-button"></i> Una sesión por operador</span>
+        </div>
+        <form class="trv2-form trv2-form-admin trv2-operator-access-form" onsubmit="trv2CreateOperatorAccess(event)">
           <label>Operador / chofer <select id="trv2-admin-operator-chofer" required onchange="trv2SuggestOperatorUsername()"><option value="">Seleccionar operador</option></select></label>
           <label>Usuario operador <input id="trv2-admin-operator-user" placeholder="Ej. javier.t167"></label>
           <label>Contraseña <input id="trv2-admin-operator-pin" type="text" minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
           <label>Estado <select id="trv2-admin-operator-active"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
-            <button class="trv2-btn trv2-btn-primary" type="submit">Crear acceso operador</button>
+            <button class="trv2-btn trv2-btn-primary" type="submit"><i class="fa-solid fa-plus"></i> Crear acceso</button>
           </div>
         </form>
         <div id="trv2-operator-access-result" class="trv2-access-result" hidden></div>
-        <div class="trv2-table-head">
+        <div class="trv2-table-head trv2-operator-list-head">
           <div>
             <h2>Accesos existentes</h2>
-            <p class="trv2-muted">Solo muestra accesos del perfil activo.</p>
+            <p class="trv2-muted">Operadores de la empresa activa.</p>
           </div>
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorAccesses()">Actualizar</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorAccesses()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
         </div>
         <div id="trv2-operator-access-list" class="trv2-access-list"></div>
       </section>
