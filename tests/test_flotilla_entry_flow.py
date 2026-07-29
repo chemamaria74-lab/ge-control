@@ -55,6 +55,17 @@ def test_manager_landing_separates_fleet_and_expenses():
     assert "Vales y gastos" in response.text
 
 
+def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_expenses():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert 'id="managerExpensesLink"' in template
+    assert "Selecciona una zona antes de generar el análisis." in script
+    assert "$('managerExpensesLink').hidden=true" in script
+    assert "await loadReportCatalog({prepare:false,scroll:false})" not in script
+    assert "$('executiveDashboard').hidden=true" in script
+
+
 def test_legacy_flotilla_login_redirects_to_dedicated_access():
     response = client.get("/login/gas-lp?intent=flotilla_360&lang=es", follow_redirects=False)
 

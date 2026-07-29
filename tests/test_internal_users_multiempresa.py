@@ -369,7 +369,7 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
             role="asistente_facturacion",
             perfil_id=1,
             code="MARTHA",
-            pin="MARTHA",
+            pin="MARTHA2026",
         )
         created = response_json(asyncio.run(internal_users.create_internal_user(payload, authorization="Bearer admin-token")))
         self.assertTrue(created["ok"])
@@ -381,7 +381,7 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         self.assertEqual([u["code"] for u in distrib["users"]], ["MARTHA"])
         self.assertEqual(alfa["users"], [])
 
-        login = response_json(asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="MARTHA", pin="MARTHA"))))
+        login = response_json(asyncio.run(internal_users.internal_login(internal_users.InternalLogin(section="gas_lp", code="MARTHA", pin="MARTHA2026"))))
         self.assertTrue(login["ok"])
         self.assertEqual(login["perfil_id"], 1)
         self.assertEqual(login["tenant_id"], "tenant-a")
@@ -776,6 +776,43 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
         )
 
         self.assertEqual([row["uuid_sat"] for row in rows], ["maria-legacy-ppd"])
+
+    def test_gas_lp_ppd_pending_reads_every_supabase_page(self):
+        db = FakeDB()
+        common = {
+            "tenant_id": "tenant-a",
+            "perfil_id": 1,
+            "rfc_emisor": "AGA9603186X8",
+            "empresa_rfc": "AGA9603186X8",
+            "status": "Vigente",
+            "is_transfer": False,
+        }
+        db.rows["gas_lp_facturas"] = [
+            {
+                **common,
+                "id": index,
+                "uuid_sat": f"pue-{index}",
+                "metodo_pago": "PUE",
+                "created_at": f"2026-07-29T10:{index % 60:02d}:00",
+            }
+            for index in range(1, 1001)
+        ]
+        db.rows["gas_lp_facturas"].append({
+            **common,
+            "id": 1001,
+            "uuid_sat": "ppd-second-page",
+            "metodo_pago": "PPD",
+            "saldo_insoluto": 664.80,
+            "created_at": "2026-07-29T11:00:00",
+        })
+        user = {"tenant_id": "tenant-a", "perfil_id": 1}
+        profile = {"id": 1, "rfc": "AGA9603186X8"}
+
+        rows = internal_users._gas_lp_company_facturas_rows(
+            db, user, profile, month="", limit=1000, ppd_pending=True
+        )
+
+        self.assertEqual([row["uuid_sat"] for row in rows], ["ppd-second-page"])
 
     def test_gas_lp_facturas_require_backfilled_real_issuer_columns(self):
         db = FakeDB()

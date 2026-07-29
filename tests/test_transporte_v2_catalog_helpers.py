@@ -490,7 +490,7 @@ def test_direct_transport_profile_creation_is_blocked_pending_ge_control_validat
     assert "validación de RFC, contrato y suscripción" in str(exc.value.detail)
 
 
-def test_transport_subscription_metering_stays_backend_only_and_retention_is_preserved():
+def test_transport_subscription_is_visible_from_superadmin_and_retention_is_preserved():
     root = Path(__file__).parents[1]
     template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
     frontend = (root / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
@@ -499,9 +499,12 @@ def test_transport_subscription_metering_stays_backend_only_and_retention_is_pre
         '@router.post("/tr-v2/operator/login")', 1
     )[0]
 
-    assert "Suscripción y alta" not in template
+    assert "Plan y suscripción" in template
+    assert 'data-admin-panel="suscripcion"' in template
     assert 'id="trv2-onboarding-checklist"' not in template
     assert "/api/tr-v2/admin/subscription-summary" in frontend
+    assert '"commercial_superadmin"' in backend
+    assert '"pending_reconciliation"' in backend
     assert "timbres_included_monthly" in backend
     assert '"retention_days": 365' in revoke_source
     assert ".delete()" not in revoke_source

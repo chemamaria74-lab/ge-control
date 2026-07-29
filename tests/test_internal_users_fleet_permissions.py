@@ -9,7 +9,7 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-key")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 
-from routes.internal_users_mod.core import InternalUserCreate
+from routes.internal_users_mod.core import InternalUserCreate, _hash_secret, _verify_secret
 from routes.internal_users_mod.users_auth import _clean_payload
 
 
@@ -57,3 +57,11 @@ def test_fleet_user_requires_at_least_one_zone():
         ))
 
     assert error.value.status_code == 400
+
+
+def test_manager_passwords_preserve_case_and_exact_characters():
+    stored = _hash_secret("CLAVE Mayúscula 2026 ")
+
+    assert _verify_secret("CLAVE Mayúscula 2026 ", stored)
+    assert not _verify_secret("clave mayúscula 2026 ", stored)
+    assert not _verify_secret("CLAVE Mayúscula 2026", stored)

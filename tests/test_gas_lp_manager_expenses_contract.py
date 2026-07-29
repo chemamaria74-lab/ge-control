@@ -98,11 +98,19 @@ def test_new_pages_are_mounted_without_replacing_fiscal_conciliation():
     client = TestClient(main.app)
     assert client.get("/gas-lp/gerentes/gastos").status_code == 200
     assert client.get("/gas-lp/gastos").status_code == 200
-    selector = client.get("/gas-lp/conciliacion/inicio")
-    assert selector.status_code == 200
-    assert "<h2>Contable</h2>" in selector.text
-    assert "<h2>Gastos</h2>" in selector.text
-    assert "<h2>Flotilla</h2>" in selector.text
+    selector = client.get("/gas-lp/conciliacion/inicio", follow_redirects=False)
+    assert selector.status_code == 307
+    assert selector.headers["location"] == "/gas-lp/conciliacion"
+
+
+def test_change_space_clears_session_and_returns_directly_to_login():
+    expenses = (ROOT / "static/js/gas_lp/gastos_admin.js").read_text(encoding="utf-8")
+    fleet = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    fiscal = (ROOT / "static/js/gas_lp/conciliacion/50_sat_publico_export.js").read_text(encoding="utf-8")
+
+    assert "location.replace('/gas-lp/conciliacion?area=gastos')" in expenses
+    assert "location.replace('/gas-lp/conciliacion?area=flotilla')" in fleet
+    assert "location.replace('/gas-lp/conciliacion?area='+encodeURIComponent(area))" in fiscal
 
 
 def test_invoice_history_exposes_linked_vouchers_and_mobile_layout():
@@ -139,6 +147,18 @@ def test_expense_portals_load_data_only_on_demand():
     assert 'id="searchHistory"' in manager_html
     assert 'id="searchExpenses"' in admin_html
     assert 'id="searchAnalytics"' in admin_html
+
+
+def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuration():
+    admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    assert '<select id="companySelect"' in admin_html
+    assert 'class="active" data-panel="direct">1. Agregar factura' in admin_html
+    assert 'data-panel="queue">2. Revisar para pago' in admin_html
+    assert 'data-panel="catalogs">Configuración' in admin_html
+    assert "se comparten con el Portal de Gerentes" in admin_html
+    assert 'data-content="direct"' in admin_html
+    assert 'data-content="catalogs"' in admin_html
 
 
 def test_expense_lists_are_server_filtered_and_bounded():
