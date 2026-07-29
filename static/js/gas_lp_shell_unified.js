@@ -95,7 +95,6 @@
   }
 
   function normalizeGasLpCopy() {
-    setLabelFor("gasInternalName", "Nombre");
     setLabelFor("gasInternalCode", "Usuario");
     setLabelFor("gasInternalPin", "Contraseña");
     const codeInput = document.getElementById("gasInternalCode");
