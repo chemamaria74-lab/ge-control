@@ -193,8 +193,13 @@ def _base_query(ctx: dict[str, Any], table: str):
 
 
 def _invoice_alerts(ctx: dict[str, Any], *, supplier_id: int, invoice_number: str,
-                    invoice_date: date, total_mxn: float) -> list[str]:
+                    invoice_date: date, total_mxn: float, exclude_invoice_id: int | None = None) -> list[str]:
     rows = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
+    rows = [
+        row for row in rows
+        if int(row.get("id") or 0) != int(exclude_invoice_id or 0)
+        and row.get("status") not in {"rejected", "cancelled"}
+    ]
     alerts: list[str] = []
     if any(_normalize(row.get("invoice_number")) == _normalize(invoice_number) for row in rows):
         alerts.append("Número de factura repetido en esta empresa.")
@@ -241,11 +246,18 @@ def bootstrap(
     vehicles = (ctx["sb"].table("fleet_vehicles")
                 .select("id,vehicle_number,current_driver_name,status")
                 .eq("tenant_id", ctx["tenant_id"]).order("vehicle_number").execute().data or [])
+    memberships_query = (ctx["sb"].table("fleet_vehicle_groups").select("vehicle_id,group_id")
+                         .eq("tenant_id", ctx["tenant_id"]))
     if ctx.get("allowed_group_ids") is not None:
-        memberships = (ctx["sb"].table("fleet_vehicle_groups").select("vehicle_id")
-                       .eq("tenant_id", ctx["tenant_id"]).in_("group_id", list(ctx["allowed_group_ids"]))
-                       .execute().data or [])
-        vehicle_ids = {int(row["vehicle_id"]) for row in memberships}
+        memberships_query = memberships_query.in_("group_id", list(ctx["allowed_group_ids"]))
+    memberships = memberships_query.execute().data or []
+    groups_by_vehicle: defaultdict[int, list[int]] = defaultdict(list)
+    for membership in memberships:
+        groups_by_vehicle[int(membership["vehicle_id"])].append(int(membership["group_id"]))
+    for vehicle in vehicles:
+        vehicle["group_ids"] = groups_by_vehicle.get(int(vehicle["id"]), [])
+    if ctx.get("allowed_group_ids") is not None:
+        vehicle_ids = set(groups_by_vehicle)
         vehicles = [row for row in vehicles if int(row["id"]) in vehicle_ids]
     return {
         "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
@@ -255,10 +267,11 @@ def bootstrap(
 
 
 @router.get("/gastos/concepts")
-def list_concepts(token: str = Query(default=""), authorization: str = Header(default=""),
+def list_concepts(limit: int = Query(default=300, ge=1, le=500),
+                  token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
-    return {"items": _base_query(ctx, "gas_lp_expense_concepts").order("name").execute().data or []}
+    return {"items": _base_query(ctx, "gas_lp_expense_concepts").order("name").limit(limit).execute().data or []}
 
 
 @router.post("/gastos/concepts", status_code=201)
@@ -280,10 +293,11 @@ def create_concept(payload: ConceptCreate, token: str = Query(default=""), autho
 
 
 @router.get("/gastos/suppliers")
-def list_suppliers(token: str = Query(default=""), authorization: str = Header(default=""),
+def list_suppliers(limit: int = Query(default=300, ge=1, le=500),
+                   token: str = Query(default=""), authorization: str = Header(default=""),
                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
-    return {"items": _base_query(ctx, "gas_lp_expense_suppliers").order("commercial_name").execute().data or []}
+    return {"items": _base_query(ctx, "gas_lp_expense_suppliers").order("commercial_name").limit(limit).execute().data or []}
 
 
 @router.post("/gastos/suppliers", status_code=201)
@@ -338,9 +352,9 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
     before = rows[0]
     if ctx["is_manager"] and (
         before.get("created_by_type") != "manager" or str(before.get("created_by")) != ctx["actor_id"]
-        or before.get("validation_status") != "pending"
+        or before.get("validation_status") not in {"pending", "rejected"}
     ):
-        raise HTTPException(403, "El gerente solo puede corregir proveedores propios pendientes.")
+        raise HTTPException(403, "El gerente solo puede corregir proveedores propios pendientes o rechazados.")
     clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, payload.payment_email)
     update = {
         "commercial_name": payload.commercial_name.strip(),
@@ -357,7 +371,8 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
 
 
 @router.get("/gastos/vouchers")
-def list_vouchers(status: str = Query(default=""), token: str = Query(default=""),
+def list_vouchers(status: str = Query(default=""), search: str = Query(default="", max_length=80),
+                  limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
@@ -366,7 +381,9 @@ def list_vouchers(status: str = Query(default=""), token: str = Query(default=""
         query = query.eq("created_by_internal_user_id", int(ctx["actor_id"]))
     if status:
         query = query.eq("status", status)
-    return {"items": query.order("created_at", desc=True).execute().data or []}
+    if search.strip():
+        query = query.ilike("folio", f"%{search.strip()}%")
+    return {"items": query.order("created_at", desc=True).limit(limit).execute().data or []}
 
 
 @router.post("/gastos/vouchers", status_code=201)
@@ -587,7 +604,8 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
 
 
 @router.get("/gastos/invoices")
-def list_invoices(status: str = Query(default=""), token: str = Query(default=""),
+def list_invoices(status: str = Query(default=""), search: str = Query(default="", max_length=100),
+                  limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
@@ -596,7 +614,33 @@ def list_invoices(status: str = Query(default=""), token: str = Query(default=""
         query = query.eq("created_by_type", "manager").eq("created_by", ctx["actor_id"])
     if status:
         query = query.eq("status", status)
-    return {"items": query.order("created_at", desc=True).execute().data or []}
+    if search.strip():
+        query = query.ilike("invoice_number", f"%{search.strip()}%")
+    items = query.order("created_at", desc=True).limit(limit).execute().data or []
+    invoice_ids = [int(row["id"]) for row in items]
+    if not invoice_ids:
+        return {"items": items}
+    links = (ctx["sb"].table("gas_lp_expense_invoice_vouchers")
+             .select("invoice_id,voucher_id,amount_mxn")
+             .in_("invoice_id", invoice_ids).execute().data or [])
+    voucher_ids = sorted({int(link["voucher_id"]) for link in links})
+    voucher_rows = (
+        _base_query(ctx, "gas_lp_expense_vouchers").in_("id", voucher_ids).execute().data or []
+    ) if voucher_ids else []
+    vouchers = {int(row["id"]): row for row in voucher_rows}
+    links_by_invoice: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
+    for link in links:
+        voucher = vouchers.get(int(link["voucher_id"]))
+        if voucher:
+            links_by_invoice[int(link["invoice_id"])].append({
+                "id": int(voucher["id"]), "folio": voucher.get("folio") or "",
+                "amount_mxn": float(link.get("amount_mxn") or 0),
+                "group_id": voucher.get("group_id"), "vehicle_id": voucher.get("vehicle_id"),
+                "concept_id": voucher.get("concept_id"), "driver_name": voucher.get("driver_name") or "",
+            })
+    for item in items:
+        item["vouchers"] = links_by_invoice.get(int(item["id"]), [])
+    return {"items": items}
 
 
 @router.post("/gastos/invoices/{invoice_id}/transition")
@@ -679,9 +723,14 @@ def correct_observed_invoice(invoice_id: int, payload: InvoiceCorrection, token:
     expected = round(sum(float(link.get("amount_mxn") or 0) for link in links), 2)
     if abs(expected - round(payload.total_mxn, 2)) > MONEY_TOLERANCE:
         raise HTTPException(400, f"El total debe coincidir con los vales: ${expected:,.2f}.")
+    alerts = _invoice_alerts(
+        ctx, supplier_id=int(row["supplier_id"]), invoice_number=payload.invoice_number,
+        invoice_date=payload.invoice_date, total_mxn=expected, exclude_invoice_id=invoice_id,
+    )
     update = {
         "invoice_number": payload.invoice_number.strip(), "invoice_date": payload.invoice_date.isoformat(),
-        "total_mxn": expected, "status": "pending_review", "observation": "",
+        "total_mxn": expected, "status": "pending_review",
+        "observation": "Alerta: " + " ".join(alerts) if alerts else "",
         "reviewed_by": None, "reviewed_at": None, "updated_at": _now(),
     }
     ctx["sb"].table("gas_lp_expense_invoices").update(update).eq("id", invoice_id).execute()
@@ -694,10 +743,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
               x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
     invoices = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
+    active_invoices = [
+        row for row in invoices if row.get("status") not in {"rejected", "cancelled"}
+    ]
     suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
     concepts = _base_query(ctx, "gas_lp_expense_concepts").execute().data or []
     vouchers = _base_query(ctx, "gas_lp_expense_vouchers").execute().data or []
-    invoice_ids = [int(row["id"]) for row in invoices]
+    invoice_ids = [int(row["id"]) for row in active_invoices]
     links = (ctx["sb"].table("gas_lp_expense_invoice_vouchers").select(
         "invoice_id,voucher_id,amount_mxn"
     ).in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
@@ -710,12 +762,12 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     group_names = {int(row["id"]): row["name"] for row in groups}
     vehicle_names = {int(row["id"]): row["vehicle_number"] for row in vehicles}
     voucher_by_id = {int(row["id"]): row for row in vouchers}
-    invoice_by_id = {int(row["id"]): row for row in invoices}
+    invoice_by_id = {int(row["id"]): row for row in active_invoices}
     dimensions: dict[str, defaultdict[str, float]] = {
         key: defaultdict(float) for key in
         ("status", "supplier", "type", "month", "concept", "zone", "unit", "manager")
     }
-    for row in invoices:
+    for row in active_invoices:
         amount = float(row.get("total_mxn") or 0)
         dimensions["status"][row["status"]] += amount
         dimensions["supplier"][supplier_names.get(int(row["supplier_id"]), "Proveedor")] += amount
@@ -738,7 +790,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     number_counts: defaultdict[str, int] = defaultdict(int)
     signature_counts: defaultdict[tuple[str, str, float], int] = defaultdict(int)
     supplier_months: defaultdict[int, defaultdict[str, float]] = defaultdict(lambda: defaultdict(float))
-    for row in invoices:
+    for row in active_invoices:
         number_counts[_normalize(row["invoice_number"])] += 1
         signature_counts[(
             str(row["supplier_id"]), str(row.get("invoice_date") or ""),
@@ -759,7 +811,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     stale_accounting = sum(
         row["status"] == "sent_to_accountant"
         and str(row.get("sent_to_accountant_at") or "")[:10] < (today - timedelta(days=7)).isoformat()
-        for row in invoices
+        for row in active_invoices
     )
     alerts = {
         "duplicate_invoice_numbers": sum(count - 1 for count in number_counts.values() if count > 1),
@@ -786,7 +838,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
         return [{"label": label, "amount": round(amount, 2)}
                 for label, amount in sorted(dimensions[key].items(), key=lambda item: item[1], reverse=True)[:limit]]
     return {
-        "totals": {"all": round(sum(float(row.get("total_mxn") or 0) for row in invoices), 2),
+        "totals": {"all": round(sum(float(row.get("total_mxn") or 0) for row in active_invoices), 2),
                    "paid": round(dimensions["status"].get("paid", 0), 2),
                    "pending": round(sum(value for key, value in dimensions["status"].items() if key != "paid"), 2)},
         **{f"by_{key}": ranked(key) for key in dimensions},

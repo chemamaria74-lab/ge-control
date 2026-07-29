@@ -34,6 +34,10 @@ from models.commercial import (
     ProspectTaskCreate,
     ProspectTaskStatusChange,
     ProspectConvert,
+    AdministratorInviteCreate,
+    AdministratorMembershipStatusChange,
+    SubscriptionOverrideCreate,
+    AddonStatusChange,
 )
 from routes.admin_saas import _require_superadmin
 from services.commercial_repository import CommercialSchemaUnavailable, get_commercial_repository
@@ -48,6 +52,7 @@ from services.commercial_rules import (
     validate_prospect_transition,
     validate_prospect_conversion,
     validate_task_transition,
+    validate_override_period,
 )
 
 
@@ -71,6 +76,130 @@ def _schema_error(exc: CommercialSchemaUnavailable) -> HTTPException:
 def commercial_bootstrap(authorization: str = Header(default="")):
     _admin(authorization)
     return _response(get_commercial_repository().bootstrap())
+
+
+@router.get("/admin-commercial/subscriptions/{subscription_id}/360")
+def subscription_360(subscription_id: int, authorization: str = Header(default="")):
+    _admin(authorization)
+    repo = get_commercial_repository()
+    try:
+        subscription = repo.get("commercial_subscriptions", subscription_id)
+        customer = repo.get("commercial_customers", int(subscription["customer_id"]))
+        tax_entity = repo.get("commercial_tax_entities", int(subscription["tax_entity_id"]))
+        plan_version = repo.get("commercial_plan_versions", int(subscription["plan_version_id"]))
+        plan = repo.get("commercial_plans", int(plan_version["plan_id"]))
+        related = lambda table: [
+            row for row in repo.list(table)
+            if int(row.get("subscription_id") or 0) == subscription_id
+        ]
+        fiscal_events = related("commercial_fiscal_trip_ledger")
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        period = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m")
+        consumed = sum(
+            int(row.get("quantity") or 0) for row in fiscal_events
+            if str(row.get("period_month") or "")[:7] == period
+        )
+        trip_limit = plan_version.get("monthly_fiscal_trip_limit")
+        return _response({
+            "subscription": subscription, "customer": customer, "tax_entity": tax_entity,
+            "plan": plan, "plan_version": plan_version,
+            "terms": related("subscription_term_versions"),
+            "administrators": related("subscription_administrator_memberships"),
+            "overrides": related("subscription_limit_overrides"),
+            "addons": related("subscription_addons"),
+            "renewals": related("subscription_renewals"),
+            "fiscal_usage": {
+                "period": period, "consumed": consumed, "limit": trip_limit,
+                "remaining": None if trip_limit is None else max(0, int(trip_limit) - consumed),
+                "percent": 0 if not trip_limit else min(100, round(consumed * 100 / int(trip_limit), 2)),
+            },
+        })
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+@router.post("/admin-commercial/administrator-invitations")
+def invite_subscription_administrator(payload: AdministratorInviteCreate, authorization: str = Header(default="")):
+    actor = _admin(authorization)
+    repo = get_commercial_repository()
+    try:
+        repo.get("commercial_subscriptions", payload.subscription_id)
+        result = repo.rpc("commercial_invite_subscription_admin", {
+            "p_subscription_id": payload.subscription_id,
+            "p_email": payload.email,
+            "p_display_name": payload.display_name,
+            "p_actor_user_id": actor,
+            "p_reason": payload.reason,
+        })
+        return _response({"ok": True, **result}, 201)
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+@router.post("/admin-commercial/administrator-memberships/{membership_id}/status")
+def change_administrator_membership_status(
+    membership_id: int, payload: AdministratorMembershipStatusChange,
+    authorization: str = Header(default=""),
+):
+    actor = _admin(authorization)
+    repo = get_commercial_repository()
+    try:
+        result = repo.rpc("commercial_change_admin_membership_status", {
+            "p_membership_id": membership_id,
+            "p_target_status": payload.target_status,
+            "p_auth_user_id": payload.auth_user_id,
+            "p_actor_user_id": actor,
+            "p_reason": payload.reason,
+            "p_allow_last_admin": payload.superadmin_last_admin_override,
+        })
+        return _response({"ok": True, **result})
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+@router.post("/admin-commercial/subscription-overrides")
+def create_subscription_override(payload: SubscriptionOverrideCreate, authorization: str = Header(default="")):
+    actor = _admin(authorization)
+    validate_override_period(starts_at=payload.starts_at, ends_at=payload.ends_at)
+    if payload.override_code in {"administrator_limit", "vehicle_limit", "fiscal_trip_limit"}:
+        if payload.integer_value is None or payload.boolean_value is not None:
+            raise HTTPException(400, "El override de límite requiere un valor entero.")
+    elif payload.boolean_value is None or payload.integer_value is not None:
+        raise HTTPException(400, "El override de acceso requiere un valor booleano.")
+    repo = get_commercial_repository()
+    try:
+        repo.get("commercial_subscriptions", payload.subscription_id)
+        row = repo.insert("subscription_limit_overrides", {
+            **payload.model_dump(), "status": "active", "approved_by": actor,
+            "approved_at": repo_time(), "created_by": actor, "updated_by": actor,
+        })
+        repo.audit(
+            actor_user_id=actor, action="approve_override", entity_type="subscription_limit_override",
+            entity_id=str(row["id"]), after=row, reason=payload.reason,
+            expires_at=payload.ends_at.isoformat(),
+        )
+        return _response({"ok": True, "override": row}, 201)
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+@router.post("/admin-commercial/addons/{addon_id}/status")
+def change_addon_status(addon_id: int, payload: AddonStatusChange, authorization: str = Header(default="")):
+    actor = _admin(authorization)
+    repo = get_commercial_repository()
+    try:
+        before = repo.get("subscription_addons", addon_id)
+        after = repo.update("subscription_addons", addon_id, {
+            "status": payload.target_status, "updated_by": actor,
+        })
+        repo.audit(
+            actor_user_id=actor, action="status_transition", entity_type="subscription_addon",
+            entity_id=str(addon_id), before=before, after=after, reason=payload.reason,
+        )
+        return _response({"ok": True, "addon": after})
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
 
 
 @router.post("/admin-commercial/prospects")

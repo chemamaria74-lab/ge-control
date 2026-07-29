@@ -7,6 +7,7 @@ La fase hibrida lee catálogos reales desde tablas tr_* sin escribir en ellas.
 from __future__ import annotations
 
 import logging
+import os
 import io
 import json
 import re
@@ -113,6 +114,40 @@ VEHICLE_DB_FIELDS = {
     "peso_bruto_vehicular",
     "metadata",
 }
+
+
+def _commercial_entitlements_enabled() -> bool:
+    return str(os.getenv("COMMERCIAL_ENTITLEMENTS_ENFORCE", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _commercial_subscription_for_profile(perfil_id: int) -> dict:
+    admin = get_supabase_admin()
+    taxes = admin.table("commercial_tax_entities").select("id").eq("perfil_id", perfil_id).limit(1).execute().data or []
+    if not taxes:
+        raise HTTPException(409, "El RFC no tiene suscripción comercial conciliada.")
+    rows = (
+        admin.table("commercial_subscriptions").select("id,tax_entity_id,status")
+        .eq("tax_entity_id", taxes[0]["id"]).in_("status", ["trialing", "active"])
+        .limit(1).execute().data or []
+    )
+    if not rows:
+        raise HTTPException(409, "El RFC no tiene una suscripción activa.")
+    return rows[0]
+
+
+def _require_commercial_fiscal_capacity(perfil_id: int) -> dict | None:
+    if not _commercial_entitlements_enabled():
+        return None
+    subscription = _commercial_subscription_for_profile(perfil_id)
+    capacity = get_supabase_admin().rpc("commercial_fiscal_trip_capacity", {
+        "p_subscription_id": subscription["id"], "p_at": _now_iso(),
+    }).execute().data or {}
+    if not capacity.get("can_stamp"):
+        raise HTTPException(409, {
+            "message": "Límite mensual de viajes fiscales alcanzado.",
+            "capacity": capacity,
+        })
+    return {**subscription, "capacity": capacity}
 
 OPERATOR_DB_FIELDS = {
     "nombre",
@@ -5891,6 +5926,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             }
     except Exception as exc:
         logger.info("No se pudo validar idempotencia Carta Porte viaje=%s: %s", viaje_id, exc)
+    commercial_scope = _require_commercial_fiscal_capacity(pid) if pid else None
     try:
         serie_cp, folio_cp = _next_carta_porte_traslado_folio(sb, uid, pid)
         cfdi_dict, id_ccp = build_cfdi_transporte(
@@ -6071,6 +6107,24 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "xml_url": f"/api/tr-v2/carta-porte/{viaje_id}/xml",
             "fecha_timbrado": now_iso,
         }
+    ledger_warning = None
+    if commercial_scope:
+        try:
+            get_supabase_admin().rpc("commercial_record_fiscal_trip", {
+                "p_subscription_id": commercial_scope["id"],
+                "p_tax_entity_id": commercial_scope["tax_entity_id"],
+                "p_cfdi_id": cfdi_saved.get("id"),
+                "p_trip_id": viaje_id,
+                "p_uuid_sat": uuid_sat,
+                "p_event_type": "carta_porte_stamped",
+                "p_occurred_at": now_iso,
+                "p_actor_user_id": uid,
+                "p_reason": "Carta Porte timbrada",
+                "p_metadata": {"source": "tr_cfdi", "perfil_id": pid},
+            }).execute()
+        except Exception as exc:
+            ledger_warning = "Carta Porte timbrada; el ledger comercial requiere conciliación inmediata."
+            logger.exception("No se pudo registrar viaje fiscal uuid=%s: %s", uuid_sat, exc)
     try:
         if xml_timbrado:
             version_xml(
@@ -6152,7 +6206,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
             "warnings": validacion.warnings if validacion else [],
             "metadata": validacion.metadata if validacion else {},
         },
-        "warning": None if carta_ok else "CFDI timbrado, pero XML no validó como Carta Porte de carretera.",
+        "warning": ledger_warning or (None if carta_ok else "CFDI timbrado, pero XML no validó como Carta Porte de carretera."),
     }
 
 
@@ -6281,13 +6335,28 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
     ) or _num(detected.get("cantidad_litros"))
     if not clave_producto or volumen <= 0:
         raise HTTPException(400, f"{filename}: no se detectó producto y volumen en litros.")
-    fecha_hora = _first_text(root.get("Fecha"), detected.get("fecha_factura"))
+    ubicaciones = _xml_all(root, "Ubicacion")
+    expected_location_type = "Origen" if tipo_movimiento == "carga" else "Destino"
+    ubicacion = next(
+        (
+            item for item in ubicaciones
+            if _first_text(item.get("TipoUbicacion")).lower() == expected_location_type.lower()
+        ),
+        None,
+    )
+    fecha_hora = _first_text(
+        ubicacion.get("FechaHoraSalidaLlegada") if ubicacion is not None else "",
+        root.get("Fecha"),
+        detected.get("fecha_factura"),
+    )
     if not fecha_hora:
         raise HTTPException(400, f"{filename}: no se detectó la fecha del CFDI.")
     contraparte_rfc = _first_text(
+        ubicacion.get("RFCRemitenteDestinatario") if ubicacion is not None else "",
         detected.get("proveedor_rfc") if tipo_movimiento == "carga" else detected.get("receptor_rfc")
     )
     contraparte_nombre = _first_text(
+        ubicacion.get("NombreRemitenteDestinatario") if ubicacion is not None else "",
         detected.get("proveedor_nombre") if tipo_movimiento == "carga" else detected.get("receptor_nombre")
     )
     carta_porte = _xml_first(root, "CartaPorte")
@@ -6307,6 +6376,28 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
         "nombre_contraparte": contraparte_nombre,
         "filename": filename,
         "metadata": {"source": "xml_externo", "tipo_comprobante": root.get("TipoDeComprobante", "")},
+    }
+
+
+def _covol_external_ingreso_from_xml(content: bytes, filename: str) -> dict[str, Any]:
+    root = ET.fromstring(content)
+    detected = _detect_xml_document(content).get("detected") or {}
+    invoice_uuid = _first_text(detected.get("uuid"))
+    related = _xml_first(root, "CfdiRelacionado")
+    related_uuid = _first_text(related.get("UUID") if related is not None else "")
+    if not invoice_uuid:
+        raise HTTPException(400, f"{filename}: la Carta Ingreso no contiene UUID timbrado.")
+    if not related_uuid:
+        raise HTTPException(
+            400,
+            f"{filename}: la Carta Ingreso debe relacionar el UUID de la Carta Porte externa.",
+        )
+    return {
+        "invoice_uuid": invoice_uuid.upper(),
+        "related_uuid": related_uuid.upper(),
+        "importe": _num(root.get("Total")),
+        "fecha": _first_text(root.get("Fecha"), detected.get("fecha_factura")),
+        "filename": filename,
     }
 
 
@@ -6333,7 +6424,8 @@ async def transporte_v2_listar_covol_externos(
 
 @router.post("/tr-v2/control-volumetrico/externos")
 async def transporte_v2_subir_covol_externos(
-    tipo_movimiento: str = Form(...),
+    tipo_documento: str = Form(default="carta_porte"),
+    tipo_movimiento: str = Form(default=""),
     num_permiso_cne: str = Form(default=""),
     files: list[UploadFile] = File(...),
     authorization: str = Header(default=""),
@@ -6344,9 +6436,12 @@ async def transporte_v2_subir_covol_externos(
     _require_profile_if_present(uid, token, pid)
     if not pid:
         raise HTTPException(400, "perfil_id requerido.")
-    if tipo_movimiento not in {"carga", "descarga"}:
-        raise HTTPException(400, "El tipo de movimiento debe ser carga o descarga.")
-    tipo = tipo_movimiento
+    document_type = _first_text(tipo_documento).lower()
+    if document_type not in {"carta_porte", "carta_ingreso"}:
+        # Compatibilidad con clientes anteriores durante la transición.
+        document_type = "carta_porte" if tipo_movimiento in {"carga", "descarga"} else ""
+    if not document_type:
+        raise HTTPException(400, "Selecciona Carta Porte o Carta Ingreso.")
     selected_permiso = _first_text(num_permiso_cne)
     if not selected_permiso:
         raise HTTPException(400, "Selecciona un permiso CRE/CNE antes de subir movimientos externos.")
@@ -6387,28 +6482,83 @@ async def transporte_v2_subir_covol_externos(
     if len(xml_files) > 100:
         raise HTTPException(413, "El ZIP contiene más de 100 XML; divídelo en varios archivos.")
     rows = []
+    imported_documents = 0
     errors = []
     for filename, content in xml_files:
         try:
-            row = _covol_external_from_xml(content, filename, tipo, selected_permiso)
-            product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
-            if not _permiso_product_family_match(selected_permit, product_text):
-                raise HTTPException(400, f"{filename}: el producto no corresponde al permiso {selected_permiso}.")
-            row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
-            saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
-                row,
-                on_conflict="user_id,perfil_id,tipo_movimiento,uuid_cfdi,clave_producto",
-            ).execute().data or []
-            if saved:
-                rows.append(saved[0])
+            if document_type == "carta_ingreso":
+                invoice = _covol_external_ingreso_from_xml(content, filename)
+                related_rows = (
+                    sb.table(TBL_COVOL_EXTERNOS)
+                    .select("*")
+                    .eq("user_id", uid)
+                    .eq("perfil_id", pid)
+                    .eq("num_permiso_cne", selected_permiso)
+                    .eq("uuid_cfdi", invoice["related_uuid"])
+                    .execute()
+                    .data
+                    or []
+                )
+                if not related_rows:
+                    raise HTTPException(
+                        400,
+                        f"{filename}: primero sube la Carta Porte externa relacionada {invoice['related_uuid']}.",
+                    )
+                for existing in related_rows:
+                    metadata = _parse_json_value(existing.get("metadata"), {})
+                    metadata.update({
+                        "carta_ingreso_uuid": invoice["invoice_uuid"],
+                        "carta_ingreso_fecha": invoice["fecha"],
+                        "carta_ingreso_filename": filename,
+                    })
+                    updated = (
+                        sb.table(TBL_COVOL_EXTERNOS)
+                        .update({"importe": invoice["importe"], "metadata": metadata, "updated_at": _now_iso()})
+                        .eq("id", existing.get("id"))
+                        .eq("user_id", uid)
+                        .eq("perfil_id", pid)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    rows.extend(updated)
+                imported_documents += 1
+                continue
+
+            saved_document_rows = []
+            for movement_type in ("carga", "descarga"):
+                row = _covol_external_from_xml(content, filename, movement_type, selected_permiso)
+                product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
+                if not _permiso_product_family_match(selected_permit, product_text):
+                    raise HTTPException(400, f"{filename}: el producto no corresponde al permiso {selected_permiso}.")
+                row["metadata"].update({"document_type": "carta_porte"})
+                row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
+                saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
+                    row,
+                    on_conflict="user_id,perfil_id,tipo_movimiento,uuid_cfdi,clave_producto",
+                ).execute().data or []
+                saved_document_rows.extend(saved)
+            if saved_document_rows:
+                rows.extend(saved_document_rows)
+                imported_documents += 1
         except HTTPException as exc:
             errors.append(str(exc.detail))
         except Exception as exc:
             errors.append(f"{filename}: {exc}")
     if not rows:
         raise HTTPException(400, {"message": "No se importó ningún XML.", "errors": errors})
-    _audit(uid, token, pid, TBL_COVOL_EXTERNOS, None, "importar_xml_covol", {"tipo": tipo, "total": len(rows)})
-    return {"ok": True, "importados": len(rows), "movimientos": rows, "errors": errors}
+    _audit(uid, token, pid, TBL_COVOL_EXTERNOS, None, "importar_xml_covol", {
+        "tipo_documento": document_type,
+        "documentos": imported_documents,
+        "movimientos": len(rows),
+    })
+    return {
+        "ok": True,
+        "importados": imported_documents,
+        "movimientos_importados": len(rows),
+        "movimientos": rows,
+        "errors": errors,
+    }
 
 
 @router.post("/tr-v2/control-volumetrico/cerrar-mes")
