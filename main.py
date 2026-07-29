@@ -690,8 +690,14 @@ async def frontend(lang: str = "es"):
 
 @app.get("/gas-lp/flotilla", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_flotilla_gas_lp():
-    """Cuarto portal de Gas LP: analítica histórica conectada con Motive."""
+    """Espacio de Flotilla dentro del Portal de Gerentes."""
     return _render_html_file("flotilla_gas_lp.html")
+
+
+@app.get("/gas-lp/gerentes/inicio", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_gerentes_workspace_selector():
+    """Selector de espacios del Portal de Gerentes."""
+    return _render_html_file("gerentes_selector.html")
 
 
 @app.get("/gas-lp/gerentes/gastos", response_class=HTMLResponse, include_in_schema=False)
@@ -1000,7 +1006,7 @@ async def login_conciliacion_gas_lp():
 
 @app.get("/gas-lp/flotilla/acceso", response_class=HTMLResponse, include_in_schema=False)
 async def login_flotilla_gas_lp():
-    """Acceso independiente y temporal al portal Flotilla 360."""
+    """Acceso independiente y temporal al Portal de Gerentes."""
     return _render_html_file("flotilla_gas_lp_login.html")
 
 
