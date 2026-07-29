@@ -386,11 +386,9 @@
       </div>
     </div>
     <nav class="trv2-subtabs" aria-label="Pago y seguimiento de operadores">
-      <button class="trv2-subtab active" type="button" data-payment-tab="liquidaciones" onclick="trv2SetOperatorPaymentView('liquidaciones')"><i class="fa-solid fa-money-check-dollar"></i> Pago por periodo</button>
-      <button class="trv2-subtab" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas por viaje</button>
-      <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Configuración de nómina</button>
-      <button class="trv2-subtab active" type="button" data-payment-period-view="pendientes" onclick="trv2SetPaymentPeriodView('pendientes')"><i class="fa-solid fa-list-check"></i> Pendientes y pagados del periodo</button>
-      <button class="trv2-subtab" type="button" data-payment-period-view="historial" onclick="trv2SetPaymentPeriodView('historial')"><i class="fa-solid fa-clock-rotate-left"></i> Pagos realizados</button>
+      <button class="trv2-subtab active" type="button" data-payroll-workspace="pending" onclick="trv2SetPayrollWorkspace('pending')"><i class="fa-solid fa-list-check"></i> Por pagar</button>
+      <button class="trv2-subtab" type="button" data-payroll-workspace="history" onclick="trv2SetPayrollWorkspace('history')"><i class="fa-solid fa-clock-rotate-left"></i> Pagados</button>
+      <button class="trv2-subtab" type="button" data-payroll-workspace="config" onclick="trv2SetPayrollWorkspace('config')"><i class="fa-solid fa-sliders"></i> Configuración</button>
     </nav>
     <div class="trv2-payment-panel active" data-payment-panel="liquidaciones">
     <div data-payment-period-panel="pendientes">
@@ -398,6 +396,7 @@
       <div class="trv2-form trv2-payment-filters">
         <label>Periodo rápido
           <select id="trv2-payment-preset" onchange="trv2ApplyOperatorPaymentPreset(this.value);trv2InvalidateOperatorPaymentSearch()">
+            <option value="outstanding">Todos los pendientes (últimos 12 meses)</option>
             <option value="week">Semana actual</option>
             <option value="fortnight">Quincena actual</option>
             <option value="month">Mes actual</option>
@@ -408,7 +407,7 @@
         <label>Hasta <input id="trv2-payment-to" type="date" onchange="trv2MarkOperatorPaymentCustom();trv2InvalidateOperatorPaymentSearch()"></label>
         <label>Operador <select id="trv2-payment-operator" onchange="trv2InvalidateOperatorPaymentSearch()"><option value="">Todos los operadores</option></select></label>
         <div class="trv2-form-actions">
-          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadOperatorPayments({search:true})"><i class="fa-solid fa-magnifying-glass"></i> Calcular</button>
+          <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2LoadOperatorPayments({search:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button>
         </div>
       </div>
     </section>
@@ -426,7 +425,7 @@
           <p class="trv2-muted">Abre el periodo para revisar cada viaje y definir banco, descuentos, gastos y efectivo.</p>
         </div>
       </div>
-      <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Operador</th><th>Viajes</th><th>Rutas</th><th>Litros</th><th>Kg</th><th>Comisiones</th><th>Gastos</th><th>Sin tarifa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-summary-table"></tbody></table></div>
+      <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Operador</th><th>Pendientes desde</th><th>Viajes</th><th>Rutas</th><th>Litros</th><th>Kg</th><th>Comisiones</th><th>Gastos</th><th>Sin tarifa</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-summary-table"></tbody></table></div>
     </section>
     <section class="trv2-panel trv2-payment-inline-detail" id="trv2-payment-detail-panel" hidden>
       <div class="trv2-table-head"><div><h2 id="trv2-payment-inline-title">Detalle del operador</h2><p class="trv2-muted">Captura aquí los gastos de cada viaje. La preparación de nómina se realiza después.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2CloseOperatorPaymentInlineDetail()">Cerrar detalle</button></div>
@@ -437,7 +436,13 @@
     </div>
     <div data-payment-period-panel="historial" hidden>
       <section class="trv2-panel">
-        <div class="trv2-table-head"><div><h2>Pagos realizados</h2><p class="trv2-muted">Consulta pagos anteriores sin guardar archivos por separado. Cada cálculo permanece congelado con los importes utilizados al pagarlo.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorPaymentHistory()"><i class="fa-solid fa-magnifying-glass"></i> Buscar historial</button></div>
+        <div class="trv2-table-head"><div><h2>Pagos realizados</h2><p class="trv2-muted">Muestra los últimos 60 días por defecto. Cada pago conserva congelados los importes utilizados.</p></div></div>
+        <div class="trv2-form trv2-payment-filters">
+          <label>Desde <input id="trv2-payment-history-from" type="date"></label>
+          <label>Hasta <input id="trv2-payment-history-to" type="date"></label>
+          <label>Operador <select id="trv2-payment-history-operator"><option value="">Todos los operadores</option></select></label>
+          <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorPaymentHistory()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button></div>
+        </div>
         <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Periodo</th><th>Operador</th><th>Viajes</th><th>Comisiones</th><th>Banco</th><th>INFONAVIT</th><th>Gastos</th><th>Efectivo</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-history-table"><tr><td colspan="10"><div class="trv2-empty">Abre esta vista para consultar los pagos realizados.</div></td></tr></tbody></table></div>
       </section>
     </div>
@@ -480,6 +485,10 @@
         </section>
       </section>
     </div>
+    <nav class="trv2-subtabs" data-payment-config-nav hidden aria-label="Configuración de nómina">
+      <button class="trv2-subtab active" type="button" data-payment-tab="tarifas" onclick="trv2SetOperatorPaymentView('tarifas')"><i class="fa-solid fa-tags"></i> Tarifas por viaje</button>
+      <button class="trv2-subtab" type="button" data-payment-tab="bases" onclick="trv2SetOperatorPaymentView('bases')"><i class="fa-solid fa-building-columns"></i> Bases de nómina</button>
+    </nav>
     <div class="trv2-payment-panel" data-payment-panel="tarifas">
     <section class="trv2-panel trv2-operator-tariffs-panel">
       <div class="trv2-table-head">
@@ -540,7 +549,7 @@
   </section>
 
   <section id="trv2-tab-operadores-ruta" class="trv2-section">
-    <div class="trv2-section-head"><div><h1>Operadores en ruta</h1><p>Consulta el seguimiento operativo de los viajes con bitácora activa.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button></div>
+    <div class="trv2-section-head"><div><h1>Operadores en ruta</h1><p>Seguimiento automático de recorridos, descansos e incidencias.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorDashboard({force:true})"><i class="fa-solid fa-rotate"></i> Actualizar</button></div>
     <section class="trv2-panel">
       <div class="trv2-admin-route-kpis" id="trv2-operator-dashboard-main-kpis"><article><span>En ruta</span><strong>0</strong></article><article><span>En descanso</span><strong>0</strong></article><article><span>Incidencias</span><strong>0</strong></article></div>
       <div id="trv2-operator-dashboard-main-list" class="trv2-operator-dashboard-list"></div>
@@ -594,7 +603,7 @@
       <article class="trv2-cv-action-card trv2-cv-action-review">
         <h2><i class="fa-solid fa-magnifying-glass-chart"></i> Revisar mes</h2>
         <p>Valida cargas, entregas, UUID y diferencias antes de generar el archivo SAT.</p>
-        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadControlVolumetrico({search:true})">Revisar movimientos</button>
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2OpenCvReview()">Revisar movimientos</button>
       </article>
       <article class="trv2-cv-action-card trv2-cv-action-close">
         <h2><i class="fa-solid fa-file-zipper"></i> Cerrar mes</h2>
@@ -602,9 +611,9 @@
         <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2CloseAndDownloadCvMonth()">Cerrar y descargar ZIP</button>
       </article>
     </div>
-    <section class="trv2-panel trv2-cv-filter-panel">
+    <section class="trv2-panel trv2-cv-filter-panel" id="trv2-cv-review-panel" hidden>
       <div class="trv2-form trv2-form-cv">
-        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2InvalidateCvSearch()"></select></label>
+        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2CvPermitChanged()"></select></label>
         <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2InvalidateCvSearch()"></label>
         <label>Mes * <select id="trv2-cv-mes" onchange="trv2InvalidateCvSearch()"></select></label>
         <label>Producto <select id="trv2-cv-producto" onchange="trv2InvalidateCvSearch()"></select></label>
@@ -615,43 +624,24 @@
       </div>
       <div class="trv2-cv-context" id="trv2-cv-context"></div>
     </section>
-    <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn">Selecciona permiso y periodo; después presiona “Revisar movimientos”.</div>
-    <div class="trv2-cv-metrics" id="trv2-cv-kpis">
-      <article><span>Inventario inicial</span><strong>0 L</strong></article>
-      <article><span>Cargas</span><strong>0 L</strong><small>0 registros</small></article>
-      <article><span>Entregas</span><strong>0 L</strong><small>0 registros</small></article>
-      <article><span>En tránsito / final</span><strong>0 L</strong></article>
-      <article><span>Cartas Porte</span><strong>0</strong></article>
-      <article><span>Externos</span><strong>0</strong></article>
+    <div id="trv2-cv-results" hidden>
+      <div id="trv2-cv-alert" class="trv2-alert trv2-alert-warn"></div>
+      <div class="trv2-cv-metrics" id="trv2-cv-kpis"></div>
+      <section class="trv2-panel">
+        <div class="trv2-table-head">
+          <div>
+            <h2>Movimientos del viaje</h2>
+            <p class="trv2-muted">Una fila reúne la recepción y la descarga del mismo traslado para evitar duplicidad visual.</p>
+          </div>
+        </div>
+        <div class="trv2-table-wrap trv2-cv-table-wrap">
+          <table>
+            <thead><tr><th>Fecha de carga</th><th>Fecha de descarga</th><th>Origen / proveedor</th><th>Destino / cliente</th><th>UUID Carta Porte</th><th>Producto</th><th>Volumen (L)</th><th>Importe</th><th>Fuente</th></tr></thead>
+            <tbody id="trv2-cv-movements-table"><tr><td colspan="9"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </div>
-    <section class="trv2-panel">
-      <div class="trv2-table-head">
-        <div>
-          <h2>Detalle de cargas (recepciones al autotanque)</h2>
-          <p class="trv2-muted">Cada Carta Porte suma una carga al iniciar el traslado; las tarjetas de arriba son sólo el resumen.</p>
-        </div>
-      </div>
-      <div class="trv2-table-wrap trv2-cv-table-wrap">
-        <table>
-          <thead><tr><th>Fecha</th><th>Origen / proveedor</th><th>UUID Carta Porte</th><th>Producto</th><th>Volumen (L)</th><th>Importe</th><th>Fuente</th></tr></thead>
-          <tbody id="trv2-cv-loads-table"><tr><td colspan="7"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="trv2-panel">
-      <div class="trv2-table-head">
-        <div>
-          <h2>Detalle de entregas (salidas del autotanque)</h2>
-          <p class="trv2-muted">Es la segunda parte del mismo viaje: descarga el volumen en destino y no constituye un registro duplicado.</p>
-        </div>
-      </div>
-      <div class="trv2-table-wrap trv2-cv-table-wrap">
-        <table>
-          <thead><tr><th>Fecha</th><th>Destino / cliente</th><th>UUID Carta Porte</th><th>Producto</th><th>Volumen (L)</th><th>Importe</th><th>Fuente</th></tr></thead>
-          <tbody id="trv2-cv-deliveries-table"><tr><td colspan="7"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
-        </table>
-      </div>
-    </section>
   </section>
 
   <section id="trv2-tab-administracion" class="trv2-section">
@@ -664,16 +654,26 @@
     <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
       <button class="trv2-subtab active" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
       <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="suscripcion" onclick="trv2SetAdminSubtab('suscripcion')"><i class="fa-solid fa-file-contract"></i> Suscripción y alta</button>
     </nav>
+    <div class="trv2-admin-panel" data-admin-panel="suscripcion">
+      <section class="trv2-panel">
+        <div class="trv2-table-head"><div><h2><i class="fa-solid fa-file-contract"></i> Suscripción Transporte</h2><p class="trv2-muted">Resumen comercial y operativo de la empresa activa.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadTransportSubscription()"><i class="fa-solid fa-rotate"></i> Actualizar</button></div>
+        <div class="trv2-kpis" id="trv2-subscription-kpis"></div>
+        <div class="trv2-alert trv2-alert-info" id="trv2-subscription-policy"></div>
+        <div class="trv2-table-head"><div><h2>Checklist de alta</h2><p class="trv2-muted">Lo indispensable antes de operar y timbrar con esta empresa.</p></div></div>
+        <div class="trv2-onboarding-checklist" id="trv2-onboarding-checklist"></div>
+      </section>
+    </div>
     <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
       <section class="trv2-panel">
         <h2><i class="fa-solid fa-user-lock"></i> Usuarios operador</h2>
         <p class="trv2-muted">Crea accesos para choferes y operadores. Ellos podrán consultar viajes asignados, subir facturas, ver Carta Porte y registrar bitácora.</p>
-        <div class="trv2-alert trv2-alert-warn">Acceso actual por token temporal. Usuario/PIN formal requiere migración no destructiva posterior.</div>
+        <div class="trv2-alert trv2-alert-info">Cada operador usa un usuario y contraseña propios. Sólo puede mantener una sesión activa y Administración puede desactivar o restablecer su acceso.</div>
         <form class="trv2-form trv2-form-admin" onsubmit="trv2CreateOperatorAccess(event)">
-          <label>Operador / chofer <select id="trv2-admin-operator-chofer" required><option value="">Seleccionar operador</option></select></label>
+          <label>Operador / chofer <select id="trv2-admin-operator-chofer" required onchange="trv2SuggestOperatorUsername()"><option value="">Seleccionar operador</option></select></label>
           <label>Usuario operador <input id="trv2-admin-operator-user" placeholder="Ej. javier.t167"></label>
-          <label>Token/PIN temporal <input id="trv2-admin-operator-pin" placeholder="Define un token o PIN temporal"></label>
+          <label>Contraseña <input id="trv2-admin-operator-pin" type="text" minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
           <label>Estado <select id="trv2-admin-operator-active"><option value="true">Activo</option><option value="false">Inactivo</option></select></label>
           <div class="trv2-form-actions">
             <button class="trv2-btn trv2-btn-primary" type="submit">Crear acceso operador</button>
@@ -695,6 +695,7 @@
         <h2><i class="fa-solid fa-sliders"></i> Configuración</h2>
         <p class="trv2-muted">Perfil fiscal y parámetros operativos guardados en configuración Transporte.</p>
         <form class="trv2-form" id="trv2-admin-settings-form" onsubmit="trv2SaveSettings(event)">
+          <div class="trv2-form-wide trv2-config-section-title"><i class="fa-solid fa-file-invoice"></i><div><strong>Datos fiscales</strong><span>Información de la empresa utilizada para documentos y validaciones.</span></div></div>
           <label>RFC del contribuyente * <input id="trv2-set-rfc" data-rfc-field placeholder="RFC de la empresa" required></label>
           <label>Nombre fiscal / razón social * <input id="trv2-set-nombre" placeholder="Razón social de la empresa" required></label>
           <label>CP fiscal / lugar expedición * <input id="trv2-set-cp" placeholder="00000" required></label>
@@ -711,6 +712,7 @@
             </select>
           </label>
           <label>RFC representante legal <input id="trv2-set-rfc-rep" data-rfc-field placeholder="Opcional"></label>
+          <div class="trv2-form-wide trv2-config-section-title"><i class="fa-solid fa-gears"></i><div><strong>Operación</strong><span>Valores predeterminados para Carta Ingreso y Nómina.</span></div></div>
           <label>Clave servicio Carta Ingreso
             <select id="trv2-set-ci-clave-prodserv">
               <option value="78101800">78101800 — Transporte de carga por carretera (general)</option>
@@ -725,6 +727,7 @@
               <option value="mensual">Mensual</option>
             </select>
           </label>
+          <div class="trv2-form-wide trv2-config-section-title"><i class="fa-solid fa-palette"></i><div><strong>Identidad de documentos</strong><span>Logo, colores y datos visibles en los PDF.</span></div></div>
           <div class="trv2-form-wide trv2-logo-box">
             <label>Logo empresa <input id="trv2-set-logo-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="trv2PreviewLogoFile(event)"></label>
             <div class="trv2-logo-preview"><img id="trv2-logo-preview" alt="Logo Transporte" hidden><span id="trv2-logo-empty">Sin logo cargado</span></div>
@@ -801,5 +804,17 @@
       <button class="trv2-mini-btn" type="button" onclick="trv2CloseCompanySelector()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="trv2-company-list" id="trv2-company-list"></div>
+    <div class="trv2-divider"></div>
+    <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ToggleCompanyRequest(true)"><i class="fa-solid fa-building-circle-arrow-right"></i> Solicitar otra empresa</button>
+    <form class="trv2-form trv2-form-admin" id="trv2-company-request-form" onsubmit="trv2SubmitCompanyRequest(event)" hidden>
+      <div class="trv2-form-title"><strong>Nueva razón social</strong><span>Quedará pendiente hasta que GE Control valide RFC, contrato y suscripción.</span></div>
+      <label>Razón social * <input id="trv2-company-request-name" required minlength="3"></label>
+      <label>RFC * <input id="trv2-company-request-rfc" data-rfc-field required maxlength="13"></label>
+      <div class="trv2-form-actions">
+        <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ToggleCompanyRequest(false)">Cancelar</button>
+        <button class="trv2-btn trv2-btn-primary" type="submit">Enviar a validación</button>
+      </div>
+    </form>
+    <div id="trv2-company-request-status" class="trv2-muted"></div>
   </section>
 </div>

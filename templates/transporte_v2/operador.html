@@ -31,7 +31,16 @@
 
     <section class="no-trip" id="trv2-operator-no-trip">
       <strong>Sin viaje asignado</strong>
-      <p>Puedes iniciar un movimiento con la factura de la carga.</p>
+      <p>Inicia la bitácora desde que sales vacío hacia la terminal. La factura se agregará después.</p>
+      <section class="pretrip" id="trv2-operator-pretrip">
+        <div class="card-head">
+          <span class="icon"><i class="fa-solid fa-truck-arrow-right"></i></span>
+          <div><h2>Recorrido vacío</h2><p>Registra la salida y la llegada a la terminal.</p></div>
+          <span class="status" id="trv2-operator-pretrip-status">SIN_INICIAR</span>
+        </div>
+        <div class="bitacora-grid" id="trv2-operator-pretrip-actions"></div>
+        <ol class="history" id="trv2-operator-pretrip-history"></ol>
+      </section>
       <div class="trip-details" aria-label="Flujo para crear y timbrar viaje">
         <div><span>Paso 1</span><strong>Subir factura</strong></div>
         <div><span>Paso 2</span><strong>Revisar datos detectados</strong></div>
@@ -97,6 +106,13 @@
       </section>
     </div>
   </main>
+  <div class="privacy-layer" id="trv2-operator-privacy" hidden>
+    <section class="privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="trv2-privacy-title">
+      <h2 id="trv2-privacy-title">Aviso de ubicación</h2>
+      <p>Durante la operación, GE Control registrará la ubicación disponible al iniciar, descansar, reportar incidencias, llegar y finalizar. Se utilizará para la bitácora y el seguimiento de la empresa.</p>
+      <button class="primary" type="button" onclick="trv2OperadorAcceptPrivacy()">Aceptar y continuar</button>
+    </section>
+  </div>
   <div class="toast" id="trv2-operador-toast"></div>
   <script src="/static/js/session_timeout.js?v=session-expiry-20260715"></script>
   <script src="/static/js/transporte_v2/operator_portal.js?v=session-expiry-20260715"></script>
