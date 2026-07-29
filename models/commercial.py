@@ -267,3 +267,43 @@ class ProspectConvert(BaseModel):
     contractual_email: str = Field(min_length=3, max_length=180)
     authorized_contact: str = Field(min_length=2, max_length=180)
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class AdministratorInviteCreate(BaseModel):
+    subscription_id: int = Field(gt=0)
+    email: str = Field(min_length=3, max_length=180)
+    display_name: str = Field(min_length=2, max_length=180)
+    reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized:
+            raise ValueError("Correo inválido")
+        return normalized
+
+
+class AdministratorMembershipStatusChange(BaseModel):
+    target_status: Literal["active", "suspended", "revoked"]
+    auth_user_id: Optional[str] = None
+    reason: str = Field(min_length=3, max_length=1000)
+    superadmin_last_admin_override: bool = False
+
+
+class SubscriptionOverrideCreate(BaseModel):
+    subscription_id: int = Field(gt=0)
+    override_code: Literal[
+        "administrator_limit", "vehicle_limit", "fiscal_trip_limit",
+        "operator_portal_access", "subscription_access"
+    ]
+    integer_value: Optional[int] = Field(default=None, ge=0)
+    boolean_value: Optional[bool] = None
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class AddonStatusChange(BaseModel):
+    target_status: Literal["active", "suspended", "expired", "canceled"]
+    reason: str = Field(min_length=3, max_length=1000)
