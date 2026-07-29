@@ -68,12 +68,22 @@
   $('directForm').onsubmit=async e=>{e.preventDefault();if(activeProfile==='all'){alert('Selecciona una empresa específica para registrar el gasto.');return}try{const d=await api('/invoices/direct',{method:'POST',body:JSON.stringify({supplier_id:Number($('directSupplier').value),concept_id:Number($('directConcept').value)||null,invoice_number:$('directNumber').value,invoice_date:$('directDate').value,total_mxn:Number($('directTotal').value),period_key:$('directPeriod').value,description:$('directDescription').value,group_id:Number($('directGroup').value)||null})});$('directMsg').textContent=`Factura registrada.${d.alerts?.length?' '+d.alerts.join(' '):''}`;e.target.reset();$('directDate').value=new Date().toISOString().slice(0,10)}catch(err){$('directMsg').textContent=err.message;$('directMsg').className='status error'}};
   $('supplierForm').onsubmit=async e=>{e.preventDefault();if(activeProfile==='all'){alert('Selecciona una empresa específica.');return}try{await api('/suppliers',{method:'POST',body:JSON.stringify({commercial_name:$('supplierName').value,legal_name:$('supplierLegal').value,rfc:$('supplierRfc').value,phone:$('supplierPhone').value,payment_email:$('supplierEmail').value})});e.target.reset();state.loaded.queue=state.loaded.direct=state.loaded.catalogs=false;await loadPanel('catalogs')}catch(err){alert(err.message)}};
   $('adminConceptForm').onsubmit=async e=>{e.preventDefault();if(activeProfile==='all'){alert('Selecciona una empresa específica.');return}try{await api('/concepts',{method:'POST',body:JSON.stringify({name:$('adminConceptName').value})});e.target.reset();await loadPanel('catalogs')}catch(err){alert(err.message)}};
-  document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('[data-content]').forEach(x=>x.classList.toggle('active',x.dataset.content===b.dataset.panel))});
+  document.querySelectorAll('[data-panel]').forEach(b=>b.onclick=()=>{
+    const panel=b.dataset.panel;
+    document.querySelectorAll('[data-panel]').forEach(x=>x.classList.toggle('active',x===b));
+    document.querySelectorAll('[data-content]').forEach(x=>x.classList.toggle('active',x.dataset.content===panel));
+    $('expenseKpis').hidden=!['queue','analytics'].includes(panel);
+  });
   $('companySelect').onchange=()=>{activeProfile=$('companySelect').value;localStorage.setItem(EXPENSE_PROFILE_KEY,activeProfile);if(activeProfile!=='all')localStorage.setItem('ge_gaslp_conciliacion_perfil_id',activeProfile);state.bootstrap={groups:[],company:{nombre:''}};state.concepts=[];state.suppliers=[];state.invoices=[];state.analytics=emptyAnalytics();state.loaded={queue:false,direct:false,catalogs:false,analytics:false};$('companyName').textContent=activeProfile==='all'?'Todas las empresas':profileName(activeProfile);render()};
   $('expenseTypeFilter').addEventListener('change',renderInvoiceRows);
   $('searchExpenses').onclick=()=>loadPanel('queue').then(()=>{$('queueLoadStatus').textContent='Facturas actualizadas.'}).catch(e=>{$('queueLoadStatus').textContent=e.message});
   $('prepareDirectExpense').onclick=()=>loadPanel('direct').then(()=>{$('directLoadStatus').textContent='Catálogos listos.'}).catch(e=>{$('directLoadStatus').textContent=e.message});
   $('searchAdminCatalogs').onclick=()=>loadPanel('catalogs').then(()=>{$('adminCatalogLoadStatus').textContent='Catálogos actualizados.'}).catch(e=>{$('adminCatalogLoadStatus').textContent=e.message});
   $('searchAnalytics').onclick=()=>loadPanel('analytics').then(()=>{$('analyticsLoadStatus').textContent='Análisis actualizado.'}).catch(e=>{$('analyticsLoadStatus').textContent=e.message});
+  $('changeExpenseSpace').onclick=()=>{
+    ['ge_gaslp_conciliacion_token','sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key=>localStorage.removeItem(key));
+    ['ge_flotilla_access','ge_flotilla_expires_at','ge_flotilla_identity'].forEach(key=>sessionStorage.removeItem(key));
+    location.replace('/gas-lp/conciliacion?area=gastos');
+  };
   if(!token)location.replace('/gas-lp/conciliacion');else loadProfiles().then(()=>{$('companyName').textContent=activeProfile==='all'?'Todas las empresas':profileName(activeProfile);render()}).catch(e=>alert(e.message));
 })();

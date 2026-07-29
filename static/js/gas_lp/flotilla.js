@@ -47,6 +47,13 @@
       $('syncButton').hidden=internal;
       $('fleetBack').hidden=internal;
       if($('directionDownloads')) $('directionDownloads').hidden=internal;
+      if(!internal){
+        $('fleetPortalTitle').textContent='Supervisión · Flotilla';
+        $('managerHomeLink').hidden=true;
+        $('managerExpensesLink').hidden=true;
+        $('fleetBack').hidden=false;
+        $('fleetBack').innerHTML='<i class="fa-solid fa-layer-group"></i> Supervisión';
+      }
       document.documentElement.classList.remove('fleet-auth-pending');
       $('fleetAuthGate').hidden=true;
       return true;
@@ -132,6 +139,10 @@
   }
 
   async function loadReportCatalog({prepare=true,scroll=true}={}){
+    if(!$('reportGroup').value){
+      notice('Selecciona una zona antes de generar el análisis.','error');
+      return;
+    }
     const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
     $('runAnalysis').disabled=true;
     $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Consultando…';
@@ -329,15 +340,16 @@
       const data=await api('/groups');
       const internal=state.identity?.identity_type==='internal';
       const groups=data.items||[];
-      $('reportGroup').innerHTML=`<option value="">${internal?'Todas mis zonas':'Toda la flotilla'}</option>`+groups.map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
+      $('reportGroup').innerHTML='<option value="">Selecciona una zona</option>'+groups.map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
       let saved={};try{saved=JSON.parse(localStorage.getItem('ge_manager_fleet_report')||'{}')}catch(_error){}
       if(saved.group&&groups.some(g=>String(g.id)===String(saved.group)))$('reportGroup').value=String(saved.group);
       else if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
-      await loadReportCatalog({prepare:false,scroll:false});
+      $('executiveDashboard').hidden=true;
+      notice('');
     }catch(error){notice(error.message,'error');}
   }
   initializeDates();
-  $('fleetBack').onclick=()=>{clearPortalAccess();location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
+  $('fleetBack').onclick=()=>{if(state.identity?.identity_type==='official'){clearPortalAccess();clearOfficialSession();location.replace('/gas-lp/conciliacion?area=flotilla');return}location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
   $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
   $('searchVehicle').onclick=()=>{state.page=1;loadVehicles();};
