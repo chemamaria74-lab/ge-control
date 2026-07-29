@@ -4,7 +4,7 @@ const TRV2_MONTHS = [
   ['9', 'Septiembre'], ['10', 'Octubre'], ['11', 'Noviembre'], ['12', 'Diciembre'],
 ];
 let TRV2_CV_EXTERNAL = [];
-let TRV2_CV_EXTERNAL_TYPE = 'carga';
+let TRV2_CV_EXTERNAL_DOCUMENT_TYPE = 'carta_porte';
 const TRV2_CV_VIEW_CACHE_MS = 5 * 60 * 1000;
 let TRV2_CV_LAST_SEARCH = null;
 
@@ -530,8 +530,10 @@ function trv2RefreshCvView() {
   }
 }
 
-function trv2ChooseCvExternal(type = 'carga') {
-  TRV2_CV_EXTERNAL_TYPE = type === 'carga' ? 'carga' : 'descarga';
+function trv2ChooseCvExternal() {
+  TRV2_CV_EXTERNAL_DOCUMENT_TYPE = document.getElementById('trv2-cv-external-document-type')?.value === 'carta_ingreso'
+    ? 'carta_ingreso'
+    : 'carta_porte';
   if (!trv2CvSelectedPermitValue()) {
     trv2OpenCvReview();
     trv2Toast('Selecciona primero el permiso y el periodo del movimiento externo.', 'error');
@@ -553,7 +555,7 @@ async function trv2UploadCvExternal(event) {
     return;
   }
   const form = new FormData();
-  form.append('tipo_movimiento', TRV2_CV_EXTERNAL_TYPE);
+  form.append('tipo_documento', TRV2_CV_EXTERNAL_DOCUMENT_TYPE);
   form.append('num_permiso_cne', permit);
   files.forEach(file => form.append('files', file));
   const alert = document.getElementById('trv2-cv-alert');
@@ -570,7 +572,7 @@ async function trv2UploadCvExternal(event) {
     trv2Toast(message, 'error');
     return;
   }
-  trv2Toast(`${data.importados} movimiento(s) externo(s) importado(s).`, 'success');
+  trv2Toast(`${data.importados} documento(s) externo(s) importado(s).`, 'success');
   TRV2_CV_LAST_SEARCH = null;
   await trv2LoadControlVolumetrico({search: true});
 }

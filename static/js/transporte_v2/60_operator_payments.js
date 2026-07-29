@@ -11,6 +11,7 @@ const TRV2_OPERATOR_PAYMENT_CACHE_MS = 5 * 60 * 1000;
 let TRV2_OPERATOR_PAYMENT_LAST_SEARCH = null;
 let TRV2_OPERATOR_PAYMENT_PERIOD_VIEW = 'pendientes';
 let TRV2_PAYROLL_WORKSPACE = 'pending';
+let TRV2_OPERATOR_PAYMENT_FILTER_TOUCHED = false;
 
 function trv2SetPayrollWorkspace(workspace = 'pending') {
   TRV2_PAYROLL_WORKSPACE = ['pending', 'history', 'config'].includes(workspace) ? workspace : 'pending';
@@ -18,7 +19,10 @@ function trv2SetPayrollWorkspace(workspace = 'pending') {
     button.classList.toggle('active', button.dataset.payrollWorkspace === TRV2_PAYROLL_WORKSPACE);
   });
   const configNav = document.querySelector('[data-payment-config-nav]');
-  if (configNav) configNav.hidden = TRV2_PAYROLL_WORKSPACE !== 'config';
+  if (configNav) {
+    configNav.hidden = TRV2_PAYROLL_WORKSPACE !== 'config';
+    configNav.style.display = TRV2_PAYROLL_WORKSPACE === 'config' ? '' : 'none';
+  }
   if (TRV2_PAYROLL_WORKSPACE === 'history') {
     trv2SetOperatorPaymentView('liquidaciones');
     trv2SetPaymentPeriodView('historial');
@@ -27,7 +31,7 @@ function trv2SetPayrollWorkspace(workspace = 'pending') {
   } else {
     trv2SetOperatorPaymentView('liquidaciones');
     trv2SetPaymentPeriodView('pendientes');
-    trv2LoadOperatorPayments({search: true});
+    trv2ResetOperatorPaymentResults('Presiona Buscar para consultar los pendientes del periodo.');
   }
 }
 
@@ -38,7 +42,10 @@ function trv2SetPaymentPeriodView(view = 'pendientes') {
   document.querySelectorAll('[data-payment-period-panel]').forEach(panel => { panel.hidden = panel.dataset.paymentPeriodPanel !== TRV2_OPERATOR_PAYMENT_PERIOD_VIEW; });
   const exportButton = document.getElementById('trv2-payment-export');
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial';
-  if (TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial') trv2LoadOperatorPaymentHistory();
+  if (TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial') {
+    const body = document.getElementById('trv2-payment-history-table');
+    if (body) body.innerHTML = '<tr><td colspan="10"><div class="trv2-empty">Presiona Buscar para consultar los pagos realizados.</div></td></tr>';
+  }
 }
 
 function trv2SetOperatorPaymentView(view = 'liquidaciones') {
@@ -388,6 +395,16 @@ function trv2OperatorPaymentModeLabel(mode = '') {
 }
 
 async function trv2PrepareConciliacionTab(options = {}) {
+  if (!TRV2_OPERATOR_PAYMENT_INITIALIZED) {
+    trv2ApplyOperatorPaymentPreset('fortnight');
+    trv2InitializeOperatorPaymentHistoryDates();
+    trv2ResetOperatorPaymentResults('Presiona Buscar para consultar los pendientes del periodo.');
+    TRV2_OPERATOR_PAYMENT_INITIALIZED = true;
+  }
+  trv2SetPayrollWorkspace(TRV2_PAYROLL_WORKSPACE);
+}
+
+async function trv2SearchOperatorPayments() {
   const loads = [];
   const catalogsReady = ['operadores', 'rutas'].every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
   if (!catalogsReady && typeof trv2LoadCatalogs === 'function') loads.push(trv2LoadCatalogs({silent: true}));
@@ -396,15 +413,12 @@ async function trv2PrepareConciliacionTab(options = {}) {
       if (data?.ok) window.TRV2_TRANSPORTE_SETTINGS = data.data || {};
     }));
   }
-  loads.push(trv2LoadOperatorTariffs({force: Boolean(options.force)}));
   await Promise.all(loads);
-  trv2OperatorPaymentCatalogOptions();
-  if (!TRV2_OPERATOR_PAYMENT_INITIALIZED) {
-    trv2ApplyConfiguredPayrollPeriod();
-    trv2InitializeOperatorPaymentHistoryDates();
-    TRV2_OPERATOR_PAYMENT_INITIALIZED = true;
+  if (!TRV2_OPERATOR_PAYMENT_FILTER_TOUCHED) {
+    trv2ApplyOperatorPaymentPreset(trv2OperatorPaymentDefaultPreset());
   }
-  trv2SetPayrollWorkspace(TRV2_PAYROLL_WORKSPACE);
+  trv2OperatorPaymentCatalogOptions();
+  await trv2LoadOperatorPayments({search: true});
 }
 
 async function trv2LoadOperatorTariffs(options = {}) {
@@ -456,7 +470,7 @@ async function trv2LoadOperatorPayments(options = {}) {
   trv2RenderOperatorPayments(data.summary || {});
 }
 
-function trv2ResetOperatorPaymentResults(message = 'Actualiza para consultar los pendientes del periodo.') {
+function trv2ResetOperatorPaymentResults(message = 'Presiona Buscar para consultar los pendientes del periodo.') {
   TRV2_OPERATOR_PAYMENT_ITEMS = [];
   TRV2_OPERATOR_PAYMENT_SELECTED = 0;
   const kpis = document.getElementById('trv2-payment-kpis');
@@ -477,7 +491,8 @@ function trv2ResetOperatorPaymentResults(message = 'Actualiza para consultar los
 }
 
 function trv2InvalidateOperatorPaymentSearch() {
-  trv2ResetOperatorPaymentResults('Filtros modificados. Presiona Actualizar para consultar.');
+  TRV2_OPERATOR_PAYMENT_FILTER_TOUCHED = true;
+  trv2ResetOperatorPaymentResults('Filtros modificados. Presiona Buscar para consultar.');
 }
 
 function trv2OperatorPaymentGroups() {

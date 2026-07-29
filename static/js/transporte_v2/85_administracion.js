@@ -26,7 +26,6 @@ function trv2SetAdminSubtab(name = 'configuracion') {
     trv2LoadPermisosRfc();
   }
   if (name === 'usuarios-operador') trv2LoadOperatorAccesses();
-  if (name === 'suscripcion') trv2LoadTransportSubscription();
 }
 
 async function trv2LoadTransportSubscription() {
@@ -129,8 +128,23 @@ function trv2RenderOperatorDashboard(data = {}) {
   }).join('');
 }
 
-async function trv2LoadOperatorDashboard() {
+function trv2ResetOperatorDashboard() {
+  if (TRV2_OPERATOR_DASHBOARD_TIMER) {
+    clearTimeout(TRV2_OPERATOR_DASHBOARD_TIMER);
+    TRV2_OPERATOR_DASHBOARD_TIMER = null;
+  }
+  const list = document.getElementById('trv2-operator-dashboard-main-list') || document.getElementById('trv2-operator-dashboard-list');
+  const kpis = document.getElementById('trv2-operator-dashboard-main-kpis') || document.getElementById('trv2-operator-dashboard-kpis');
+  if (kpis) kpis.innerHTML = '<article><span>En ruta</span><strong>0</strong></article><article><span>En descanso</span><strong>0</strong></article><article><span>Incidencias</span><strong>0</strong></article>';
+  if (list) list.innerHTML = '<div class="trv2-empty">Presiona Buscar para consultar los operadores en ruta.</div>';
+}
+
+async function trv2LoadOperatorDashboard(options = {}) {
   if (!TRV2_ADMIN_READY) return;
+  if (!options.search && !options.force) {
+    trv2ResetOperatorDashboard();
+    return;
+  }
   const list = document.getElementById('trv2-operator-dashboard-main-list') || document.getElementById('trv2-operator-dashboard-list');
   if (list) list.innerHTML = '<div class="trv2-empty">Cargando operadores en ruta...</div>';
   const data = await trv2Api('GET', '/api/tr-v2/operator/dashboard', undefined, {allowError: true, silent: true});
@@ -139,10 +153,6 @@ async function trv2LoadOperatorDashboard() {
     return;
   }
   trv2RenderOperatorDashboard(data);
-  if (TRV2_OPERATOR_DASHBOARD_TIMER) clearTimeout(TRV2_OPERATOR_DASHBOARD_TIMER);
-  TRV2_OPERATOR_DASHBOARD_TIMER = setTimeout(() => {
-    if (document.getElementById('trv2-tab-operadores-ruta')?.classList.contains('active')) trv2LoadOperatorDashboard();
-  }, 60000);
 }
 
 async function trv2AdminFinalizeTrip(viajeId) {
@@ -153,7 +163,7 @@ async function trv2AdminFinalizeTrip(viajeId) {
   });
   if (!data?.ok) return;
   trv2Toast('Viaje finalizado por administración.', 'success');
-  await trv2LoadOperatorDashboard();
+  await trv2LoadOperatorDashboard({search: true, force: true});
 }
 
 function trv2RenderOperatorAccesses(items = []) {
