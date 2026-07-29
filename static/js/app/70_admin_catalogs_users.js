@@ -701,8 +701,7 @@ function renderInternalUsersGasLp() {
       ? `<b>${internalRoleLabel(u.role)}</b><div style="font-size:.72rem;color:#64748b">${zones || 'Sin zonas'}</div>`
       : '<b>Asistente Gas LP</b>';
     return `<tr style="border-bottom:1px solid #f1f5f9">
-      <td style="padding:.55rem .8rem;font-weight:600">${u.display_name || '—'}</td>
-      <td style="padding:.55rem .8rem;font-family:monospace">${u.code || '—'}</td>
+      <td style="padding:.55rem .8rem;font-weight:600;font-family:monospace">${u.code || '—'}</td>
       <td style="padding:.55rem .8rem">${access}</td>
       <td style="padding:.55rem .8rem">${badge}</td>
       <td style="padding:.55rem .8rem;color:#94a3b8;font-size:.78rem">${u.last_access_at ? String(u.last_access_at).slice(0,16).replace('T',' ') : '—'}</td>
@@ -747,8 +746,9 @@ async function loadInternalUsersGasLp() {
 async function createInternalUserGasLp() {
   const statusEl = document.getElementById('gasInternalStatus');
   if (statusEl) statusEl.textContent = '';
+  const username = document.getElementById('gasInternalCode').value.trim();
   const payload = {
-    display_name: document.getElementById('gasInternalName').value.trim(),
+    display_name: username,
     section: 'gas_lp',
     role: document.getElementById('gasInternalPortal').value === 'fleet' ? 'flotilla_gerente' : 'asistente_facturacion',
     portal_scope: document.getElementById('gasInternalPortal').value,
@@ -760,10 +760,10 @@ async function createInternalUserGasLp() {
     code: document.getElementById('gasInternalCode').value.trim(),
     pin: document.getElementById('gasInternalPin').value.trim(),
   };
-  if (!payload.display_name || !payload.perfil_id || !payload.code || !payload.pin) {
+  if (!payload.perfil_id || !payload.code || !payload.pin) {
     if (statusEl) {
       statusEl.style.color = '#dc2626';
-      statusEl.textContent = 'Nombre, usuario, contraseña y empresa activa son obligatorios.';
+      statusEl.textContent = 'Usuario, contraseña y empresa activa son obligatorios.';
     }
     return;
   }
@@ -786,7 +786,7 @@ async function createInternalUserGasLp() {
       statusEl.style.color = '#15803d';
       statusEl.innerHTML = `Gerente creado. Usuario: <b>${data.user.code}</b>. La contraseña quedó guardada de forma segura.`;
     }
-    ['gasInternalName','gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showGasInternalTab(payload.portal_scope);
     await loadInternalUsersGasLp();
   } catch(e) {
@@ -836,8 +836,12 @@ async function resetInternalPinGasLp(id) {
     headers: { ...authHeader(), 'Content-Type': 'application/json' },
     body: JSON.stringify({pin: password}),
   });
-  const data = await res.json();
-  if (data.ok) showToast('Contraseña actualizada correctamente.', 'success');
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok || !data.ok) {
+    alert(data.detail || 'No se pudo actualizar la contraseña.');
+    return;
+  }
+  showToast('Contraseña actualizada y usuario desbloqueado.', 'success');
   await loadInternalUsersGasLp();
 }
 
