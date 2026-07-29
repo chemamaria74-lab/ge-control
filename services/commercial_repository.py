@@ -186,6 +186,42 @@ class CommercialRepository:
             raise HTTPException(500, "La operación comercial no devolvió resultado.")
         return result
 
+    def runtime_reconciliation_context(self, tenant_id: str) -> dict:
+        """Read-only legacy/runtime context used for explicit reconciliation."""
+        try:
+            tenants = (
+                self.sb.table("tenants").select("*").eq("id", tenant_id).limit(1).execute().data or []
+            )
+            if not tenants:
+                raise HTTPException(404, "La cuenta operativa seleccionada no existe.")
+            profiles = (
+                self.sb.table("perfiles_empresa")
+                .select("id,tenant_id,nombre,rfc,activo,descripcion")
+                .eq("tenant_id", tenant_id)
+                .order("id")
+                .execute()
+                .data
+                or []
+            )
+            subscriptions = (
+                self.sb.table("subscriptions")
+                .select("id,tenant_id,plan_name,status,expires_at,limits_json,notes_internal")
+                .eq("tenant_id", tenant_id)
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                or []
+            )
+            return {
+                "tenant": tenants[0],
+                "profiles": profiles,
+                "runtime_subscriptions": subscriptions,
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise self._schema_error(exc) from exc
+
     def bootstrap(self) -> dict:
         try:
             try:
