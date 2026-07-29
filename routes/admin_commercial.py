@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -38,6 +44,8 @@ from models.commercial import (
     AdministratorMembershipStatusChange,
     SubscriptionOverrideCreate,
     AddonStatusChange,
+    ReconciliationPreviewRequest,
+    ReconciliationApplyRequest,
 )
 from routes.admin_saas import _require_superadmin
 from services.commercial_repository import CommercialSchemaUnavailable, get_commercial_repository
@@ -72,10 +80,402 @@ def _schema_error(exc: CommercialSchemaUnavailable) -> HTTPException:
     return HTTPException(409, str(exc))
 
 
+def _normalized_rfc(value: str | None) -> str:
+    return "".join(
+        character for character in str(value or "").upper().strip()
+        if character.isalnum() or character in "Ñ&"
+    )
+
+
+def _reconciliation_apply_enabled() -> bool:
+    return os.environ.get("COMMERCIAL_RECONCILIATION_APPLY_ENABLED", "").strip().lower() in {
+        "1", "true", "yes"
+    }
+
+
+def _reconciliation_preview(repo, payload: ReconciliationPreviewRequest) -> dict:
+    customer = repo.get("commercial_customers", payload.customer_id)
+    context = repo.runtime_reconciliation_context(payload.tenant_id)
+    profiles_by_id = {int(row["id"]): row for row in context["profiles"]}
+    tax_entities_by_id = {
+        int(row["id"]): row
+        for row in repo.list("commercial_tax_entities")
+        if int(row.get("customer_id") or 0) == payload.customer_id
+    }
+    all_customers = repo.list("commercial_customers")
+    all_tax_entities = repo.list("commercial_tax_entities")
+    blockers: list[str] = []
+    warnings: list[str] = []
+    seen_tax_entities: set[int] = set()
+    seen_profiles: set[int] = set()
+    resolved_mappings = []
+
+    existing_tenant = str(customer.get("tenant_id") or "").strip()
+    if existing_tenant and existing_tenant != payload.tenant_id:
+        blockers.append("El cliente comercial ya está vinculado con otra cuenta operativa.")
+    if any(
+        int(row.get("id") or 0) != payload.customer_id
+        and str(row.get("tenant_id") or "") == payload.tenant_id
+        for row in all_customers
+    ):
+        blockers.append("La cuenta operativa ya está vinculada con otro cliente comercial.")
+
+    for mapping in payload.mappings:
+        if mapping.tax_entity_id in seen_tax_entities:
+            blockers.append(f"El RFC comercial {mapping.tax_entity_id} está repetido.")
+            continue
+        if mapping.perfil_id in seen_profiles:
+            blockers.append(f"La empresa operativa {mapping.perfil_id} está repetida.")
+            continue
+        seen_tax_entities.add(mapping.tax_entity_id)
+        seen_profiles.add(mapping.perfil_id)
+        tax_entity = tax_entities_by_id.get(mapping.tax_entity_id)
+        profile = profiles_by_id.get(mapping.perfil_id)
+        if not tax_entity:
+            blockers.append(f"El RFC comercial {mapping.tax_entity_id} no pertenece al cliente.")
+            continue
+        if not profile:
+            blockers.append(f"La empresa operativa {mapping.perfil_id} no pertenece al tenant.")
+            continue
+        commercial_rfc = _normalized_rfc(tax_entity.get("rfc"))
+        runtime_rfc = _normalized_rfc(profile.get("rfc"))
+        if not commercial_rfc or not runtime_rfc or commercial_rfc != runtime_rfc:
+            blockers.append(
+                f"El RFC {commercial_rfc or 'vacío'} no coincide con la empresa "
+                f"{profile.get('nombre') or mapping.perfil_id} ({runtime_rfc or 'sin RFC'})."
+            )
+        existing_profile = tax_entity.get("perfil_id")
+        if existing_profile and int(existing_profile) != mapping.perfil_id:
+            blockers.append(f"El RFC {commercial_rfc} ya está vinculado con otro perfil.")
+        if any(
+            int(row.get("id") or 0) != mapping.tax_entity_id
+            and row.get("perfil_id")
+            and int(row["perfil_id"]) == mapping.perfil_id
+            for row in all_tax_entities
+        ):
+            blockers.append(f"La empresa operativa {mapping.perfil_id} ya está vinculada con otro RFC.")
+        if profile.get("activo") is False:
+            warnings.append(f"La empresa {profile.get('nombre') or mapping.perfil_id} está inactiva.")
+        has_commercial_subscription = any(
+            int(row.get("tax_entity_id") or 0) == mapping.tax_entity_id
+            for row in repo.list("commercial_subscriptions")
+        )
+        if not has_commercial_subscription:
+            warnings.append(f"El RFC {commercial_rfc} aún no tiene suscripción comercial.")
+        resolved_mappings.append({
+            "tax_entity_id": mapping.tax_entity_id,
+            "perfil_id": mapping.perfil_id,
+            "commercial_rfc": commercial_rfc,
+            "runtime_rfc": runtime_rfc,
+            "legal_name": tax_entity.get("legal_name"),
+            "runtime_name": profile.get("nombre"),
+            "before": {
+                "perfil_id": tax_entity.get("perfil_id"),
+                "company_id": tax_entity.get("company_id"),
+            },
+            "after": {
+                "perfil_id": mapping.perfil_id,
+                "company_id": mapping.perfil_id,
+            },
+        })
+    if not context["runtime_subscriptions"]:
+        warnings.append("La cuenta operativa no tiene una suscripción runtime registrada.")
+    fingerprint_payload = {
+        "customer_id": payload.customer_id,
+        "tenant_id": payload.tenant_id,
+        "mappings": [
+            {"tax_entity_id": row["tax_entity_id"], "perfil_id": row["perfil_id"]}
+            for row in resolved_mappings
+        ],
+        "customer_tenant_before": customer.get("tenant_id"),
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "customer": customer,
+        "runtime": context,
+        "mappings": resolved_mappings,
+        "warnings": warnings,
+        "blockers": blockers,
+        "can_apply": not blockers and len(resolved_mappings) == len(payload.mappings),
+        "apply_enabled": _reconciliation_apply_enabled(),
+        "fingerprint": fingerprint,
+        "effects": {
+            "commercial_customer_tenant_id": payload.tenant_id,
+            "commercial_tax_entities": len(resolved_mappings),
+            "runtime_rows_modified": 0,
+            "auth_users_modified": 0,
+            "fiscal_rows_modified": 0,
+        },
+    }
+
+
 @router.get("/admin-commercial/bootstrap")
 def commercial_bootstrap(authorization: str = Header(default="")):
     _admin(authorization)
     return _response(get_commercial_repository().bootstrap())
+
+
+@router.post("/admin-commercial/reconciliation/preview")
+def preview_reconciliation(
+    payload: ReconciliationPreviewRequest, authorization: str = Header(default="")
+):
+    _admin(authorization)
+    try:
+        return _response(_reconciliation_preview(get_commercial_repository(), payload))
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+@router.post("/admin-commercial/reconciliation/apply")
+def apply_reconciliation(
+    payload: ReconciliationApplyRequest, authorization: str = Header(default="")
+):
+    actor = _admin(authorization)
+    if not _reconciliation_apply_enabled():
+        raise HTTPException(
+            409,
+            "La aplicación de conciliaciones está deshabilitada hasta autorizar su activación transaccional.",
+        )
+    repo = get_commercial_repository()
+    try:
+        preview_payload = ReconciliationPreviewRequest(
+            customer_id=payload.customer_id,
+            tenant_id=payload.tenant_id,
+            mappings=payload.mappings,
+        )
+        preview = _reconciliation_preview(repo, preview_payload)
+        if not preview["can_apply"]:
+            raise HTTPException(409, "La conciliación tiene bloqueos y no puede aplicarse.")
+        if preview["fingerprint"] != payload.preview_fingerprint:
+            raise HTTPException(409, "La información cambió. Genera una nueva vista previa.")
+        customer_before = preview["customer"]
+        tax_before = {
+            int(row["tax_entity_id"]): row["before"]
+            for row in preview["mappings"]
+        }
+        updated_tax_entities = []
+        try:
+            customer_after = repo.update(
+                "commercial_customers",
+                payload.customer_id,
+                {"tenant_id": payload.tenant_id, "updated_by": actor},
+            )
+            for mapping in preview["mappings"]:
+                updated_tax_entities.append(
+                    repo.update(
+                        "commercial_tax_entities",
+                        int(mapping["tax_entity_id"]),
+                        {
+                            "perfil_id": int(mapping["perfil_id"]),
+                            "company_id": int(mapping["perfil_id"]),
+                            "updated_by": actor,
+                        },
+                    )
+                )
+            audit = repo.audit(
+                actor_user_id=actor,
+                action="reconcile_runtime_account",
+                entity_type="commercial_customer",
+                entity_id=str(payload.customer_id),
+                before={
+                    "customer": customer_before,
+                    "tax_entities": tax_before,
+                },
+                after={
+                    "customer": customer_after,
+                    "tax_entities": updated_tax_entities,
+                    "effects": preview["effects"],
+                },
+                reason=payload.reason,
+            )
+        except Exception:
+            repo.update(
+                "commercial_customers",
+                payload.customer_id,
+                {"tenant_id": customer_before.get("tenant_id"), "updated_by": actor},
+            )
+            for tax_entity_id, before in tax_before.items():
+                repo.update(
+                    "commercial_tax_entities",
+                    tax_entity_id,
+                    {**before, "updated_by": actor},
+                )
+            raise
+        return _response({
+            "ok": True,
+            "customer": customer_after,
+            "tax_entities": updated_tax_entities,
+            "audit_event_id": audit.get("id"),
+            "effects": preview["effects"],
+            "message": "Conciliación aplicada sin modificar datos operativos ni fiscales.",
+        })
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
+
+
+def _subscription_summary(repo, subscription: dict, related_rows: dict[str, list[dict]]) -> dict:
+    subscription_id = int(subscription["id"])
+    plan_version = repo.get("commercial_plan_versions", int(subscription["plan_version_id"]))
+    plan = repo.get("commercial_plans", int(plan_version["plan_id"]))
+    price_version = (
+        repo.get("commercial_price_versions", int(subscription["price_version_id"]))
+        if subscription.get("price_version_id")
+        else None
+    )
+    related = lambda table: [
+        row for row in related_rows.get(table, [])
+        if int(row.get("subscription_id") or 0) == subscription_id
+    ]
+    now = datetime.now(ZoneInfo("America/Mexico_City"))
+    def active_at(value: str | None, *, default) -> datetime:
+        if not value:
+            return default
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone(ZoneInfo("America/Mexico_City"))
+
+    period = now.strftime("%Y-%m")
+    fiscal_events = related("commercial_fiscal_trip_ledger")
+    consumed = sum(
+        int(row.get("quantity") or 0) for row in fiscal_events
+        if str(row.get("period_month") or "")[:7] == period
+    )
+    terms = sorted(
+        related("subscription_term_versions"),
+        key=lambda row: (int(row.get("version_number") or 0), str(row.get("created_at") or "")),
+        reverse=True,
+    )
+    effective_terms = next(
+        (row for row in terms if row.get("status") in {"active", "accepted"}),
+        terms[0] if terms else None,
+    )
+    limits = {
+        "vehicles": (effective_terms or {}).get("vehicle_limit", plan_version.get("vehicle_limit")),
+        "fiscal_trips": (effective_terms or {}).get(
+            "monthly_fiscal_trip_limit", plan_version.get("monthly_fiscal_trip_limit")
+        ),
+        "administrators": (effective_terms or {}).get(
+            "administrator_limit", plan_version.get("administrator_limit")
+        ),
+    }
+    active_overrides = []
+    for override in related("subscription_limit_overrides"):
+        starts = active_at(override.get("starts_at"), default=datetime.min.replace(tzinfo=now.tzinfo))
+        ends = active_at(override.get("ends_at"), default=datetime.max.replace(tzinfo=now.tzinfo))
+        if override.get("status") == "active" and starts <= now < ends:
+            active_overrides.append(override)
+            override_map = {
+                "vehicle_limit": "vehicles",
+                "fiscal_trip_limit": "fiscal_trips",
+                "administrator_limit": "administrators",
+            }
+            if override.get("override_code") in override_map:
+                limits[override_map[override["override_code"]]] = override.get("integer_value")
+    administrators = related("subscription_administrator_memberships")
+    occupied_administrators = sum(
+        1 for row in administrators if row.get("status") in {"invited", "active"}
+    )
+    latest_vehicle_event: dict[int, dict] = {}
+    for event in sorted(
+        related("subscription_vehicle_state_events"),
+        key=lambda row: str(row.get("occurred_at") or ""),
+    ):
+        latest_vehicle_event[int(event.get("vehicle_id") or 0)] = event
+    active_vehicles = sum(1 for event in latest_vehicle_event.values() if event.get("to_active") is True)
+    addons = related("subscription_addons")
+    operator_portal = next(
+        (
+            row for row in sorted(addons, key=lambda item: str(item.get("starts_at") or ""), reverse=True)
+            if row.get("addon_code") == "OPERATOR_PORTAL"
+            and row.get("status") in {"scheduled", "trial", "active"}
+            and active_at(row.get("starts_at"), default=datetime.min.replace(tzinfo=now.tzinfo)) <= now
+            and now < active_at(row.get("ends_at"), default=datetime.max.replace(tzinfo=now.tzinfo))
+        ),
+        None,
+    )
+    trip_limit = limits["fiscal_trips"]
+    return {
+        "subscription": subscription,
+        "plan": plan,
+        "plan_version": plan_version,
+        "price_version": price_version,
+        "effective_terms": effective_terms,
+        "limits": limits,
+        "usage": {
+            "period": period,
+            "fiscal_trips": {
+                "used": consumed,
+                "limit": trip_limit,
+                "remaining": None if trip_limit is None else max(0, int(trip_limit) - consumed),
+                "percent": 0 if not trip_limit else min(100, round(consumed * 100 / int(trip_limit), 2)),
+            },
+            "vehicles": {
+                "used": active_vehicles,
+                "limit": limits["vehicles"],
+                "source": "subscription_vehicle_state_events",
+                "tracked": len(latest_vehicle_event),
+            },
+            "administrators": {
+                "used": occupied_administrators,
+                "limit": limits["administrators"],
+            },
+        },
+        "administrators": administrators,
+        "operator_portal": operator_portal,
+        "addons": addons,
+        "active_overrides": active_overrides,
+        "renewals": related("subscription_renewals"),
+        "discounts": related("subscription_discounts"),
+    }
+
+
+@router.get("/admin-commercial/customers/{customer_id}/360")
+def customer_360(customer_id: int, authorization: str = Header(default="")):
+    _admin(authorization)
+    repo = get_commercial_repository()
+    try:
+        customer = repo.get("commercial_customers", customer_id)
+        tax_entities = [
+            row for row in repo.list("commercial_tax_entities")
+            if int(row.get("customer_id") or 0) == customer_id
+        ]
+        subscriptions = [
+            row for row in repo.list("commercial_subscriptions")
+            if int(row.get("customer_id") or 0) == customer_id
+        ]
+        related_tables = (
+            "subscription_term_versions",
+            "subscription_discounts",
+            "subscription_addons",
+            "subscription_administrator_memberships",
+            "subscription_limit_overrides",
+            "commercial_fiscal_trip_ledger",
+            "subscription_vehicle_state_events",
+            "subscription_renewals",
+        )
+        related_rows = {table: repo.list(table) for table in related_tables}
+        subscription_summaries = [
+            _subscription_summary(repo, subscription, related_rows)
+            for subscription in subscriptions
+        ]
+        quotes = [
+            row for row in repo.list("commercial_quotes")
+            if int(row.get("customer_id") or 0) == customer_id
+        ]
+        orders = [
+            row for row in repo.list("service_orders")
+            if int(row.get("customer_id") or 0) == customer_id
+        ]
+        return _response({
+            "customer": customer,
+            "tax_entities": tax_entities,
+            "subscriptions": subscription_summaries,
+            "quotes": quotes,
+            "service_orders": orders,
+        })
+    except CommercialSchemaUnavailable as exc:
+        raise _schema_error(exc)
 
 
 @router.get("/admin-commercial/subscriptions/{subscription_id}/360")

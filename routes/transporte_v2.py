@@ -6424,7 +6424,7 @@ async def transporte_v2_listar_covol_externos(
 
 @router.post("/tr-v2/control-volumetrico/externos")
 async def transporte_v2_subir_covol_externos(
-    tipo_documento: str = Form(default="carta_porte"),
+    tipo_documento: str = Form(default="carta_ingreso"),
     tipo_movimiento: str = Form(default=""),
     num_permiso_cne: str = Form(default=""),
     files: list[UploadFile] = File(...),
@@ -6437,11 +6437,8 @@ async def transporte_v2_subir_covol_externos(
     if not pid:
         raise HTTPException(400, "perfil_id requerido.")
     document_type = _first_text(tipo_documento).lower()
-    if document_type not in {"carta_porte", "carta_ingreso"}:
-        # Compatibilidad con clientes anteriores durante la transición.
-        document_type = "carta_porte" if tipo_movimiento in {"carga", "descarga"} else ""
-    if not document_type:
-        raise HTTPException(400, "Selecciona Carta Porte o Carta Ingreso.")
+    if document_type != "carta_ingreso":
+        raise HTTPException(400, "En Reportes SAT sólo se importan Cartas Ingreso con complemento Carta Porte.")
     selected_permiso = _first_text(num_permiso_cne)
     if not selected_permiso:
         raise HTTPException(400, "Selecciona un permiso CRE/CNE antes de subir movimientos externos.")
