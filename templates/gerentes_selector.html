@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL | Portal de Gerentes</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:#f5f5f5;color:#111;font-family:var(--ge-font);display:grid;grid-template-rows:1fr auto}
+    main{width:min(880px,calc(100% - 32px));margin:auto;padding:42px 0}
+    .logo{display:block;width:220px;max-width:70%;margin:0 auto 24px}
+    .eyebrow{text-align:center;color:#7a1e2c;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+    h1{text-align:center;font-size:clamp(29px,5vw,44px);margin:9px 0 8px}
+    .lead{text-align:center;color:#6f6a64;font-size:17px;margin:0 auto 30px;max-width:570px;line-height:1.5}
+    .spaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+    .spaces.single{grid-template-columns:minmax(0,1fr);max-width:440px;margin-inline:auto}
+    .space{display:flex;flex-direction:column;min-height:245px;padding:28px;border:1px solid #e2ddd5;border-radius:14px;background:#fff;color:inherit;text-decoration:none;box-shadow:0 18px 46px rgba(17,17,17,.1);transition:.18s ease}
+    .space:hover{transform:translateY(-3px);border-color:#c8a96b;box-shadow:0 22px 52px rgba(17,17,17,.14)}
+    .icon{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#f5ecee;color:#7a1e2c;font-size:24px;font-weight:900}
+    .space h2{font-size:25px;margin:22px 0 8px}.space p{color:#6f6a64;line-height:1.5;margin:0 0 22px}
+    .enter{margin-top:auto;color:#7a1e2c;font-weight:900}.actions{text-align:center;margin-top:26px}
+    .actions button{border:0;background:none;color:#7a1e2c;font:inherit;font-weight:800;cursor:pointer}
+    .status{text-align:center;color:#6f6a64;margin-top:12px;min-height:20px}
+    .ge-legal-footer{width:min(760px,calc(100vw - 32px));margin:0 auto 20px;color:#6f6a64}
+    @media(max-width:680px){main{padding:30px 0}.spaces{grid-template-columns:1fr}.space{min-height:205px;padding:23px}}
+  </style>
+</head>
+<body>
+  <main>
+    <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
+    <div class="eyebrow">Gas LP</div>
+    <h1>Portal de Gerentes</h1>
+    <p class="lead">Selecciona el espacio de trabajo. Tu sesión y tus zonas asignadas se conservan en ambos.</p>
+    <section class="spaces" aria-label="Espacios del Portal de Gerentes">
+      <a class="space" href="/gas-lp/flotilla">
+        <span class="icon" aria-hidden="true">↗</span>
+        <h2>Flotilla</h2>
+        <p>Consulta unidades, conductores, alertas, consumo, desempeño y reportes sincronizados con Motive.</p>
+        <span class="enter">Entrar a Flotilla →</span>
+      </a>
+      <a class="space" id="expensesSpace" href="/gas-lp/gerentes/gastos">
+        <span class="icon" aria-hidden="true">$</span>
+        <h2>Vales y gastos</h2>
+        <p>Genera vales, captura montos, forma facturas, revisa el historial y administra tus catálogos.</p>
+        <span class="enter">Entrar a Vales y gastos →</span>
+      </a>
+    </section>
+    <div class="actions"><button id="logout" type="button">Cerrar sesión</button></div>
+    <div class="status" id="status">Validando sesión…</div>
+  </main>
+  <footer class="ge-legal-footer"><strong>GE CONTROL</strong></footer>
+  <script src="/static/js/session_timeout.js?v=gerentes-selector-20260729"></script>
+  <script>
+    const access = sessionStorage.getItem('ge_flotilla_access') || '';
+    const officialToken = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
+    const status = document.getElementById('status');
+    const expensesSpace = document.getElementById('expensesSpace');
+    function leave() {
+      sessionStorage.removeItem('ge_flotilla_access');
+      sessionStorage.removeItem('ge_flotilla_expires_at');
+      sessionStorage.removeItem('ge_flotilla_identity');
+      location.replace('/gas-lp/flotilla/acceso');
+    }
+    document.getElementById('logout').onclick = leave;
+    if (!access) leave();
+    else fetch('/api/flotilla/session', {headers:{
+      'X-Flotilla-Access':access,
+      ...(officialToken ? {Authorization:`Bearer ${officialToken}`} : {}),
+    }, cache:'no-store'})
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || 'Tu sesión expiró.');
+        status.textContent = data.display_name ? `Sesión activa: ${data.display_name}` : 'Sesión activa';
+        if (data.identity_type === 'official') {
+          expensesSpace.href = '/gas-lp/gastos';
+          expensesSpace.querySelector('h2').textContent = 'Gastos y pagos';
+          expensesSpace.querySelector('p').textContent = 'Revisa facturas, valida proveedores, registra gastos directos y controla pagos.';
+          expensesSpace.querySelector('.enter').textContent = 'Entrar a Gastos y pagos →';
+        } else if (data.fleet_access_level !== 'zone_manager') {
+          expensesSpace.hidden = true;
+          expensesSpace.parentElement.classList.add('single');
+        }
+      })
+      .catch(() => leave());
+  </script>
+</body>
+</html>

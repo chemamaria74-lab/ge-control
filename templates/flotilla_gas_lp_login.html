@@ -26,13 +26,12 @@
 <body>
   <main class="card">
     <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE CONTROL">
-    <div class="portal-mark"><span></span> Integración Motive</div>
-    <h1>Flotilla 360</h1>
-    <p><strong>Acceso al Portal de Gerentes</strong></p>
-    <div class="sub">Inicia sesión para consultar gastos, consumo, inspecciones, mantenimiento y rendimiento.</div>
+    <div class="portal-mark"><span></span> Gas LP</div>
+    <h1>Portal de Gerentes</h1>
+    <div class="sub">Inicia sesión una sola vez para entrar a Flotilla o a Vales y gastos.</div>
     <div class="mode">
       <button id="internalMode" class="active" type="button">Gerente</button>
-      <button id="adminMode" type="button">Administrador</button>
+      <button id="adminMode" type="button">Administración</button>
     </div>
     <form id="loginForm">
       <div class="field"><label for="user" id="userLabel">Usuario</label><input id="user" autocomplete="username" placeholder="Tu usuario" required></div>
@@ -47,7 +46,7 @@
     <strong>GE CONTROL</strong>
     <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
   </footer>
-  <script src="/static/js/session_timeout.js?v=two-hour-all-portals-20260725"></script>
+  <script src="/static/js/session_timeout.js?v=gerentes-spaces-20260729"></script>
   <script>
     const FLOTILLA_ACCESS_KEY = 'ge_flotilla_access';
     sessionStorage.removeItem(FLOTILLA_ACCESS_KEY);
@@ -103,7 +102,7 @@
             groups: session.groups || [],
           }));
           window.GESessionTimeout?.markLogin();
-          location.replace('/gas-lp/flotilla');
+          location.replace('/gas-lp/gerentes/inicio');
           return;
         }
         const loginResponse = await fetch('/api/auth/login', {
@@ -124,7 +123,7 @@
           cache: 'no-store',
         });
         const grant = await readJson(grantResponse);
-        if (!grantResponse.ok || !grant.access) throw new Error(grant.detail || 'No se pudo crear el acceso seguro de Flotilla 360.');
+        if (!grantResponse.ok || !grant.access) throw new Error(grant.detail || 'No se pudo crear el acceso seguro al Portal de Gerentes.');
 
         localStorage.setItem('sat_token', login.token);
         localStorage.setItem('zc_token', login.token);
@@ -134,7 +133,7 @@
         sessionStorage.setItem(FLOTILLA_ACCESS_KEY, grant.access);
         sessionStorage.setItem('ge_flotilla_expires_at', String(grant.expires_at || ''));
         window.GESessionTimeout?.markLogin();
-        location.replace('/gas-lp/flotilla');
+        location.replace('/gas-lp/gerentes/inicio');
       } catch (exception) {
         error.textContent = exception.message || 'No fue posible iniciar sesión.';
         button.disabled = false;
