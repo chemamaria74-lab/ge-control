@@ -97,11 +97,15 @@
   function normalizeGasLpCopy() {
     setLabelFor("gasInternalName", "Nombre");
     setLabelFor("gasInternalCode", "Usuario");
-    setLabelFor("gasInternalPin", "Contraseña (PIN)");
+    setLabelFor("gasInternalPin", "Contraseña");
     const codeInput = document.getElementById("gasInternalCode");
     if (codeInput) codeInput.placeholder = "Auto o usuario, ej. MARTHA";
     const pinInput = document.getElementById("gasInternalPin");
-    if (pinInput) pinInput.placeholder = "Auto o contraseña temporal";
+    if (pinInput) {
+      pinInput.type = "password";
+      pinInput.autocomplete = "new-password";
+      pinInput.placeholder = "Crea una contraseña segura";
+    }
 
     document.querySelectorAll("th").forEach((th) => {
       if (th.textContent.trim() === "Código") th.textContent = "Usuario";
@@ -111,13 +115,13 @@
     });
     replaceText(document.getElementById("mpanel-admin"), "código", "usuario");
     replaceText(document.getElementById("mpanel-admin"), "Código", "Usuario");
-    replaceText(document.getElementById("mpanel-admin"), "PIN temporal", "Contraseña (PIN)");
+    replaceText(document.getElementById("mpanel-admin"), "PIN temporal", "Contraseña");
 
     const status = document.getElementById("gasInternalStatus");
     if (status && status.innerHTML.includes("Código:")) {
       status.innerHTML = status.innerHTML
         .replace("Código:", "Usuario:")
-        .replace("PIN temporal:", "Contraseña (PIN):");
+        .replace("PIN temporal:", "Contraseña:");
     }
 
     const facturar = document.getElementById("mpanel-facturar");
