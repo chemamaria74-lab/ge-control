@@ -1,0 +1,174 @@
+<section class="panel" id="panel-comercial">
+  <div class="hdr">
+    <div>
+      <h2>Modelo comercial · Portal Transporte</h2>
+      <p>CRM → cliente contractual → tenant → RFC → suscripción independiente. Fases locales; sin activación productiva.</p>
+    </div>
+    <button class="btn" onclick="loadCommercial()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+  </div>
+
+  <div id="commercialSchemaNotice" class="commercial-notice"></div>
+
+  <div class="commercial-tabs">
+    <button class="active" data-commercial-tab="overview" onclick="showCommercialTab('overview')">Resumen</button>
+    <button data-commercial-tab="crm" onclick="showCommercialTab('crm')">CRM</button>
+    <button data-commercial-tab="customers" onclick="showCommercialTab('customers')">Clientes y RFC</button>
+    <button data-commercial-tab="catalog" onclick="showCommercialTab('catalog')">Planes y precios</button>
+    <button data-commercial-tab="subscriptions" onclick="showCommercialTab('subscriptions')">Suscripciones</button>
+    <button data-commercial-tab="quotes" onclick="showCommercialTab('quotes')">Cotizaciones</button>
+    <button data-commercial-tab="orders" onclick="showCommercialTab('orders')">Órdenes</button>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-crm">
+    <div class="commercial-grid">
+      <form class="card" onsubmit="createCommercialProspect(event)">
+        <h3>Nuevo prospecto</h3>
+        <label>Empresa<input id="cpBusinessName" required maxlength="220"></label>
+        <label>Contacto<input id="cpContactName" maxlength="180"></label>
+        <label>Correo<input id="cpEmail" type="email" maxlength="180"></label>
+        <label>Teléfono<input id="cpPhone" maxlength="40"></label>
+        <label>Origen<select id="cpSource"><option value="direct">Directo</option><option value="referral">Referido</option><option value="website">Sitio web</option><option value="event">Evento</option><option value="outbound">Prospección</option></select></label>
+        <label>RFC estimados<input id="cpRfcCount" type="number" min="1" max="100" value="1"></label>
+        <label>Cierre esperado<input id="cpExpectedClose" type="date"></label>
+        <label>Notas<textarea id="cpNotes" maxlength="3000"></textarea></label>
+        <button class="btn" type="submit">Registrar prospecto</button>
+        <div class="status" id="cpMsg"></div>
+      </form>
+      <form class="card" onsubmit="createCommercialTask(event)">
+        <h3>Nueva tarea</h3>
+        <label>Prospecto<select id="cptProspect" required></select></label>
+        <label>Tarea<input id="cptTitle" required maxlength="220"></label>
+        <label>Vencimiento<input id="cptDue" type="datetime-local" required></label>
+        <label>Prioridad<select id="cptPriority"><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option><option value="low">Baja</option></select></label>
+        <button class="btn" type="submit">Guardar tarea</button>
+        <div class="status" id="cptMsg"></div>
+      </form>
+    </div>
+    <div class="commercial-grid">
+      <form class="card" onsubmit="createCommercialActivity(event)">
+        <h3>Registrar seguimiento</h3>
+        <label>Prospecto<select id="cpaProspect" required></select></label>
+        <label>Tipo<select id="cpaType"><option value="note">Nota</option><option value="call">Llamada</option><option value="meeting">Reunión</option><option value="demo">Demo</option><option value="email">Correo</option><option value="follow_up">Seguimiento</option></select></label>
+        <label>Asunto<input id="cpaSubject" required maxlength="220"></label>
+        <label>Detalle<textarea id="cpaDetails" maxlength="4000"></textarea></label>
+        <button class="btn" type="submit">Registrar actividad</button>
+        <div class="status" id="cpaMsg"></div>
+      </form>
+      <form class="card" onsubmit="convertCommercialProspect(event)">
+        <h3>Convertir a cliente</h3>
+        <label>Prospecto calificado<select id="cpcProspect" required></select></label>
+        <label>Contacto autorizado<input id="cpcContact" required maxlength="180"></label>
+        <label>Correo contractual<input id="cpcEmail" type="email" required maxlength="180"></label>
+        <label>Motivo<input id="cpcReason" required minlength="3" maxlength="1000" value="Oportunidad ganada y autorizada"></label>
+        <button class="btn" type="submit">Convertir sin crear RFC</button>
+        <div class="status" id="cpcMsg"></div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="commercial-toolbar">
+        <h3>Embudo comercial</h3>
+        <input id="commercialProspectSearch" placeholder="Buscar empresa o contacto" oninput="renderCommercialPipeline()">
+      </div>
+      <div class="commercial-pipeline" id="commercialPipeline"></div>
+    </div>
+    <div class="card"><h3>Próximas tareas</h3><div id="commercialTasks"></div></div>
+    <div class="card"><h3>Actividad reciente</h3><div id="commercialActivities"></div></div>
+  </div>
+
+  <div class="commercial-tab active" id="commercial-tab-overview">
+    <div class="stats" id="commercialStats"></div>
+    <h3>Planes preliminares en borrador</h3>
+    <div class="commercial-plan-grid" id="commercialDraftPlans"></div>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-customers">
+    <div class="commercial-grid">
+      <form class="card" onsubmit="createCommercialCustomer(event)">
+        <h3>Nuevo cliente contractual</h3>
+        <label>Nombre<input id="ccName" required maxlength="180"></label>
+        <label>Contacto autorizado<input id="ccContact" maxlength="180"></label>
+        <label>Correo contractual<input id="ccEmail" type="email" maxlength="180"></label>
+        <label>Domicilio<textarea id="ccAddress" maxlength="500"></textarea></label>
+        <button class="btn" type="submit">Guardar cliente</button>
+        <div class="status" id="ccMsg"></div>
+      </form>
+      <form class="card" onsubmit="createCommercialTaxEntity(event)">
+        <h3>Agregar RFC</h3>
+        <label>Cliente<select id="ctCustomer" required></select></label>
+        <label>RFC<input id="ctRfc" required minlength="12" maxlength="13"></label>
+        <label>Razón social<input id="ctLegalName" required maxlength="220"></label>
+        <label>Régimen fiscal<input id="ctRegime" maxlength="10"></label>
+        <label>CP fiscal<input id="ctPostalCode" maxlength="5"></label>
+        <label>Domicilio fiscal<textarea id="ctAddress" maxlength="500"></textarea></label>
+        <button class="btn" type="submit">Guardar RFC</button>
+        <div class="status" id="ctMsg"></div>
+      </form>
+    </div>
+    <div class="card"><h3>Clientes registrados</h3><div id="commercialCustomers"></div></div>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-catalog">
+    <div class="card">
+      <h3>Catálogo versionado</h3>
+      <p class="muted">Las versiones iniciales permanecen en borrador. Publicar o retirar versiones se habilitará cuando exista el esquema consolidado.</p>
+      <div id="commercialCatalog"></div>
+    </div>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-subscriptions">
+    <form class="card commercial-form-row" onsubmit="createCommercialSubscription(event)">
+      <h3>Nueva suscripción por RFC</h3>
+      <label>Cliente<select id="csCustomer" required onchange="fillCommercialTaxEntities()"></select></label>
+      <label>RFC<select id="csTaxEntity" required></select></label>
+      <label>Versión de plan<select id="csPlanVersion" required></select></label>
+      <label>Periodicidad<select id="csPeriod"><option value="monthly">Mensual</option><option value="annual">Anual prepago</option></select></label>
+      <button class="btn" type="submit">Crear borrador</button>
+      <div class="status" id="csMsg"></div>
+    </form>
+    <div class="commercial-grid">
+      <form class="card" onsubmit="inviteCommercialAdministrator(event)">
+        <h3>Invitar administrador</h3>
+        <label>Suscripción<select id="csaSubscription" required></select></label>
+        <label>Nombre<input id="csaName" required maxlength="180"></label>
+        <label>Correo<input id="csaEmail" type="email" required maxlength="180"></label>
+        <label>Motivo<input id="csaReason" required minlength="3" maxlength="1000" value="Administrador autorizado por cliente"></label>
+        <button class="btn" type="submit">Registrar invitación</button>
+        <div class="status" id="csaMsg"></div>
+      </form>
+      <form class="card" onsubmit="createCommercialOverride(event)">
+        <h3>Override temporal</h3>
+        <label>Suscripción<select id="csoSubscription" required></select></label>
+        <label>Tipo<select id="csoCode"><option value="administrator_limit">Administradores</option><option value="vehicle_limit">Vehículos</option><option value="fiscal_trip_limit">Viajes fiscales</option><option value="operator_portal_access">Portal Operador</option><option value="subscription_access">Acceso suscripción</option></select></label>
+        <label>Valor<input id="csoValue" required placeholder="Número o true/false"></label>
+        <label>Inicio<input id="csoStart" type="datetime-local" required></label>
+        <label>Fin<input id="csoEnd" type="datetime-local" required></label>
+        <label>Motivo<input id="csoReason" required minlength="3" maxlength="1000"></label>
+        <button class="btn" type="submit">Aprobar override</button>
+        <div class="status" id="csoMsg"></div>
+      </form>
+    </div>
+    <div class="card"><h3>Suscripciones</h3><div id="commercialSubscriptions"></div></div>
+    <div class="card"><h3>Administradores por RFC</h3><div id="commercialAdministrators"></div></div>
+    <div class="card"><h3>Overrides vigentes</h3><div id="commercialOverrides"></div></div>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-quotes">
+    <form class="card commercial-form-row" onsubmit="createCommercialQuote(event)">
+      <h3>Nueva cotización</h3>
+      <label>Cliente<select id="cqCustomer" required></select></label>
+      <label>Vigencia<input id="cqValidUntil" type="date" required></label>
+      <label>Notas<textarea id="cqNotes" maxlength="2000"></textarea></label>
+      <button class="btn" type="submit">Crear borrador</button>
+      <div class="status" id="cqMsg"></div>
+    </form>
+    <div class="card"><h3>Cotizaciones</h3><div id="commercialQuotes"></div></div>
+  </div>
+
+  <div class="commercial-tab" id="commercial-tab-orders">
+    <div class="card">
+      <h3>Órdenes de servicio versionadas</h3>
+      <p class="muted">Preparadas para snapshots de plan, precio, límites, addon y cláusulas. Sin contrato, firma, correo ni PDF final.</p>
+      <div id="commercialOrders"></div>
+    </div>
+  </div>
+</section>
