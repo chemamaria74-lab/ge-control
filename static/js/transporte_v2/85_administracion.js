@@ -173,22 +173,30 @@ function trv2RenderOperatorAccesses(items = []) {
     list.innerHTML = '<div class="trv2-empty">Sin accesos operador para esta empresa.</div>';
     return;
   }
-  list.innerHTML = items.map(item => `
-    <article class="trv2-access-card">
-      <div>
+  list.innerHTML = items.map(item => {
+    const isActive = String(item.status || '').toLowerCase() === 'activo';
+    const lastUsed = trv2DisplayDate(item.last_used_at, {withTime: true, fallback: 'Sin ingreso'});
+    const expires = item.expires_at
+      ? ` · Vigencia: ${trv2Esc(trv2DisplayDate(item.expires_at, {withTime: true, fallback: item.expires_at}))}`
+      : '';
+    const locked = Boolean(item.locked_until);
+    return `
+    <article class="trv2-operator-access-row">
+      <div class="trv2-operator-access-identity">
         <strong>${trv2Esc(item.chofer_nombre || `Operador #${item.chofer_id || ''}`)}</strong>
-        <span>Usuario: ${trv2Esc(item.usuario || 'Pendiente de configurar')}</span>
-        <span>Expira: ${trv2Esc(item.expires_at || 'Sin fecha')}</span>
-        <span>Último uso: ${trv2Esc(item.last_used_at || 'Sin uso')}</span>
-        ${item.locked_until ? `<span>Bloqueado hasta: ${trv2Esc(item.locked_until)}</span>` : ''}
+        <span><b>${trv2Esc(item.usuario || 'Usuario pendiente')}</b> · Último ingreso: ${trv2Esc(lastUsed)}${expires}</span>
+        ${locked ? `<span class="trv2-access-lock"><i class="fa-solid fa-lock"></i> Bloqueado hasta ${trv2Esc(trv2DisplayDate(item.locked_until, {withTime: true, fallback: item.locked_until}))}</span>` : ''}
       </div>
-      <em class="${String(item.status || '').toLowerCase() === 'activo' ? 'active' : ''}">${trv2Esc(item.status || 'Sin estado')}</em>
-      <button class="trv2-mini-btn" type="button" onclick="trv2ResetOperatorPassword(${Number(item.id)})">Nueva contraseña</button>
-      <button class="trv2-mini-btn" type="button" onclick="trv2UnlockOperatorAccess(${Number(item.id)})">Desbloquear</button>
-      <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateOperatorAccess(${Number(item.id)})">Desactivar</button>
-      <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteOperatorAccess(${Number(item.id)})">Revocar acceso</button>
+      <em class="${isActive ? 'active' : ''}">${trv2Esc(item.status || 'Sin estado')}</em>
+      <div class="trv2-operator-access-actions">
+        <button class="trv2-mini-btn" type="button" onclick="trv2ResetOperatorPassword(${Number(item.id)})"><i class="fa-solid fa-key"></i> Contraseña</button>
+        ${locked ? `<button class="trv2-mini-btn" type="button" onclick="trv2UnlockOperatorAccess(${Number(item.id)})"><i class="fa-solid fa-lock-open"></i> Desbloquear</button>` : ''}
+        ${isActive ? `<button class="trv2-mini-btn" type="button" onclick="trv2DeactivateOperatorAccess(${Number(item.id)})">Desactivar</button>` : ''}
+        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteOperatorAccess(${Number(item.id)})">Revocar</button>
+      </div>
     </article>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function trv2ResetOperatorPassword(accessId) {
