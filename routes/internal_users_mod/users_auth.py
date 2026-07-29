@@ -403,17 +403,38 @@ async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, a
     admin_uid, token = _auth_admin(authorization)
     tenant_id = _tenant_id_for_user(admin_uid, access_token=token)
     temp_pin = (payload.pin or "").strip() or f"{secrets.randbelow(900000) + 100000}"
+    if len(temp_pin) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
     try:
-        get_supabase_for_user(token).table("internal_users").update({
+        sb = get_supabase_admin()
+        target = (
+            sb.table("internal_users").select("id")
+            .eq("id", internal_user_id)
+            .eq("tenant_id", tenant_id)
+            .eq("owner_user_id", admin_uid)
+            .limit(1).execute().data or []
+        )
+        if not target:
+            raise HTTPException(404, "El usuario no existe o no pertenece a esta administración.")
+        updated = (
+            sb.table("internal_users").update({
             "pin_hash": _hash_secret(temp_pin),
             "failed_attempts": 0,
             "locked_until": None,
             "status": "active",
             "updated_at": _now_iso(),
-        }).eq("id", internal_user_id).eq("tenant_id", tenant_id).eq("owner_user_id", admin_uid).execute()
+            }).eq("id", internal_user_id)
+            .eq("tenant_id", tenant_id)
+            .eq("owner_user_id", admin_uid)
+            .execute().data or []
+        )
+        if not updated:
+            raise HTTPException(500, "Supabase no confirmó el cambio de contraseña.")
+    except HTTPException:
+        raise
     except Exception as e:
         raise _safe_internal_error("reset_pin", e)
-    return JSONResponse({"ok": True, "temporary_pin": temp_pin})
+    return JSONResponse({"ok": True})
 
 
 @router.delete("/internal-users/{internal_user_id}")
