@@ -3,6 +3,7 @@
     let TRV2_OPERATOR_PREPARED = null;
     let TRV2_OPERATOR_CREATING_TRIP = false;
     let TRV2_OPERATOR_END_TIMER = null;
+    let TRV2_OPERATOR_PRETRIP = {};
     function trv2OperadorToken() { return localStorage.getItem('trv2_operator_token') || ''; }
     function trv2OperadorHeaders() { return {Authorization: `Bearer ${trv2OperadorToken()}`}; }
     async function trv2OperadorFetch(path) {
@@ -24,7 +25,14 @@
       }
       return data;
     }
-    function trv2OperadorLogout() {
+    async function trv2OperadorLogout() {
+      const token = trv2OperadorToken();
+      if (token) {
+        await fetch('/api/tr-v2/operator/logout', {
+          method: 'POST',
+          headers: {Authorization: `Bearer ${token}`},
+        }).catch(() => null);
+      }
       localStorage.removeItem('trv2_operator_token');
       localStorage.removeItem('trv2_operator_profile');
       location.href = '/transporte-v2/login-operador?next=/transporte-v2/operador';
@@ -101,6 +109,7 @@
         noTrip?.classList.add('show');
         content.forEach(el => el.classList.add('hidden'));
         if (status) status.innerHTML = '<i class="fa-solid fa-circle"></i> Sin viaje';
+        trv2OperadorRenderPretrip();
         return;
       }
       noTrip?.classList.remove('show');
@@ -210,13 +219,55 @@
       }[estado] || [];
       if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${klass}" type="button" onclick="trv2OperadorBitacora('${action}')">${trv2OpEsc(label)}</button>`).join('');
       const eventos = TRV2_OPERATOR_META.bitacora_operador?.eventos || [];
-      if (history) history.innerHTML = eventos.slice(-6).map(ev => `<li>${trv2OpEsc(trv2OperadorFormatDate(ev.created_at))} · ${trv2OpEsc(ev.accion || '')} ${trv2OpEsc(ev.nota || '')}</li>`).join('');
+      if (history) history.innerHTML = eventos.slice(-10).map(ev => {
+        const loc = ev.ubicacion;
+        const place = loc ? `<small><a href="https://www.google.com/maps?q=${encodeURIComponent(`${loc.lat},${loc.lng}`)}" target="_blank" rel="noopener">Ver punto en mapa</a>${loc.accuracy_m ? ` · precisión ±${Math.round(Number(loc.accuracy_m))} m` : ''}</small>` : '';
+        return `<li>${trv2OpEsc(trv2OperadorFormatDate(ev.created_at))} · ${trv2OpEsc(ev.accion || '')} ${trv2OpEsc(ev.nota || '')}${place}</li>`;
+      }).join('');
       trv2OperadorScheduleEndCheck();
+    }
+    function trv2OperadorRenderPretrip() {
+      const state = TRV2_OPERATOR_PRETRIP?.estado || 'SIN_INICIAR';
+      const status = document.getElementById('trv2-operator-pretrip-status');
+      const actions = document.getElementById('trv2-operator-pretrip-actions');
+      const history = document.getElementById('trv2-operator-pretrip-history');
+      if (status) status.textContent = state;
+      const buttons = {
+        SIN_INICIAR: [['INICIAR_VACIO', 'Iniciar salida vacío', 'primary']],
+        EN_RUTA_VACIO: [['LLEGADA_TERMINAL', 'Llegué a la terminal', 'ok'], ['INCIDENCIA', 'Reportar incidencia', 'warning']],
+        EN_TERMINAL: [['INCIDENCIA', 'Reportar incidencia', 'warning']],
+      }[state] || [];
+      if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${klass}" type="button" onclick="trv2OperadorPretrip('${action}')">${trv2OpEsc(label)}</button>`).join('');
+      const events = Array.isArray(TRV2_OPERATOR_PRETRIP?.eventos) ? TRV2_OPERATOR_PRETRIP.eventos : [];
+      if (history) history.innerHTML = events.map(event => `<li>${trv2OpEsc(trv2OperadorFormatDate(event.created_at))} · ${trv2OpEsc(event.accion || '')}${event.nota ? ` · ${trv2OpEsc(event.nota)}` : ''}</li>`).join('');
+    }
+    async function trv2OperadorPretrip(action) {
+      const nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
+      const ubicacion = await trv2OperadorCurrentLocation();
+      const response = await fetch('/api/tr-v2/operator/pretrip', {
+        method: 'POST',
+        headers: {...trv2OperadorHeaders(), 'Content-Type': 'application/json'},
+        body: JSON.stringify({action, nota, ...(ubicacion ? {ubicacion} : {})}),
+      });
+      const data = await trv2OperadorReadResponse(response);
+      if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar el recorrido vacío.'));
+      TRV2_OPERATOR_PRETRIP = data.pretrip || {};
+      trv2OperadorRenderPretrip();
+      trv2OperadorToast('Recorrido vacío actualizado.');
+    }
+    async function trv2OperadorAcceptPrivacy() {
+      const response = await fetch('/api/tr-v2/operator/privacy/accept', {method: 'POST', headers: trv2OperadorHeaders()});
+      const data = await trv2OperadorReadResponse(response);
+      if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo guardar la aceptación.'));
+      document.getElementById('trv2-operator-privacy')?.setAttribute('hidden', 'hidden');
     }
     async function trv2OperadorInit() {
       const me = await trv2OperadorFetch('/api/tr-v2/operator/me');
       if (!me) return;
       localStorage.setItem('trv2_operator_profile', JSON.stringify(me.operator || {}));
+      TRV2_OPERATOR_PRETRIP = me.operator?.pretrip || {};
+      const privacy = document.getElementById('trv2-operator-privacy');
+      if (privacy) privacy.hidden = me.operator?.privacy_notice_version === 'transport-location-v1' && Boolean(me.operator?.privacy_accepted_at);
       const name = document.getElementById('trv2-operator-name');
       if (name) name.textContent = `${me.operator?.nombre || 'Operador'}${me.operator?.empresa?.nombre ? ' · ' + me.operator.empresa.nombre : ''}`;
       const trip = await trv2OperadorFetch('/api/tr-v2/operator/mi-viaje');

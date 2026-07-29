@@ -245,7 +245,7 @@ const TRV2_CATALOG_FORMS = {
     ['tipo_carta_porte', 'Tipo Carta Porte', 'cp-location-type'],
     ['proveedor_id', 'Proveedor', 'proveedor-select'],
     ['cliente_id', 'Cliente', 'cliente-select'],
-    ['permiso_cre', 'Permiso CRE'],
+    ['permiso_cre', 'Permiso CRE *'],
     ['clave_instalacion', 'Clave instalación interna'],
     ['cp', 'CP'],
     ['direccion', 'Domicilio'],
@@ -1789,6 +1789,8 @@ function trv2ValidateCatalogPayload(name, data) {
     if (!data.tipo_carta_porte) return `Instalación ${data.nombre || ''} no tiene tipo Origen/Destino/Ambos.`;
     if (['Origen', 'Ambos'].includes(data.tipo_carta_porte) && !Number(data.proveedor_id || 0)) return `Instalación ${data.nombre || ''} requiere proveedor asignado.`;
     if (['Destino', 'Ambos'].includes(data.tipo_carta_porte) && !Number(data.cliente_id || 0)) return `Instalación ${data.nombre || ''} requiere cliente asignado.`;
+    if (!String(data.permiso_cre || '').trim()) return `Instalación ${data.nombre || ''} requiere permiso CRE.`;
+    if (!/^[A-Z0-9][A-Z0-9./_-]{5,79}$/i.test(String(data.permiso_cre || '').trim())) return `Instalación ${data.nombre || ''} tiene un permiso CRE con formato inválido.`;
     if (!trv2ValidCp(data.cp)) return `Instalación ${data.nombre || ''} no tiene CP válido de 5 dígitos.`;
     if (!data.estado_sat) return `Instalación ${data.nombre || ''} no tiene Estado SAT.`;
     if (!data.municipio_sat) return `Instalación ${data.nombre || ''} no tiene Municipio SAT.`;

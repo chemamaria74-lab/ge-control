@@ -266,11 +266,49 @@ function trv2RenderCompanySelector(profiles, force = false) {
 
 function trv2OpenCompanySelector() {
   trv2RenderCompanySelector(TRV2_PERFILES, true);
+  trv2LoadCompanyRequests();
 }
 
 function trv2CloseCompanySelector() {
   const modal = document.getElementById('trv2-company-modal');
   if (modal && TRV2_PERFIL?.id) modal.hidden = true;
+}
+
+function trv2ToggleCompanyRequest(show = true) {
+  const form = document.getElementById('trv2-company-request-form');
+  if (form) form.hidden = !show;
+  if (show) document.getElementById('trv2-company-request-name')?.focus();
+}
+
+async function trv2LoadCompanyRequests() {
+  if (!TRV2_PERFIL?.id) return;
+  const status = document.getElementById('trv2-company-request-status');
+  const data = await trv2Api('GET', '/api/tr-v2/admin/company-requests', undefined, {allowError: true, silent: true});
+  if (!data?.ok) return;
+  const pending = (data.items || []).filter(item => ['pendiente', 'en_revision'].includes(String(item.status || '').toLowerCase()));
+  if (status) status.innerHTML = pending.length
+    ? `<strong>Solicitudes en proceso:</strong> ${pending.map(item => `${trv2Esc(item.nombre)} (${trv2Esc(item.rfc)}) · ${trv2Esc(item.status)}`).join(' · ')}`
+    : '';
+}
+
+async function trv2SubmitCompanyRequest(event) {
+  event.preventDefault();
+  const nombre = document.getElementById('trv2-company-request-name')?.value.trim() || '';
+  const rfc = document.getElementById('trv2-company-request-rfc')?.value.trim().toUpperCase() || '';
+  const status = document.getElementById('trv2-company-request-status');
+  if (!trv2ValidRfc(rfc)) return trv2Toast('Captura un RFC válido.', 'error');
+  const data = await trv2Api('POST', '/api/tr-v2/admin/company-requests', {
+    perfil_id: TRV2_PERFIL?.id || null,
+    data: {nombre, rfc},
+  }, {allowError: true});
+  if (!data?.ok) {
+    if (status) status.textContent = trv2MessageText(data?.detail || data?.message || 'No se pudo enviar la solicitud.');
+    return;
+  }
+  event.target.reset();
+  trv2ToggleCompanyRequest(false);
+  if (status) status.textContent = data.message || 'Solicitud pendiente de validación por GE Control.';
+  trv2Toast('Empresa enviada a validación.', 'success');
 }
 
 async function trv2SelectCompany(profileId) {

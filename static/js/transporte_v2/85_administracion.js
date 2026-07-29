@@ -1,4 +1,5 @@
 let TRV2_PERMISO_PRODUCT_FILTER = '';
+let TRV2_OPERATOR_DASHBOARD_TIMER = null;
 
 function trv2PopulateOperatorAdminSelects() {
   const choferSelect = document.getElementById('trv2-admin-operator-chofer');
@@ -25,6 +26,36 @@ function trv2SetAdminSubtab(name = 'configuracion') {
     trv2LoadPermisosRfc();
   }
   if (name === 'usuarios-operador') trv2LoadOperatorAccesses();
+  if (name === 'suscripcion') trv2LoadTransportSubscription();
+}
+
+async function trv2LoadTransportSubscription() {
+  const kpis = document.getElementById('trv2-subscription-kpis');
+  const checklist = document.getElementById('trv2-onboarding-checklist');
+  const policy = document.getElementById('trv2-subscription-policy');
+  if (kpis) kpis.innerHTML = '<article><span>Estado</span><strong>Cargando…</strong></article>';
+  const data = await trv2Api('GET', '/api/tr-v2/admin/subscription-summary', undefined, {allowError: true, silent: true, force: true});
+  if (!data?.ok) {
+    if (kpis) kpis.innerHTML = `<article><span>Estado</span><strong>${trv2Esc(trv2MessageText(data?.detail || data?.message || 'No disponible'))}</strong></article>`;
+    return;
+  }
+  const usage = data.usage || {};
+  const limits = data.limits || {};
+  const included = limits.timbres_included_monthly;
+  const remaining = included == null ? 'Ilimitados / por contrato' : Number(usage.timbres_remaining || 0);
+  if (kpis) kpis.innerHTML = `
+    <article><span>Plan</span><strong>${trv2Esc(data.plan_name || 'Sin plan')}</strong></article>
+    <article><span>Timbres incluidos</span><strong>${included == null ? 'Por contrato' : Number(included)}</strong></article>
+    <article><span>Usados este mes</span><strong>${Number(usage.timbres_used || 0)}</strong></article>
+    <article><span>Disponibles</span><strong>${trv2Esc(remaining)}</strong></article>`;
+  if (policy) policy.textContent = data.enforcement === 'hard_limit'
+    ? 'El plan bloquea nuevos timbrados al alcanzar el límite mensual.'
+    : 'Medición informativa: los excedentes no se bloquean automáticamente y deben regirse por el contrato comercial.';
+  if (checklist) checklist.innerHTML = (data.onboarding || []).map(item => `
+    <article class="${item.complete ? 'complete' : 'pending'}">
+      <i class="fa-solid ${item.complete ? 'fa-circle-check' : 'fa-circle-exclamation'}"></i>
+      <div><strong>${trv2Esc(item.label)}</strong><span>${trv2Esc(item.detail || '')}</span></div>
+    </article>`).join('');
 }
 
 function trv2AdminStatusLabel(status = '') {
@@ -56,12 +87,14 @@ function trv2RenderOperatorDashboard(data = {}) {
   }
   list.innerHTML = items.map(item => {
     const events = item.eventos || [];
+    const isPretrip = String(item.etapa || '').toUpperCase() === 'TRASLADO_VACIO' || !Number(item.viaje_id);
     const timeline = events.length
       ? `<ol>${events.map(ev => `
           <li>
             <span>${trv2Esc(ev.fecha || '')}</span>
             <strong>${trv2Esc(ev.accion || '')}</strong>
-            <em>${trv2Esc(ev.descripcion || '')}</em>
+            <em>${trv2Esc(ev.descripcion || '')}${ev.etapa ? ` · ${trv2Esc(String(ev.etapa).replaceAll('_', ' ').toLowerCase())}` : ''}</em>
+            ${ev.ubicacion?.lat != null && ev.ubicacion?.lng != null ? `<a href="https://www.google.com/maps?q=${encodeURIComponent(`${ev.ubicacion.lat},${ev.ubicacion.lng}`)}" target="_blank" rel="noopener">Ver mapa</a>` : ''}
           </li>
         `).join('')}</ol>`
       : '<div class="trv2-empty trv2-empty-compact">Sin eventos registrados.</div>';
@@ -70,13 +103,13 @@ function trv2RenderOperatorDashboard(data = {}) {
         <div class="trv2-route-card-head">
           <div>
             <strong>${trv2Esc(item.operador_nombre || 'Operador')}</strong>
-            <span>Viaje #${trv2Esc(item.viaje_id || '')} · ${trv2Esc(item.origen || 'Origen')} → ${trv2Esc(item.destino || 'Destino')}</span>
+            <span>${isPretrip ? 'Recorrido vacío' : `Viaje #${trv2Esc(item.viaje_id || '')}`} · ${trv2Esc(item.origen || 'Origen')} → ${trv2Esc(item.destino || 'Destino')}</span>
           </div>
           <div class="trv2-route-card-actions">
             <em class="${String(item.estado || '').toUpperCase() === 'DESCANSO' ? 'warning' : 'active'}">${trv2Esc(trv2AdminStatusLabel(item.estado))}</em>
-            <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2AdminFinalizeTrip(${Number(item.viaje_id)})">
+            ${isPretrip ? '<span class="trv2-status warning">Previo a carga</span>' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2AdminFinalizeTrip(${Number(item.viaje_id)})">
               <i class="fa-solid fa-flag-checkered"></i> Finalizar viaje
-            </button>
+            </button>`}
           </div>
         </div>
         <div class="trv2-route-metrics">
@@ -106,6 +139,10 @@ async function trv2LoadOperatorDashboard() {
     return;
   }
   trv2RenderOperatorDashboard(data);
+  if (TRV2_OPERATOR_DASHBOARD_TIMER) clearTimeout(TRV2_OPERATOR_DASHBOARD_TIMER);
+  TRV2_OPERATOR_DASHBOARD_TIMER = setTimeout(() => {
+    if (document.getElementById('trv2-tab-operadores-ruta')?.classList.contains('active')) trv2LoadOperatorDashboard();
+  }, 60000);
 }
 
 async function trv2AdminFinalizeTrip(viajeId) {
@@ -130,15 +167,48 @@ function trv2RenderOperatorAccesses(items = []) {
     <article class="trv2-access-card">
       <div>
         <strong>${trv2Esc(item.chofer_nombre || `Operador #${item.chofer_id || ''}`)}</strong>
-        <span>Usuario: ${trv2Esc(item.usuario || 'Token temporal')}</span>
+        <span>Usuario: ${trv2Esc(item.usuario || 'Pendiente de configurar')}</span>
         <span>Expira: ${trv2Esc(item.expires_at || 'Sin fecha')}</span>
         <span>Último uso: ${trv2Esc(item.last_used_at || 'Sin uso')}</span>
+        ${item.locked_until ? `<span>Bloqueado hasta: ${trv2Esc(item.locked_until)}</span>` : ''}
       </div>
       <em class="${String(item.status || '').toLowerCase() === 'activo' ? 'active' : ''}">${trv2Esc(item.status || 'Sin estado')}</em>
+      <button class="trv2-mini-btn" type="button" onclick="trv2ResetOperatorPassword(${Number(item.id)})">Nueva contraseña</button>
+      <button class="trv2-mini-btn" type="button" onclick="trv2UnlockOperatorAccess(${Number(item.id)})">Desbloquear</button>
       <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateOperatorAccess(${Number(item.id)})">Desactivar</button>
-      <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteOperatorAccess(${Number(item.id)})">Eliminar seguro</button>
+      <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteOperatorAccess(${Number(item.id)})">Revocar acceso</button>
     </article>
   `).join('');
+}
+
+async function trv2ResetOperatorPassword(accessId) {
+  const password = prompt('Escribe la nueva contraseña del operador (mínimo 8 caracteres):') || '';
+  if (!password) return;
+  if (password.length < 8) {
+    trv2Toast('La contraseña debe tener al menos 8 caracteres.', 'error');
+    return;
+  }
+  const data = await trv2Api('POST', `/api/tr-v2/operator/accesses/${Number(accessId)}/reset-password`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+    password,
+  }, {allowError: true});
+  if (!data?.ok) {
+    trv2Toast(data?.detail || data?.message || 'No se pudo restablecer la contraseña.', 'error');
+    return;
+  }
+  alert(`Contraseña nueva: ${data.password || password}\n\nEntrégala al operador. La sesión anterior fue cerrada.`);
+  trv2Toast('Contraseña restablecida y sesión anterior cerrada.', 'success');
+}
+
+async function trv2UnlockOperatorAccess(accessId) {
+  const data = await trv2Api('POST', `/api/tr-v2/operator/accesses/${Number(accessId)}/unlock`, {
+    perfil_id: TRV2_PERFIL?.id || null,
+  }, {allowError: true});
+  if (!data?.ok) {
+    trv2Toast(data?.detail || data?.message || 'No se pudo desbloquear el acceso.', 'error');
+    return;
+  }
+  trv2Toast('Acceso desbloqueado.', 'success');
 }
 
 async function trv2LoadOperatorAccesses() {
@@ -147,19 +217,31 @@ async function trv2LoadOperatorAccesses() {
   trv2RenderOperatorAccesses(data?.items || []);
 }
 
+function trv2SuggestOperatorUsername() {
+  const select = document.getElementById('trv2-admin-operator-chofer');
+  const input = document.getElementById('trv2-admin-operator-user');
+  if (!select || !input || input.value.trim()) return;
+  const option = select.options[select.selectedIndex];
+  const name = String(option?.textContent || 'operador')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '');
+  const firstTwo = name.split('.').filter(Boolean).slice(0, 2).join('.') || 'operador';
+  if (select.value) input.value = `${firstTwo}.${Number(select.value)}`;
+}
+
 async function trv2CreateOperatorAccess(event) {
   event.preventDefault();
   const result = document.getElementById('trv2-operator-access-result');
   const choferId = Number(document.getElementById('trv2-admin-operator-chofer')?.value || 0);
   const usuario = document.getElementById('trv2-admin-operator-user')?.value.trim() || '';
-  const token = document.getElementById('trv2-admin-operator-pin')?.value.trim() || '';
+  const token = document.getElementById('trv2-admin-operator-pin')?.value || '';
   const active = document.getElementById('trv2-admin-operator-active')?.value !== 'false';
   if (!choferId) {
     trv2Toast('Selecciona un operador/chofer.', 'error');
     return;
   }
-  if (!token) {
-    trv2Toast('Define un token/PIN temporal para el operador.', 'error');
+  if (token.length < 8) {
+    trv2Toast('La contraseña debe tener al menos 8 caracteres.', 'error');
     return;
   }
   const data = await trv2Api('POST', '/api/tr-v2/operator/accesses', {
@@ -174,9 +256,9 @@ async function trv2CreateOperatorAccess(event) {
     result.hidden = false;
     result.innerHTML = `
       <strong>Acceso creado</strong>
-      <span>Entrega este usuario/token al operador para entrar en su portal móvil.</span>
-      ${usuario ? `<code>Usuario: ${trv2Esc(usuario)}</code>` : ''}
-      <code>${trv2Esc(data.token || '')}</code>
+      <span>Entrega estas credenciales al operador. La contraseña sólo se muestra en este momento.</span>
+      <code>Usuario: ${trv2Esc(data.item?.usuario || usuario)}</code>
+      <code>Contraseña: ${trv2Esc(data.password || '')}</code>
       <a class="trv2-btn trv2-btn-ghost" href="${trv2Esc(data.operator_url || '/transporte-v2/login-operador')}" target="_blank" rel="noopener">Abrir login operador</a>
     `;
   }
@@ -195,18 +277,18 @@ async function trv2DeactivateOperatorAccess(accessId) {
 
 async function trv2DeleteOperatorAccess(accessId) {
   if (!accessId) return;
-  const typed = prompt('Vas a eliminar este acceso operador. Escribe ELIMINAR para confirmar.');
-  if (typed !== 'ELIMINAR') return;
+  const typed = prompt('Se revocará inmediatamente el acceso y se conservará el historial. Escribe REVOCAR para confirmar.');
+  if (typed !== 'REVOCAR') return;
   const data = await trv2Api('POST', `/api/tr-v2/operator/accesses/${Number(accessId)}/eliminar`, {
     perfil_id: TRV2_PERFIL?.id || null,
     chofer_id: null,
     token: '',
   }, {allowError: true});
   if (data?.ok) {
-    trv2Toast('Acceso operador eliminado.', 'success');
+    trv2Toast('Acceso revocado; el historial se conserva.', 'success');
     await trv2LoadOperatorAccesses();
   } else {
-    trv2Toast(data?.detail || data?.message || 'No se pudo eliminar acceso operador.', 'error');
+    trv2Toast(data?.detail || data?.message || 'No se pudo revocar el acceso operador.', 'error');
   }
 }
 

@@ -25,16 +25,16 @@ function trv2IsTransportistaPermit(item = {}) {
 }
 
 function trv2CvProductMatchesPermit(productName = '', permitItem = {}) {
-  const product = trv2CvNormalize(productName);
-  const permitProduct = trv2CvNormalize(permitItem.producto || permitItem.tipo_producto || permitItem.alcance || '');
-  if (!permitProduct) return true;
-  if (permitProduct.includes('gas lp') || permitProduct.includes('gas l.p')) {
-    return product.includes('gas lp') || product.includes('gas l.p') || product.includes('gas l p');
-  }
-  if (permitProduct.includes('petrol') || permitProduct.includes('gasolina')) {
-    return ['magna', 'premium', 'diesel', 'diésel', 'gasolina', 'petrol'].some(word => product.includes(word));
-  }
-  return !product || product.includes(permitProduct) || permitProduct.includes(product);
+  const permitFamily = trv2CvPermitFamilyKey(permitItem);
+  const productFamily = trv2CvProductFamilyKey(productName);
+  return Boolean(permitFamily && productFamily && permitFamily === productFamily);
+}
+
+function trv2CvProductFamilyKey(value = '') {
+  const compact = trv2CvNormalize(value).replace(/[._\s-]/g, '');
+  if (compact.includes('gaslp') || compact.includes('gaslicuado') || compact.includes('15111510')) return 'gas_lp';
+  if (['petrol', 'gasolina', 'magna', 'premium', 'diesel', '151015'].some(word => compact.includes(word))) return 'petroliferos';
+  return '';
 }
 
 function trv2CvPermitNumber(item = {}) {
@@ -109,7 +109,28 @@ function trv2PopulateControlVolumetricoFilters() {
     mes.value = String(now.getMonth() + 1);
   }
   trv2PopulateCvPermisos();
-  trv2PopulateCvSelect('trv2-cv-producto', 'productos', 'Todos');
+  trv2PopulateCvProductsForPermit();
+}
+
+function trv2PopulateCvProductsForPermit() {
+  const select = document.getElementById('trv2-cv-producto');
+  if (!select) return;
+  const current = select.value;
+  const family = trv2CvPermitFamilyKey(trv2CvSelectedPermitItem());
+  const items = (TRV2_CATALOGS.productos || []).filter(item => {
+    const text = [item.nombre, item.descripcion, item.producto, item.clave_producto, item.clave_subproducto].filter(Boolean).join(' ');
+    return family && trv2CvProductFamilyKey(text) === family;
+  });
+  select.innerHTML = '<option value="">Todos los productos autorizados</option>' + items.map(item => (
+    `<option value="${Number(item.id)}">${trv2Esc(trv2CatalogLabel('productos', item))}</option>`
+  )).join('');
+  if ([...select.options].some(option => option.value === current)) select.value = current;
+  select.disabled = !family;
+}
+
+function trv2CvPermitChanged() {
+  trv2PopulateCvProductsForPermit();
+  trv2InvalidateCvSearch();
 }
 
 function trv2PopulateCvPermisos() {
@@ -215,7 +236,8 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso !== permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
+    if (permisoFilter && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
     if (statusFilter && item.status !== statusFilter) return false;
     if (item.status === 'cancelado') return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
@@ -250,7 +272,8 @@ function trv2BuildCvMovements() {
     };
   }).filter(item => {
     if (sourceFilter && item.source !== sourceFilter) return false;
-    if (permisoFilter && item.permiso && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && item.permiso !== permisoFilter) return false;
+    if (permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
     if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
     return true;
@@ -362,29 +385,45 @@ function trv2CvEntries(movements = []) {
 }
 
 function trv2RenderCvTables(movements) {
-  const entries = trv2CvEntries(movements);
-  const render = (id, type) => {
-    const tbody = document.getElementById(id);
-    if (!tbody) return;
-    const rows = entries.filter(item => item.type === type);
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(entry => `
+  const tbody = document.getElementById('trv2-cv-movements-table');
+  if (!tbody) return;
+  if (!movements.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="trv2-empty">Sin movimientos para el periodo seleccionado.</div></td></tr>';
+    return;
+  }
+  const formatDate = value => value && !Number.isNaN(value.getTime())
+    ? trv2DisplayDate(value, {withTime: true})
+    : 'Pendiente';
+  tbody.innerHTML = movements.map(item => {
+    const row = item.row || {};
+    const product = trv2CvProductData(row);
+    const isExternal = item.source === 'externo';
+    const type = item.movementType || '';
+    const loadDate = isExternal && type !== 'carga' ? null : item.date;
+    const deliveryRaw = row.fecha_hora_llegada || row.fecha_llegada_estimada || '';
+    const deliveryDate = isExternal
+      ? (type === 'descarga' ? item.date : null)
+      : (deliveryRaw ? new Date(deliveryRaw) : item.date);
+    const origin = isExternal && type === 'descarga'
+      ? 'Movimiento externo'
+      : (row.nombre_origen || row.origen || item.clientName || 'Origen pendiente');
+    const destination = isExternal && type === 'carga'
+      ? 'Movimiento externo'
+      : (row.nombre_destino || row.destino || item.clientName || 'Destino pendiente');
+    return `
       <tr>
-        <td>${trv2Esc(entry.date && !Number.isNaN(entry.date.getTime()) ? trv2DisplayDate(entry.date, {withTime: true}) : 'Pendiente')}</td>
-        <td>${trv2Esc(entry.counterpart)}</td>
-        <td><span class="trv2-service-uuid" title="${trv2Esc(entry.uuid)}">${trv2Esc(entry.uuid || 'Sin UUID')}</span></td>
-        <td>${trv2Esc(entry.product)}</td>
-        <td>${trv2CvNumber(entry.volume)}</td>
-        <td>${Number(entry.amount || 0).toLocaleString('es-MX', {style:'currency', currency:'MXN'})}</td>
-        <td><span class="trv2-status ${entry.source === 'Externo' ? 'warning' : 'active'}">${trv2Esc(entry.source)}</span></td>
+        <td>${trv2Esc(formatDate(loadDate))}</td>
+        <td>${trv2Esc(formatDate(deliveryDate))}</td>
+        <td>${trv2Esc(origin)}</td>
+        <td>${trv2Esc(destination)}</td>
+        <td><span class="trv2-service-uuid" title="${trv2Esc(item.uuid)}">${trv2Esc(item.uuid || 'Sin UUID')}</span></td>
+        <td>${trv2Esc(product.name)}</td>
+        <td>${trv2CvNumber(product.volume)}</td>
+        <td>${Number(product.amount || 0).toLocaleString('es-MX', {style:'currency', currency:'MXN'})}</td>
+        <td><span class="trv2-status ${isExternal ? 'warning' : 'active'}">${isExternal ? 'Externo' : 'GE Control'}</span></td>
       </tr>
-    `).join('');
-  };
-  render('trv2-cv-loads-table', 'carga');
-  render('trv2-cv-deliveries-table', 'descarga');
+    `;
+  }).join('');
 }
 
 function trv2CvFilterKey() {
@@ -401,24 +440,25 @@ function trv2CvFilterKey() {
 function trv2ResetCvResults(message = 'Selecciona permiso y periodo; después presiona “Buscar”.') {
   const context = document.getElementById('trv2-cv-context');
   const kpis = document.getElementById('trv2-cv-kpis');
-  const loads = document.getElementById('trv2-cv-loads-table');
-  const deliveries = document.getElementById('trv2-cv-deliveries-table');
+  const rows = document.getElementById('trv2-cv-movements-table');
   const alert = document.getElementById('trv2-cv-alert');
+  const results = document.getElementById('trv2-cv-results');
   if (context) context.innerHTML = '';
-  if (kpis) kpis.innerHTML = `
-    <article><span>Inventario inicial</span><strong>0 L</strong></article>
-    <article><span>Cargas</span><strong>0 L</strong><small>Sin buscar</small></article>
-    <article><span>Entregas</span><strong>0 L</strong><small>Sin buscar</small></article>
-    <article><span>En tránsito / final</span><strong>0 L</strong></article>
-    <article><span>Cartas Porte</span><strong>0</strong></article>
-    <article><span>Externos</span><strong>0</strong></article>`;
-  if (loads) loads.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Selecciona los filtros y presiona Buscar.</div></td></tr>';
-  if (deliveries) deliveries.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Selecciona los filtros y presiona Buscar.</div></td></tr>';
+  if (kpis) kpis.innerHTML = '';
+  if (rows) rows.innerHTML = '<tr><td colspan="9"><div class="trv2-empty">Selecciona los filtros y presiona Buscar.</div></td></tr>';
   if (alert) alert.textContent = message;
+  if (results) results.hidden = true;
 }
 
 function trv2InvalidateCvSearch() {
   trv2ResetCvResults('Filtros modificados. Presiona “Buscar” para consultar el periodo.');
+}
+
+async function trv2OpenCvReview() {
+  const panel = document.getElementById('trv2-cv-review-panel');
+  if (panel) panel.hidden = false;
+  await trv2LoadControlVolumetrico();
+  document.getElementById('trv2-cv-permiso')?.focus();
 }
 
 async function trv2LoadControlVolumetrico(options = {}) {
@@ -438,6 +478,8 @@ async function trv2LoadControlVolumetrico(options = {}) {
       trv2RenderCvContext(TRV2_CV_MOVEMENTS);
       trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
       trv2RenderCvTables(TRV2_CV_MOVEMENTS);
+      const results = document.getElementById('trv2-cv-results');
+      if (results) results.hidden = false;
     } else {
       trv2ResetCvResults();
     }
@@ -464,6 +506,8 @@ async function trv2LoadControlVolumetrico(options = {}) {
   trv2RenderCvContext(TRV2_CV_MOVEMENTS);
   trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
   trv2RenderCvTables(TRV2_CV_MOVEMENTS);
+  const results = document.getElementById('trv2-cv-results');
+  if (results) results.hidden = false;
   const alert = document.getElementById('trv2-cv-alert');
   if (alert) {
     const invalid = TRV2_CV_MOVEMENTS.filter(item => !item.exportable).length;
@@ -488,6 +532,11 @@ function trv2RefreshCvView() {
 
 function trv2ChooseCvExternal(type = 'carga') {
   TRV2_CV_EXTERNAL_TYPE = type === 'carga' ? 'carga' : 'descarga';
+  if (!trv2CvSelectedPermitValue()) {
+    trv2OpenCvReview();
+    trv2Toast('Selecciona primero el permiso y el periodo del movimiento externo.', 'error');
+    return;
+  }
   const input = document.getElementById('trv2-cv-external-file');
   if (input) {
     input.value = '';
@@ -598,7 +647,27 @@ async function trv2CloseCvMonth() {
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const alert = document.getElementById('trv2-cv-alert');
   if (!permiso || !anio || !mes) {
+    trv2OpenCvReview();
     trv2Toast('Selecciona permiso, año y mes para cerrar el mes.', 'error');
+    return false;
+  }
+  const currentKey = trv2CvFilterKey();
+  if (!TRV2_CV_LAST_SEARCH || TRV2_CV_LAST_SEARCH.key !== currentKey) {
+    trv2Toast('Primero revisa los movimientos con los filtros actuales.', 'error');
+    return false;
+  }
+  const invalid = TRV2_CV_MOVEMENTS.filter(item => (
+    !item.exportable
+    || item.permiso !== permiso
+    || !trv2CvProductMatchesPermit(item.productName, trv2CvSelectedPermitItem())
+  ));
+  if (!TRV2_CV_MOVEMENTS.length || invalid.length) {
+    trv2Toast(
+      !TRV2_CV_MOVEMENTS.length
+        ? 'No hay movimientos válidos para cerrar este permiso y periodo.'
+        : `${invalid.length} movimiento(s) tienen errores de UUID, permiso o producto.`,
+      'error',
+    );
     return false;
   }
   if (!confirm(`Cerrar mes ${anio}-${String(mes).padStart(2, '0')} para el permiso ${permiso}?`)) return false;
