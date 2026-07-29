@@ -36,6 +36,54 @@ def _clean_email(value: str | None) -> str:
 
 
 @measure_external("email")
+def send_gas_lp_expense_payment_email(
+    *, to_email: str | None, supplier_name: str, company_name: str,
+    invoice_number: str, paid_on: str, amount: float | int | str,
+    idempotency_key: str = "",
+) -> EmailDeliveryResult:
+    """Aviso simple de pago; no adjunta ni modifica documentos fiscales."""
+    recipient = _clean_email(to_email)
+    if not recipient:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Proveedor sin correo de pagos.")
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    from_email = os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip()
+    reply_to = os.environ.get("GE_INVOICE_EMAIL_REPLY_TO", "").strip()
+    if not api_key or not from_email:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Correo de salida no configurado.")
+    safe_supplier = html.escape(supplier_name or "Proveedor")
+    safe_company = html.escape(company_name or "GE Control")
+    safe_invoice = html.escape(invoice_number or "")
+    safe_date = html.escape(paid_on or "")
+    safe_amount = html.escape(str(amount or "0"))
+    payload: dict[str, Any] = {
+        "from": from_email, "to": [recipient],
+        "subject": f"Pago registrado · Factura {safe_invoice}",
+        "html": (
+            f"<p>Hola {safe_supplier},</p>"
+            f"<p>{safe_company} registró el pago de la factura <b>{safe_invoice}</b>.</p>"
+            f"<p><b>Fecha de pago:</b> {safe_date}<br><b>Monto:</b> ${safe_amount} MXN</p>"
+            "<p>Este correo fue enviado automáticamente por GE Control.</p>"
+        ),
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to
+    try:
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key[:256]
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers=headers,
+            json=payload, timeout=20,
+        )
+        if response.ok:
+            return EmailDeliveryResult(ok=True, message_id=str((response.json() or {}).get("id") or ""))
+        return EmailDeliveryResult(ok=False, error=response.text[:500])
+    except Exception as exc:
+        return EmailDeliveryResult(ok=False, error=str(exc)[:500])
+
+
+@measure_external("email")
 def send_gas_lp_invoice_email(
     *,
     to_email: str | None,

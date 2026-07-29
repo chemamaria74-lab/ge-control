@@ -9,11 +9,21 @@ from fastapi import HTTPException
 
 @dataclass(frozen=True)
 class TenantContext:
+    """Authoritative request scope resolved from Auth plus server memberships.
+
+    During Phase 0 ``perfil_id`` is the RFC/company compatibility key.
+    ``subscription_id`` remains empty until the deferred per-RFC subscription
+    model is applied. No field in this object is trusted directly from a
+    browser payload.
+    """
+
     auth_user_id: str
     data_user_id: str
     tenant_id: str
     perfil_id: int
     company_id: Optional[int] = None
+    subscription_id: Optional[int] = None
+    membership_source: str = "user_sections"
     sections: frozenset[str] = field(default_factory=frozenset)
     roles: frozenset[str] = field(default_factory=frozenset)
     permissions: frozenset[str] = field(default_factory=frozenset)
@@ -38,9 +48,68 @@ class TenantContext:
 
     def scope_filters(self, *, include_user: bool = True) -> dict:
         result = {"tenant_id": self.tenant_id, "perfil_id": self.perfil_id}
+        if self.subscription_id is not None:
+            result["subscription_id"] = self.subscription_id
         if include_user:
             result["user_id"] = self.data_user_id
         return result
+
+    @property
+    def rfc_scope_id(self) -> int:
+        """Compatibility RFC key until commercial subscriptions are active."""
+        return self.perfil_id
+
+
+def validate_authoritative_scope(
+    *,
+    auth_user_id: str,
+    section: str,
+    requested_perfil_id: int | str | None,
+    accesses: list[dict],
+    profile: dict,
+) -> dict:
+    """Validate a requested RFC selector against authoritative membership rows.
+
+    This pure boundary is shared by runtime resolution and Phase 0 isolation
+    fixtures. It deliberately rejects IDs that are merely syntactically valid.
+    """
+    try:
+        perfil_id = int(requested_perfil_id or 0)
+    except (TypeError, ValueError):
+        perfil_id = 0
+    if perfil_id <= 0:
+        raise HTTPException(400, "Selecciona una empresa/RFC activa.")
+    if not profile or int(profile.get("id") or 0) != perfil_id or not profile.get("activo", False):
+        raise HTTPException(404, "Empresa/RFC no encontrada.")
+
+    profile_tenant = str(profile.get("tenant_id") or "").strip()
+    if not profile_tenant:
+        raise HTTPException(409, "La empresa/RFC aún no tiene tenant; requiere conciliación de Fase 0.")
+
+    matching = []
+    for access in accesses:
+        if str(access.get("section") or "").strip().lower() != str(section or "").strip().lower():
+            continue
+        if str(access.get("status") or "active").strip().lower() != "active":
+            continue
+        if str(access.get("tenant_id") or "").strip() != profile_tenant:
+            continue
+        assigned = access.get("perfil_id")
+        role = str(access.get("role") or "user").strip().lower()
+        if assigned is not None and str(assigned) == str(perfil_id):
+            matching.append(access)
+        elif assigned is None and role == "admin":
+            matching.append(access)
+    if not matching:
+        raise HTTPException(404, "Empresa/RFC no encontrada.")
+
+    return {
+        "auth_user_id": str(auth_user_id),
+        "tenant_id": profile_tenant,
+        "perfil_id": perfil_id,
+        "profile": profile,
+        "accesses": matching,
+    }
 
 
 def resolve_tenant_context(token: str, section: str, requested_perfil_id: int | str | None = None) -> TenantContext:
@@ -64,14 +133,23 @@ def resolve_tenant_context(token: str, section: str, requested_perfil_id: int | 
     if not tenant_id or resolved_profile != perfil:
         raise HTTPException(403, "La empresa no pertenece al tenant activo.")
     accesses = obtener_accesos_usuario(auth_user_id, access_token=token)
-    matching = [a for a in accesses if a.get("section") == section and (a.get("tenant_id") or tenant_id) == tenant_id]
-    if not matching:
-        raise HTTPException(403, "El usuario no tiene acceso a este módulo.")
+    profile = dict(scope.get("profile") or {})
+    profile.setdefault("id", resolved_profile)
+    profile.setdefault("tenant_id", tenant_id)
+    profile.setdefault("activo", True)
+    authoritative = validate_authoritative_scope(
+        auth_user_id=auth_user_id,
+        section=section,
+        requested_perfil_id=resolved_profile,
+        accesses=accesses,
+        profile=profile,
+    )
+    matching = authoritative["accesses"]
     return TenantContext(
         auth_user_id=auth_user_id,
         data_user_id=str(scope.get("data_user_id") or auth_user_id),
-        tenant_id=tenant_id,
-        perfil_id=resolved_profile,
+        tenant_id=authoritative["tenant_id"],
+        perfil_id=authoritative["perfil_id"],
         company_id=resolved_profile,
         sections=frozenset(str(a.get("section") or "") for a in accesses),
         roles=frozenset(str(a.get("role") or "user") for a in matching),
