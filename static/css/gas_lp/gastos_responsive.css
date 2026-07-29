@@ -1,0 +1,92 @@
+ .query-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.query-toolbar label { min-width: min(260px, 100%); }
+.query-toolbar .status { flex: 1 1 220px; }
+
+@media (max-width: 800px) {
+  .expense-top {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .expense-top h1 { font-size: 17px; }
+  .expense-top nav {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-bottom: 2px;
+  }
+
+  .expense-top > a,
+  .expense-top > button { margin-left: auto; }
+  .expense-shell {
+    width: min(calc(100% - 18px), 1240px);
+    margin-top: 16px;
+  }
+
+  .hero h2 { font-size: 26px; }
+  .card {
+    padding: 15px;
+    border-radius: 14px;
+  }
+
+  .checkbox-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .checkbox-row > input { position: absolute; }
+  .checkbox-row > input + span { padding-left: 28px; }
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .row-actions .btn { flex: 1 1 120px; }
+  .query-toolbar > * { width: 100%; }
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 3px;
+  }
+
+  .tabs button { white-space: nowrap; }
+  .table-wrap {
+    margin-inline: -15px;
+    padding-inline: 15px;
+  }
+
+  .bar {
+    grid-template-columns: minmax(90px, 1fr) minmax(70px, 1.4fr) auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .expense-top img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .expense-top a,
+  .expense-top button { padding: 8px 10px; }
+  .kpi { padding: 14px; }
+  .kpi strong { font-size: 22px; }
+  .bar { grid-template-columns: 1fr auto; }
+  .bar i {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
