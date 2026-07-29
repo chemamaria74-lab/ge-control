@@ -747,6 +747,8 @@ async function createInternalUserGasLp() {
   const statusEl = document.getElementById('gasInternalStatus');
   if (statusEl) statusEl.textContent = '';
   const username = document.getElementById('gasInternalCode').value.trim();
+  const password = document.getElementById('gasInternalPin').value;
+  const passwordConfirmation = document.getElementById('gasInternalPinConfirm').value;
   const payload = {
     display_name: username,
     section: 'gas_lp',
@@ -758,12 +760,27 @@ async function createInternalUserGasLp() {
       ? checkedFleetZoneValues() : [],
     perfil_id: perfilId(),
     code: document.getElementById('gasInternalCode').value.trim(),
-    pin: document.getElementById('gasInternalPin').value.trim(),
+    pin: password,
+    pin_confirmation: passwordConfirmation,
   };
   if (!payload.perfil_id || !payload.code || !payload.pin) {
     if (statusEl) {
       statusEl.style.color = '#dc2626';
       statusEl.textContent = 'Usuario, contraseña y empresa activa son obligatorios.';
+    }
+    return;
+  }
+  if (password.length < 8) {
+    if (statusEl) {
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = 'La contraseña debe tener al menos 8 caracteres.';
+    }
+    return;
+  }
+  if (password !== passwordConfirmation) {
+    if (statusEl) {
+      statusEl.style.color = '#dc2626';
+      statusEl.textContent = 'Las contraseñas no coinciden.';
     }
     return;
   }
@@ -786,7 +803,7 @@ async function createInternalUserGasLp() {
       statusEl.style.color = '#15803d';
       statusEl.innerHTML = `Gerente creado. Usuario: <b>${data.user.code}</b>. La contraseña quedó guardada de forma segura.`;
     }
-    ['gasInternalCode','gasInternalPin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['gasInternalCode','gasInternalPin','gasInternalPinConfirm'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showGasInternalTab(payload.portal_scope);
     await loadInternalUsersGasLp();
   } catch(e) {
@@ -831,6 +848,9 @@ async function editInternalRoleGasLp(id, currentRole) {
 async function resetInternalPinGasLp(id) {
   const password = prompt('Escribe la nueva contraseña para este usuario:');
   if (!password) return;
+  if (password.length < 8) return alert('La contraseña debe tener al menos 8 caracteres.');
+  const confirmation = prompt('Confirma la nueva contraseña:');
+  if (confirmation !== password) return alert('Las contraseñas no coinciden. No se realizó ningún cambio.');
   const res = await fetch(`/api/internal-users/${id}/reset-pin`, {
     method: 'POST',
     headers: { ...authHeader(), 'Content-Type': 'application/json' },
