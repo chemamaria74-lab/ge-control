@@ -23,13 +23,14 @@ from routes.analytics   import router as analytics_router
 from routes.facilities  import router as facilities_router
 from routes.admin       import router as admin_router
 from routes.admin_saas_delete_fix import router as admin_saas_delete_fix_router
-from routes.admin_saas_scope_guard import router as admin_saas_scope_guard_router
 from routes.admin_saas  import router as admin_saas_router
 from routes.admin_saas_billing import router as admin_saas_billing_router
+from routes.admin_commercial import router as admin_commercial_router
 from routes.movimientos import router as movimientos_router
 from routes.perfiles    import router as perfiles_router
 from routes.internal_users import router as internal_users_router
 from routes.flotilla import router as flotilla_router
+from routes.gastos_gas_lp import router as gastos_gas_lp_router
 from services.database  import init_db
 from services.email_delivery import send_sales_lead_email
 from services.landing_settings import get_landing_settings
@@ -290,13 +291,14 @@ app.include_router(analytics_router,   prefix="/api", tags=["Analíticos"])
 app.include_router(facilities_router,  prefix="/api", tags=["Instalaciones"])
 app.include_router(admin_router,       prefix="/api", tags=["Admin"])
 app.include_router(admin_saas_delete_fix_router, prefix="/api", tags=["Admin SaaS"])
-app.include_router(admin_saas_scope_guard_router, prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_router,  prefix="/api", tags=["Admin SaaS"])
 app.include_router(admin_saas_billing_router, prefix="/api", tags=["Admin SaaS Billing"])
+app.include_router(admin_commercial_router, prefix="/api", tags=["Admin SaaS Comercial"])
 app.include_router(movimientos_router, prefix="/api", tags=["Movimientos"])
 app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(flotilla_router, prefix="/api", tags=["Flotilla 360"])
+app.include_router(gastos_gas_lp_router, prefix="/api", tags=["Gastos Gas LP"])
 app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
 app.include_router(transporte_v2_facturas_servicio_router, prefix="/api", tags=["Transporte v2"])
 
@@ -603,7 +605,7 @@ async def module_role_view(modulo: str, lang: str = "es"):
             ("Administrador", "Selecciona empresa y entra al dashboard completo."),
             ("Asistente de facturación", "Usa la empresa asignada y solo accede a facturación."),
             ("Conciliación", "Complementos de pago, consulta y cancelación por empresa."),
-            ("Flotilla 360", "Gastos, consumo, inspecciones, mantenimiento y rendimiento conectados con Motive."),
+            ("Gerentes", "Flotilla, vales, gastos y rendimiento de las zonas asignadas."),
         ]
     )
     html = templates.get_template("module_role.html").render(modulo=modulo, nombre=nombre, roles=roles, lang=lang)
@@ -690,6 +692,24 @@ async def frontend(lang: str = "es"):
 async def frontend_flotilla_gas_lp():
     """Cuarto portal de Gas LP: analítica histórica conectada con Motive."""
     return _render_html_file("flotilla_gas_lp.html")
+
+
+@app.get("/gas-lp/gerentes/gastos", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_gerentes_gastos():
+    """Vales, facturas y catálogos del gerente; aislado de Asistente."""
+    return _render_html_file("gerentes_gastos.html")
+
+
+@app.get("/gas-lp/gastos", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_gastos_administracion():
+    """Espacio multiempresa de Gastos y pagos."""
+    return _render_html_file("gastos_gas_lp.html")
+
+
+@app.get("/gas-lp/conciliacion/inicio", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_conciliacion_workspace_selector():
+    """Selector independiente para no saturar las pestañas de Conciliación."""
+    return _render_html_file("conciliacion_gastos_selector.html")
 
 
 @app.get("/transporte", response_class=HTMLResponse, include_in_schema=False)
@@ -792,14 +812,12 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
     const PROFILE_KEY = 'zc_perfil_transporte_v2';
     const message = document.getElementById('loginMessage');
     const profileList = document.getElementById('profileList');
-    const queryToken = new URLSearchParams(location.search).get('token') || '';
     if (IS_OPERATOR) {
-      document.querySelector('label[for="username"]').textContent = 'Usuario o token de acceso';
-      document.getElementById('username').placeholder = 'Usuario asignado o token temporal';
-      document.getElementById('username').value = queryToken;
-      document.querySelector('label[for="password"]').textContent = 'PIN';
-      document.getElementById('password').placeholder = 'Déjalo vacío si usas un token';
-      document.getElementById('password').required = false;
+      document.querySelector('label[for="username"]').textContent = 'Usuario';
+      document.getElementById('username').placeholder = 'Usuario asignado por Administración';
+      document.querySelector('label[for="password"]').textContent = 'Contraseña';
+      document.getElementById('password').placeholder = 'Contraseña';
+      document.getElementById('password').required = true;
     }
     function esc(value) {
       return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -858,7 +876,7 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
         try {
           const identity = document.getElementById('username').value.trim();
           const pin = document.getElementById('password').value;
-          const payload = pin ? {usuario: identity, pin} : {token: identity};
+          const payload = {usuario: identity, pin};
           const response = await fetch('/api/tr-v2/operator/login', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1001,6 +1019,8 @@ async def frontend_asistente_gas_lp():
 @app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
 async def terms_view(request: Request):
     lang = request.query_params.get("lang", "es")
+    if lang != "en":
+        return _render_html_file("legal_terms_es.html")
     if lang == "en":
         html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Terms and Conditions</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Terms and Conditions</h1><p>GE Control is a private SaaS platform for operational, fiscal, and administrative control for authorized clients. Access and use are limited to users, companies, and modules enabled by GE Control or by the client’s authorized administrator.</p><p>Users agree to use the platform only for lawful operational and business purposes related to their company. Copying, distribution, resale, sublicensing, reverse engineering, bulk data extraction, or unauthorized access to any part of the system is prohibited.</p><p>Information generated in GE Control may support fiscal, logistics, and administrative processes; however, each client remains responsible for validating data, documents, stamped CFDI, reports, and obligations with its tax, accounting, or legal advisors.</p><p class="note">Initial informational version. The final legal text must be formalized in the commercial agreement and applicable service, security, support, and data processing annexes.</p><a class="back" href="/choice?lang=en">Back</a></main></body></html>"""
     else:
@@ -1011,6 +1031,8 @@ async def terms_view(request: Request):
 @app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
 async def privacy_view(request: Request):
     lang = request.query_params.get("lang", "es")
+    if lang != "en":
+        return _render_html_file("legal_privacy_es.html")
     if lang == "en":
         html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE Control | Privacy Notice</title><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f8fafc;color:#111827;font-family:var(--ge-font,Inter,system-ui,sans-serif)}main{max-width:980px;margin:48px auto;padding:34px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 40px rgba(15,23,42,.08)}h1{color:#5B0F1D;margin:0 0 22px;font-size:clamp(2rem,4vw,3.3rem)}p{line-height:1.7;color:#475569;font-size:1.05rem;margin:0 0 16px}.note{padding:14px 16px;border:1px solid #eadfca;background:#fffaf0;border-radius:10px;color:#5f4b2f}.back{display:inline-block;margin-top:18px;color:#7A1E2C;font-weight:700;text-decoration:none}@media(max-width:680px){main{margin:22px 12px;padding:22px}p{font-size:1rem}}</style></head><body><main><h1>Privacy Notice</h1><p>GE Control processes identification, contact, operational, billing, module configuration, technical log, and user-uploaded document data only to provide the contracted service, support operations, maintain security, generate audit trails, and operate enabled modules.</p><p>The platform applies separation by client, company, module, and role. Credentials, technical keys, and sensitive data must be stored only through authorized secure mechanisms, such as environment variables or encrypted storage where applicable.</p><p>GE Control does not sell or publish client information. Internal access is limited to support, security, contractual compliance, or incident response purposes, according to available permissions and operational controls.</p><p class="note">Initial informational version. The final privacy notice must be legally validated before operating with production clients and may be adjusted according to contract, jurisdiction, contracted modules, and active integrations.</p><a class="back" href="/choice?lang=en">Back</a></main></body></html>"""
     else:
