@@ -160,6 +160,7 @@ def build_transport_covol(
         uuid_cfdi = (v.get("uuid_cfdi") or "").strip().upper()
         id_ccp    = (v.get("id_ccp")    or "").strip().lower()
         fecha_h   = _fmt_iso(v.get("fecha_hora_salida") or v.get("fecha_hora") or "")
+        fecha_transaccion = _fmt_iso(v.get("fecha_transaccion") or fecha_h)
         rfc_cont  = (v.get("rfc_receptor") or "").strip().upper()
         nom_cont  = (v.get("nombre_receptor") or "").strip()
         tipo_cfdi = (v.get("tipo_cfdi") or "Traslado").strip().title()
@@ -183,6 +184,7 @@ def build_transport_covol(
                 "volumen":   round(vol, 2),
                 "importe":   round(imp, 2),
                 "fecha_hora": fecha_h,
+                "fecha_transaccion": fecha_transaccion,
                 "rfc_cont":  rfc_cont,
                 "nom_cont":  nom_cont,
                 "tipo_cfdi": tipo_cfdi if tipo_cfdi in {"Ingreso", "Traslado", "Egreso"} else "Traslado",
@@ -249,7 +251,7 @@ def build_transport_covol(
                         "Cfdi":       m["uuid_cfdi"],
                         "TipoCfdi":   m["tipo_cfdi"],
                         "PrecioVentaOCompraOContrap": _smart_num(m["importe"]),
-                        "FechaYHoraTransaccion": m["fecha_hora"],
+                        "FechaYHoraTransaccion": m["fecha_transaccion"],
                         "VolumenDocumentado": {
                             "ValorNumerico":  _smart_num(m["volumen"]),
                             "UnidadDeMedida": CLAVE_UNIDAD_LITROS,
@@ -287,7 +289,7 @@ def build_transport_covol(
                         "Cfdi":       m["uuid_cfdi"],
                         "TipoCfdi":   m["tipo_cfdi"],
                         "PrecioVentaOCompraOContrap": _smart_num(m["importe"]),
-                        "FechaYHoraTransaccion": m["fecha_hora"],
+                        "FechaYHoraTransaccion": m["fecha_transaccion"],
                         "VolumenDocumentado": {
                             "ValorNumerico":  _smart_num(m["volumen"]),
                             "UnidadDeMedida": CLAVE_UNIDAD_LITROS,
