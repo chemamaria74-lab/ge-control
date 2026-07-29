@@ -36,7 +36,7 @@
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
       internalSection: 'gas_lp',
     };
-    if (path.startsWith('/gas-lp/flotilla')) return {
+    if (path.startsWith('/gas-lp/flotilla') || path.startsWith('/gas-lp/gerentes')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
       sessionTokenKey: 'ge_flotilla_access',
       renewable: true,
