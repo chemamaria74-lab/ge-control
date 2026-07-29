@@ -1,0 +1,18 @@
+{
+  "customer": {"name": "Grupo Transporte Demo"},
+  "rfc_a": {"rfc": "AAA010101AAA", "legal_name": "Transportes A"},
+  "rfc_b": {"rfc": "BBB010101BBB", "legal_name": "Transportes B"},
+  "discount": {
+    "type": "percentage",
+    "base": "plan",
+    "value": "10",
+    "reason": "Segundo RFC del mismo cliente"
+  },
+  "expected": {
+    "operation_subtotal": "11900.00",
+    "discount": "1190.00",
+    "net_subtotal": "10710.00",
+    "tax": "1713.60",
+    "total": "12423.60"
+  }
+}

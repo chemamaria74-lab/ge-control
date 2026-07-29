@@ -1,0 +1,24 @@
+{
+  "tenants": {
+    "a": "00000000-0000-0000-0000-00000000000a",
+    "b": "00000000-0000-0000-0000-00000000000b"
+  },
+  "profiles": {
+    "rfc_a": 1001,
+    "rfc_b_same_tenant": 1002,
+    "rfc_b_other_tenant": 2001
+  },
+  "users": {
+    "admin_a": "10000000-0000-0000-0000-000000000001",
+    "admin_b": "20000000-0000-0000-0000-000000000002",
+    "multi_rfc": "30000000-0000-0000-0000-000000000003"
+  },
+  "expected": {
+    "admin_a_visible_trip_ids": [1],
+    "admin_b_visible_trip_ids": [3],
+    "multi_rfc_visible_trip_ids": [1, 2],
+    "admin_a_cannot_insert_rfc_b_same_tenant": true,
+    "admin_a_cannot_update_tenant_b": true,
+    "admin_a_cannot_delete_tenant_b": true
+  }
+}
