@@ -6486,34 +6486,49 @@ async def transporte_v2_subir_covol_externos(
     errors = []
     for filename, content in xml_files:
         try:
-            if document_type == "carta_ingreso":
-                invoice = _covol_external_ingreso_from_xml(content, filename)
-                related_rows = (
+            xml_root = ET.fromstring(content)
+            tipo_comprobante = _first_text(xml_root.get("TipoDeComprobante")).upper()
+            carta_porte_node = _xml_first(xml_root, "CartaPorte")
+            expected_type = "I" if document_type == "carta_ingreso" else "T"
+            if tipo_comprobante != expected_type:
+                label = "Carta Ingreso" if document_type == "carta_ingreso" else "Carta Porte"
+                raise HTTPException(400, f"{filename}: el XML seleccionado como {label} debe ser CFDI tipo {expected_type}.")
+            if carta_porte_node is None:
+                raise HTTPException(400, f"{filename}: el CFDI no contiene el complemento Carta Porte.")
+            saved_document_rows = []
+            for movement_type in ("carga", "descarga"):
+                row = _covol_external_from_xml(content, filename, movement_type, selected_permiso)
+                product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
+                if not _permiso_product_family_match(selected_permit, product_text):
+                    raise HTTPException(400, f"{filename}: el producto no corresponde al permiso {selected_permiso}.")
+                row["metadata"].update({
+                    "document_type": document_type,
+                    "fiscal_role": "servicio_transporte" if document_type == "carta_ingreso" else "traslado_sin_cobro",
+                })
+                row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
+                existing_query = (
                     sb.table(TBL_COVOL_EXTERNOS)
                     .select("*")
                     .eq("user_id", uid)
                     .eq("perfil_id", pid)
                     .eq("num_permiso_cne", selected_permiso)
-                    .eq("uuid_cfdi", invoice["related_uuid"])
-                    .execute()
-                    .data
-                    or []
+                    .eq("tipo_movimiento", movement_type)
+                    .eq("id_ccp", row.get("id_ccp") or "")
+                    .eq("clave_producto", row.get("clave_producto") or "")
                 )
-                if not related_rows:
-                    raise HTTPException(
-                        400,
-                        f"{filename}: primero sube la Carta Porte externa relacionada {invoice['related_uuid']}.",
-                    )
-                for existing in related_rows:
-                    metadata = _parse_json_value(existing.get("metadata"), {})
-                    metadata.update({
-                        "carta_ingreso_uuid": invoice["invoice_uuid"],
-                        "carta_ingreso_fecha": invoice["fecha"],
-                        "carta_ingreso_filename": filename,
-                    })
-                    updated = (
+                existing_rows = existing_query.execute().data or []
+                existing = existing_rows[0] if existing_rows else None
+                existing_meta = _parse_json_value((existing or {}).get("metadata"), {})
+                # La Carta Ingreso con complemento Carta Porte reemplaza al CFDI
+                # de traslado del mismo IdCCP; subir después la Carta Porte no
+                # debe degradar ni duplicar el movimiento ya facturado.
+                if existing and document_type == "carta_porte" and existing_meta.get("document_type") == "carta_ingreso":
+                    saved = [existing]
+                elif existing:
+                    update_values = {key: value for key, value in row.items() if key not in {"user_id", "perfil_id"}}
+                    saved = (
                         sb.table(TBL_COVOL_EXTERNOS)
-                        .update({"importe": invoice["importe"], "metadata": metadata, "updated_at": _now_iso()})
+                        .update(update_values)
                         .eq("id", existing.get("id"))
                         .eq("user_id", uid)
                         .eq("perfil_id", pid)
@@ -6521,22 +6536,11 @@ async def transporte_v2_subir_covol_externos(
                         .data
                         or []
                     )
-                    rows.extend(updated)
-                imported_documents += 1
-                continue
-
-            saved_document_rows = []
-            for movement_type in ("carga", "descarga"):
-                row = _covol_external_from_xml(content, filename, movement_type, selected_permiso)
-                product_text = _first_text(row.get("producto"), row.get("clave_producto"), row.get("clave_subproducto"))
-                if not _permiso_product_family_match(selected_permit, product_text):
-                    raise HTTPException(400, f"{filename}: el producto no corresponde al permiso {selected_permiso}.")
-                row["metadata"].update({"document_type": "carta_porte"})
-                row.update({"user_id": uid, "perfil_id": pid, "updated_at": _now_iso()})
-                saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
-                    row,
-                    on_conflict="user_id,perfil_id,tipo_movimiento,uuid_cfdi,clave_producto",
-                ).execute().data or []
+                else:
+                    saved = sb.table(TBL_COVOL_EXTERNOS).upsert(
+                        row,
+                        on_conflict="user_id,perfil_id,tipo_movimiento,uuid_cfdi,clave_producto",
+                    ).execute().data or []
                 saved_document_rows.extend(saved)
             if saved_document_rows:
                 rows.extend(saved_document_rows)
@@ -6717,11 +6721,11 @@ async def transporte_v2_generar_control_volumetrico(
     except Exception:
         selected_permiso_row = {}
 
-    invoice_total_by_trip: dict[int, float] = {}
+    invoice_by_trip: dict[int, dict[str, Any]] = {}
     try:
         invoice_rows = (
             sb.table(TBL_FACT_SERV)
-            .select("viaje_ids,total,status")
+            .select("viaje_ids,total,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at")
             .eq("user_id", uid)
             .eq("perfil_id", pid)
             .execute()
@@ -6733,13 +6737,18 @@ async def transporte_v2_generar_control_volumetrico(
                 continue
             for trip_id in (_parse_json_value(invoice.get("viaje_ids"), []) or []):
                 try:
-                    invoice_total_by_trip[int(trip_id)] = _num(invoice.get("total"))
+                    invoice_by_trip[int(trip_id)] = {
+                        "uuid": _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")).upper(),
+                        "total": _num(invoice.get("total")),
+                        "fecha": _first_text(invoice.get("fecha_timbrado"), invoice.get("created_at")),
+                    }
                 except (TypeError, ValueError):
                     continue
     except Exception as exc:
         logger.info("COVOL Transporte sin complemento de Carta Ingreso: %s", exc)
 
     viajes_para_covol: list[dict[str, Any]] = []
+    viajes_sin_carta_ingreso: list[int] = []
     permisos_detectados: set[str] = set()
     for row in rows:
         meta = _meta(row)
@@ -6769,18 +6778,24 @@ async def transporte_v2_generar_control_volumetrico(
             continue
         if not producto_match_permiso:
             continue
+        trip_id = int(row.get("id") or 0)
+        service_invoice = invoice_by_trip.get(trip_id) or {}
+        if not _first_text(service_invoice.get("uuid")):
+            viajes_sin_carta_ingreso.append(trip_id)
+            continue
         enriched_products = []
         for product in (productos_json if isinstance(productos_json, list) else []):
             if not isinstance(product, dict):
                 continue
             enriched = dict(product)
-            enriched["importe"] = _num(enriched.get("importe")) or invoice_total_by_trip.get(int(row.get("id") or 0), 0)
+            enriched["importe"] = _num(service_invoice.get("total"))
             enriched_products.append(enriched)
         base_movement = {
-            "uuid_cfdi": _first_text(row.get("uuid_cfdi"), meta.get("uuid_carta_porte")),
+            "uuid_cfdi": _first_text(service_invoice.get("uuid")),
             "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
             "num_permiso_cne": selected_permiso,
-            "tipo_cfdi": "Traslado",
+            "tipo_cfdi": "Ingreso",
+            "fecha_transaccion": _first_text(service_invoice.get("fecha"), row.get("fecha_hora_salida")),
             "productos": enriched_products,
         }
         viajes_para_covol.append({
@@ -6797,6 +6812,13 @@ async def transporte_v2_generar_control_volumetrico(
             "rfc_receptor": row.get("rfc_receptor") or "",
             "nombre_receptor": row.get("nombre_receptor") or row.get("nombre_destino") or "",
         })
+
+    if viajes_sin_carta_ingreso:
+        ids = ", ".join(str(value) for value in sorted(set(viajes_sin_carta_ingreso)))
+        raise HTTPException(
+            409,
+            f"No se puede generar el reporte SAT: los viajes {ids} no tienen Carta Ingreso timbrada con complemento Carta Porte.",
+        )
 
     try:
         external_rows = (
@@ -6823,6 +6845,11 @@ async def transporte_v2_generar_control_volumetrico(
                 "tipo_movimiento": external.get("tipo_movimiento") or "descarga",
                 "tipo_cfdi": "Ingreso",
                 "fecha_hora_salida": external.get("fecha_hora") or "",
+                "fecha_transaccion": (
+                    (_parse_json_value(external.get("metadata"), {}) or {}).get("carta_ingreso_fecha")
+                    or external.get("fecha_hora")
+                    or ""
+                ),
                 "rfc_receptor": external.get("rfc_contraparte") or "",
                 "nombre_receptor": external.get("nombre_contraparte") or "",
                 "productos": [{
