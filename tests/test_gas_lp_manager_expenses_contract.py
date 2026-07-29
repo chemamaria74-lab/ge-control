@@ -101,3 +101,48 @@ def test_new_pages_are_mounted_without_replacing_fiscal_conciliation():
     assert selector.status_code == 200
     assert "Conciliación fiscal" in selector.text
     assert "Gastos y pagos" in selector.text
+
+
+def test_invoice_history_exposes_linked_vouchers_and_mobile_layout():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    manager_js = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
+    admin_js = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    responsive = (ROOT / "static" / "css" / "gas_lp" / "gastos_responsive.css").read_text(encoding="utf-8")
+
+    assert '"vouchers"' in route
+    assert "Vales:" in manager_js
+    assert "Vales:" in admin_js
+    assert "@media (max-width: 800px)" in responsive
+    assert "flex-wrap: wrap" in responsive
+
+
+def test_manager_selector_validates_internal_and_official_sessions():
+    selector = (ROOT / "templates" / "gerentes_selector.html").read_text(encoding="utf-8")
+
+    assert "Authorization:`Bearer ${officialToken}`" in selector
+    assert "data.identity_type === 'official'" in selector
+    assert "data.fleet_access_level !== 'zone_manager'" in selector
+
+
+def test_expense_portals_load_data_only_on_demand():
+    manager = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
+    admin = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    manager_html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
+    admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "else loadBase()" in manager
+    assert "loadProfiles().then(()=>{" in admin
+    assert ".then(load)" not in admin
+    assert 'id="searchVouchers"' in manager_html
+    assert 'id="searchHistory"' in manager_html
+    assert 'id="searchExpenses"' in admin_html
+    assert 'id="searchAnalytics"' in admin_html
+
+
+def test_expense_lists_are_server_filtered_and_bounded():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+
+    assert 'query.ilike("folio"' in route
+    assert 'query.ilike("invoice_number"' in route
+    assert "le=500" in route
+    assert ".limit(limit)" in route

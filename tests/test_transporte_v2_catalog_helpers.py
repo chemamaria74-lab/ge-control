@@ -490,7 +490,7 @@ def test_direct_transport_profile_creation_is_blocked_pending_ge_control_validat
     assert "validación de RFC, contrato y suscripción" in str(exc.value.detail)
 
 
-def test_transport_subscription_metering_and_operator_retention_contract_are_visible():
+def test_transport_subscription_metering_stays_backend_only_and_retention_is_preserved():
     root = Path(__file__).parents[1]
     template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
     frontend = (root / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
@@ -499,10 +499,47 @@ def test_transport_subscription_metering_and_operator_retention_contract_are_vis
         '@router.post("/tr-v2/operator/login")', 1
     )[0]
 
-    assert "Suscripción y alta" in template
-    assert 'id="trv2-onboarding-checklist"' in template
+    assert "Suscripción y alta" not in template
+    assert 'id="trv2-onboarding-checklist"' not in template
     assert "/api/tr-v2/admin/subscription-summary" in frontend
     assert "timbres_included_monthly" in backend
     assert '"retention_days": 365' in revoke_source
     assert ".delete()" not in revoke_source
     assert '"session_hash": None' in revoke_source
+
+
+def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_duplicated():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    api_js = (root / "static/js/transporte_v2/10_api.js").read_text(encoding="utf-8")
+    payroll_js = (root / "static/js/transporte_v2/60_operator_payments.js").read_text(encoding="utf-8")
+    admin_js = (root / "static/js/transporte_v2/85_administracion.js").read_text(encoding="utf-8")
+
+    assert "onclick=\"trv2SearchOperatorPayments()\"" in template
+    assert "Presiona Buscar para consultar los pagos realizados." in payroll_js
+    assert "trv2LoadOperatorPayments({search: true});" not in payroll_js.split(
+        "function trv2SetPayrollWorkspace", 1
+    )[1].split("function trv2SetPaymentPeriodView", 1)[0]
+    assert "if (TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial') trv2LoadOperatorPaymentHistory();" not in payroll_js
+    assert "trv2LoadOperatorDashboard();" not in api_js.split("function trv2SwitchTab", 1)[1].split(
+        "function trv2ValidTab", 1
+    )[0]
+    assert "setTimeout(() =>" not in admin_js.split("async function trv2LoadOperatorDashboard", 1)[1].split(
+        "async function trv2AdminFinalizeTrip", 1
+    )[0]
+    assert 'data-payment-config-nav hidden style="display:none"' in template
+
+
+def test_external_sat_upload_uses_document_type_instead_of_manual_load_unload():
+    root = Path(__file__).parents[1]
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+    frontend = (root / "static/js/transporte_v2/70_control_volumetrico.js").read_text(encoding="utf-8")
+    backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
+
+    assert 'value="carta_porte">Carta Porte' in template
+    assert 'value="carta_ingreso">Carta Ingreso' in template
+    assert "Subir carga" not in template
+    assert "Subir entrega" not in template
+    assert "form.append('tipo_documento', TRV2_CV_EXTERNAL_DOCUMENT_TYPE)" in frontend
+    assert 'for movement_type in ("carga", "descarga")' in backend
+    assert "_covol_external_ingreso_from_xml" in backend

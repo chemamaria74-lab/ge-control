@@ -31,11 +31,24 @@ def test_flotilla_has_a_dedicated_branded_login():
     response = client.get("/gas-lp/flotilla/acceso")
 
     assert response.status_code == 200
-    assert '<h1>Flotilla 360</h1>' in response.text
-    assert 'Integración Motive' in response.text
+    assert '<h1>Portal de Gerentes</h1>' in response.text
+    assert "Flotilla o a Vales y gastos" in response.text
+    assert '<span></span> Gas LP' in response.text
     assert '>Iniciar sesión</button>' in response.text
     assert "fetch('/api/flotilla/grant'" in response.text
     assert "sessionStorage.setItem(FLOTILLA_ACCESS_KEY" in response.text
+    assert "location.replace('/gas-lp/gerentes/inicio')" in response.text
+
+
+def test_manager_landing_separates_fleet_and_expenses():
+    response = client.get("/gas-lp/gerentes/inicio")
+
+    assert response.status_code == 200
+    assert "<h1>Portal de Gerentes</h1>" in response.text
+    assert 'href="/gas-lp/flotilla"' in response.text
+    assert 'href="/gas-lp/gerentes/gastos"' in response.text
+    assert "Flotilla" in response.text
+    assert "Vales y gastos" in response.text
 
 
 def test_legacy_flotilla_login_redirects_to_dedicated_access():
