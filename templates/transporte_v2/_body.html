@@ -593,15 +593,10 @@
     <div class="trv2-cv-action-grid">
       <article class="trv2-cv-action-card trv2-cv-action-upload">
         <h2><i class="fa-solid fa-cloud-arrow-up"></i> Subir pendientes externos</h2>
-        <p>Importa documentos hechos en otra plataforma. Si la Carta Ingreso ya contiene Carta Porte, úsala sola: incluye el traslado y la tarifa sin duplicar movimientos.</p>
-        <label>Documento
-          <select id="trv2-cv-external-document-type">
-            <option value="carta_porte">Carta Porte</option>
-            <option value="carta_ingreso">Carta Ingreso</option>
-          </select>
-        </label>
+        <p>Importa Cartas Ingreso hechas en otra plataforma. Cada XML contiene el traslado, su complemento Carta Porte y la tarifa del flete.</p>
+        <div class="trv2-cv-upload-type"><i class="fa-solid fa-file-invoice-dollar"></i><span><strong>Carta Ingreso</strong><small>CFDI de ingreso con complemento Carta Porte</small></span></div>
         <div class="trv2-actions">
-          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ChooseCvExternal()"><i class="fa-solid fa-upload"></i> Seleccionar XML o ZIP</button>
+          <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ChooseCvExternal()"><i class="fa-solid fa-upload"></i> Seleccionar Carta Ingreso</button>
         </div>
         <input id="trv2-cv-external-file" type="file" accept=".xml,.zip,application/xml,text/xml,application/zip" multiple hidden onchange="trv2UploadCvExternal(event)">
       </article>
