@@ -2,8 +2,10 @@
   const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
   const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
   const LOGIN_URL = '/gas-lp/flotilla/acceso';
+  const REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+  const REPORT_CACHE_VERSION = 3;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null, explorerUnits:[]};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -78,11 +80,69 @@
         method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:portalAccess}),
       }).catch(()=>{});
     }
-    window.GESessionTimeout?.clear(); clearPortalAccess(); clearOfficialSession(); location.replace(LOGIN_URL);
+    const destination=state.identity?.identity_type==='official'
+      ? '/gas-lp/conciliacion?area=flotilla'
+      : LOGIN_URL;
+    window.GESessionTimeout?.clear(); clearPortalAccess(); clearOfficialSession(); location.replace(destination);
   }
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
   function notice(message,type=''){ const el=$('fleetNotice'); el.textContent=message||''; el.className=`fleet-notice${message?' show':''}${type?' '+type:''}`; }
   function setSync(kind,title,meta){ $('syncDot').className=`sync-dot ${kind||''}`; $('syncTitle').textContent=title; $('syncMeta').textContent=meta; }
+  function reportCacheBaseKey(){
+    const identity=state.identity||{};
+    const parts=[
+      identity.identity_type||'unknown',
+      identity.perfil_id||identity.profile_id||identity.assigned_perfil_id||'no-company',
+      identity.internal_user_id||identity.user_id||identity.email||identity.display_name||'anonymous',
+    ];
+    return `ge_fleet_report_cache:${parts.map(value=>encodeURIComponent(String(value))).join(':')}`;
+  }
+  function reportCacheKey(groupId){return `${reportCacheBaseKey()}:zone:${encodeURIComponent(String(groupId||''))}`;}
+  function lastReportGroupKey(){return `${reportCacheBaseKey()}:last-zone`;}
+  function readReportCache(groupId){
+    if(!groupId)return null;
+    let cached=null;
+    try{cached=JSON.parse(localStorage.getItem(reportCacheKey(groupId))||'null');}catch(_error){cached=null;}
+    const valid=cached
+      && cached.version===REPORT_CACHE_VERSION
+      && Number.isFinite(Number(cached.saved_at))
+      && Date.now()-Number(cached.saved_at)<REPORT_CACHE_TTL_MS
+      && cached.start&&cached.end&&cached.group&&cached.data;
+    if(valid)return cached;
+    if(cached)try{localStorage.removeItem(reportCacheKey(groupId));}catch(_error){}
+    return null;
+  }
+  function saveReportCache(data){
+    const cached={
+      version:REPORT_CACHE_VERSION,
+      saved_at:Date.now(),
+      start:$('startDate').value,
+      end:$('endDate').value,
+      group:$('reportGroup').value,
+      data,
+    };
+    try{
+      localStorage.setItem(reportCacheKey(cached.group),JSON.stringify(cached));
+      localStorage.setItem(lastReportGroupKey(),String(cached.group));
+    }catch(_error){}
+  }
+  function restoreZoneAnalysis(groupId,{announce=true}={}){
+    const cached=readReportCache(groupId);
+    $('explorerResults').hidden=true;
+    if(!cached){
+      $('executiveDashboard').hidden=true;
+      if(announce)notice(groupId?'Esta zona no tiene un análisis guardado en las últimas 12 horas. Presiona “Generar análisis”.':'Selecciona una zona.');
+      return false;
+    }
+    $('startDate').value=cached.start;
+    $('endDate').value=cached.end;
+    renderReportCatalog(cached.data);
+    if(announce){
+      const savedAt=dateText(new Date(Number(cached.saved_at)).toISOString());
+      notice(`Mostrando el análisis guardado de esta zona, generado ${savedAt}. Se conservará durante 12 horas.`);
+    }
+    return true;
+  }
 
   async function loadOverview(){
     try{
@@ -149,33 +209,62 @@
     notice('Preparando el análisis gerencial…');
     try{
       if(prepare) await api(`/reports/prepare?${p}`,{method:'POST'});
-      const data=await api(`/reports/catalog?${p}`), counts=data.counts||{}, totals=data.totals||{};
-      $('executiveDashboard').hidden=false;
-      $('reportExpenses').textContent=totals.expense_available?`${money(totals.expenses_mxn,'MXN')}${totals.expense_complete?'':' · parcial'}`:'No disponible';
-      $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
-      $('reportActivity').textContent=fmt(counts.activity); $('reportFaults').textContent=fmt(counts.faults);
-      $('reportCritical').textContent=fmt(data.analytics?.critical_high);
-      renderDashboard(data.analytics||{});
-      populateExplorer(data.explorer||{});
-      renderDataStatus(data.sync||null,counts,data.freshness||null);
-      const submitters=data.submitters||[];
-      $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
-      renderManagerBrief(data.analytics||{},counts);
-      localStorage.setItem('ge_manager_fleet_report',JSON.stringify({
-        start:$('startDate').value,end:$('endDate').value,group:$('reportGroup').value,
-      }));
+      const data=await api(`/reports/catalog?${p}`);
+      renderReportCatalog(data);
+      saveReportCache(data);
       notice('');
       if(scroll)$('executiveDashboard').scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){ notice(error.message,'error'); }
     finally{$('runAnalysis').disabled=false;$('runAnalysis').innerHTML='<i class="fa-solid fa-chart-column"></i> Generar análisis';}
   }
 
+  function renderReportCatalog(data){
+    const counts=data.counts||{}, totals=data.totals||{};
+    $('executiveDashboard').hidden=false;
+    $('reportExpenses').textContent=totals.expense_available?`${money(totals.expenses_mxn,'MXN')}${totals.expense_complete?'':' · parcial'}`:'No disponible';
+    const expenseSources=data.expense_sources||[];
+    const nonMxn=data.expense_non_mxn||[];
+    $('reportExpenseSource').textContent=expenseSources.length
+      ? expenseSources.map(row=>row.label).join(' + ')
+      : (nonMxn.length
+        ? `${nonMxn.map(row=>`${money(row.amount,row.currency)} excluido del total MXN`).join(' · ')}`
+        : 'Sin movimientos identificados');
+    $('reportExpenses').title=expenseSources.length
+      ? `Origen: ${expenseSources.map(row=>`${row.label}: ${money(row.amount_mxn,'MXN')}`).join(' · ')}`
+      : (nonMxn.length
+        ? `Hay movimientos en otra moneda que no se suman como MXN: ${nonMxn.map(row=>money(row.amount,row.currency)).join(' · ')}.`
+        : 'No hay movimientos de gasto identificados para esta zona y periodo.');
+    $('reportSafety').textContent=fmt(counts.driver_events); $('reportSpeeding').textContent=fmt(counts.speeding);
+    $('reportActivity').textContent=fmt(totals.vehicles_without_gps); $('reportFaults').textContent=fmt(counts.faults);
+    $('reportCritical').textContent=fmt(data.analytics?.critical_high);
+    renderDashboard(data.analytics||{});
+    populateExplorer(data.explorer||{});
+    renderDataStatus(data.sync||null,counts,data.freshness||null);
+    const submitters=data.submitters||[];
+    $('submitterList').innerHTML=submitters.length?submitters.slice(0,8).map((row,index)=>`<div class="submitter-row"><span>${index+1}. ${esc(row.name)}</span><strong>${fmt(row.records)} · ${money(row.amount_mxn,'MXN')}</strong></div>`).join(''):'Sin gastos importados en el periodo. No se interpreta como $0 real.';
+    renderManagerBrief(data.analytics||{},counts);
+  }
+
   function renderDashboard(analytics){
     const units=analytics.top_units||[], behaviors=analytics.behaviors||[];
-    const maxUnit=Math.max(...units.map(row=>Number(row.attention_index||0)),1);
-    $('riskRanking').innerHTML=units.length?units.map((row,index)=>`<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${fmt(row.security+row.speeding)} eventos · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${Math.max(4,Number(row.attention_index||0)/maxUnit*100)}%"></i></span><strong>${fmt(row.attention_index)}</strong></button>`).join(''):'<div class="empty">No hay eventos en este periodo.</div>';
+    const maxUnit=Math.max(...units.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
+    $('riskRanking').innerHTML=units.length?units.map((row,index)=>{
+      const events=Number(row.security||0)+Number(row.speeding||0);
+      const coverage=row.coverage_status||'Cobertura no determinada';
+      return `<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')} · ${fmt(row.critical_high)} críticos/altos · ${esc(coverage)}</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxUnit*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
+    }).join(''):'<div class="empty">No hay unidades para este periodo.</div>';
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
-    document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{$('vehicleSearch').value=button.dataset.unitSearch;state.page=1;loadVehicles();}));
+    document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{
+      const unitName=button.dataset.unitSearch||'';
+      const unit=state.explorerUnits.find(row=>String(row.name).trim().toLocaleLowerCase('es-MX')===unitName.trim().toLocaleLowerCase('es-MX'));
+      if(!unit)return notice(`No encontramos el expediente de ${unitName} en esta zona.`,'error');
+      $('explorerType').value='unit';
+      $('explorerUnitLabel').hidden=false;$('explorerDriverLabel').hidden=true;
+      $('explorerUnit').value=String(unit.id);
+      $('explorerResults').hidden=true;
+      $('runExplorer').scrollIntoView({behavior:'smooth',block:'center'});
+      runExplorer();
+    }));
   }
 
   function behaviorDonutHtml(rows){
@@ -227,6 +316,7 @@
   }
 
   function populateExplorer(explorer){
+    state.explorerUnits=explorer.units||[];
     const currentUnit=$('explorerUnit').value, currentDriver=$('explorerDriver').value;
     $('explorerUnit').innerHTML='<option value="">Selecciona una unidad</option>'+(explorer.units||[]).map(row=>`<option value="${Number(row.id)}">${esc(row.name)}</option>`).join('');
     $('explorerDriver').innerHTML='<option value="">Selecciona un chofer</option>'+(explorer.drivers||[]).map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
@@ -266,7 +356,7 @@
     result.innerHTML=`<div class="panel-title"><h4>${esc(data.entity?.name||'Desempeño')}</h4><span>${esc(data.period?.start)} al ${esc(data.period?.end)}</span></div>
       <div class="explorer-kpis">
         <div><span>Eventos</span><strong>${value(k.events)}</strong></div><div><span>Críticos / altos</span><strong>${value(k.critical_high)}</strong></div>
-        <div><span>Score</span><strong>${k.score==null?'No disponible':fmt(k.score)+'/100'}</strong></div><div><span>Kilómetros</span><strong>${k.distance_km==null?'No disponible':fmt(k.distance_km)+' km'}</strong></div>
+        <div><span>Cobertura</span><strong>${esc(k.coverage_status||'No determinada')}</strong></div><div><span>Kilómetros</span><strong>${k.distance_km==null?'No disponible':fmt(k.distance_km)+' km'}</strong></div>
         <div><span>Horas motor</span><strong>${k.engine_hours==null?'No disponible':fmt(k.engine_hours)+' h'}</strong></div><div><span>Inspecciones</span><strong>${value(k.inspections)}</strong></div>
         <div><span>Fuera de 06–18 h</span><strong>${fmt(time.outside_shift||0)} <small>(${fmt(time.outside_shift_pct||0)}%)</small></strong></div><div><span>Día con más eventos</span><strong>${worstDate?esc(worstDate.date):'Sin datos'}</strong></div>
       </div>
@@ -280,7 +370,7 @@
   function renderManagerBrief(analytics,counts){
     const top=(analytics.top_units||[])[0], behavior=(analytics.behaviors||[])[0];
     const messages=[];
-    if(top) messages.push(`<li><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Primera prioridad:</strong> revisar ${esc(top.vehicle_number)} por ${fmt(top.security+top.speeding)} eventos y un índice de atención de ${fmt(top.attention_index)}.</span></li>`);
+    if(top) messages.push(`<li><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Primera prioridad:</strong> revisar ${esc(top.vehicle_number)} por ${fmt(top.security+top.speeding)} eventos en el periodo.</span></li>`);
     if(behavior) messages.push(`<li><i class="fa-solid fa-person-circle-exclamation"></i><span><strong>Conducta dominante:</strong> ${esc(behavior.label)}, con ${fmt(behavior.count)} incidencias. Conviene definir una acción correctiva y responsable.</span></li>`);
     if(Number(counts.speeding||0)>0) messages.push(`<li><i class="fa-solid fa-gauge-high"></i><span><strong>Velocidad:</strong> ${fmt(counts.speeding)} eventos requieren seguimiento con los conductores de mayor recurrencia.</span></li>`);
     $('managerBrief').innerHTML=`<div><span class="eyebrow">Resumen para el gerente</span><h4>Acciones sugeridas para esta zona</h4></div><ul>${messages.join('')||'<li>No se detectaron eventos que requieran acción en el periodo.</li>'}</ul>`;
@@ -295,7 +385,6 @@
     }
     const datasets=sync.datasets||{}, pending=[];
     const unavailable=(key)=>!Object.prototype.hasOwnProperty.call(datasets,key)||(datasets[key]&&typeof datasets[key]==='object'&&datasets[key].status==='unavailable');
-    if(unavailable('driving_periods')) pending.push('Actividad');
     if(unavailable('vehicle_utilization')) pending.push('Utilización y horas motor');
     if(unavailable('fault_codes')) pending.push('Códigos de falla');
     if(unavailable('card_expenses')) pending.push('Motive Card');
@@ -331,9 +420,8 @@
 
   function initializeDates(){
     const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1);
-    let saved={};try{saved=JSON.parse(localStorage.getItem('ge_manager_fleet_report')||'{}')}catch(_error){}
-    $('endDate').value=saved.end||today.toISOString().slice(0,10);
-    $('startDate').value=saved.start||first.toISOString().slice(0,10);
+    $('endDate').value=today.toISOString().slice(0,10);
+    $('startDate').value=first.toISOString().slice(0,10);
   }
   async function loadGroups(){
     try{
@@ -341,11 +429,17 @@
       const internal=state.identity?.identity_type==='internal';
       const groups=data.items||[];
       $('reportGroup').innerHTML='<option value="">Selecciona una zona</option>'+groups.map(g=>`<option value="${Number(g.id)}">${esc(g.path||g.name||'Grupo sin nombre')}</option>`).join('');
-      let saved={};try{saved=JSON.parse(localStorage.getItem('ge_manager_fleet_report')||'{}')}catch(_error){}
-      if(saved.group&&groups.some(g=>String(g.id)===String(saved.group)))$('reportGroup').value=String(saved.group);
-      else if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
-      $('executiveDashboard').hidden=true;
-      notice('');
+      let lastGroup='';
+      try{lastGroup=localStorage.getItem(lastReportGroupKey())||'';}catch(_error){}
+      const cached=readReportCache(lastGroup);
+      if(cached&&groups.some(g=>String(g.id)===String(cached.group))){
+        $('reportGroup').value=String(cached.group);
+        restoreZoneAnalysis(cached.group);
+      }else{
+        if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
+        $('executiveDashboard').hidden=true;
+        notice('');
+      }
     }catch(error){notice(error.message,'error');}
   }
   initializeDates();
@@ -356,6 +450,7 @@
   $('vehicleSearch').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();state.page=1;loadVehicles();}});
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
   $('runAnalysis').onclick=()=>loadReportCatalog();
+  $('reportGroup').onchange=()=>restoreZoneAnalysis($('reportGroup').value);
   $('explorerType').onchange=()=>{
     const unit=$('explorerType').value==='unit';
     $('explorerUnitLabel').hidden=!unit;$('explorerDriverLabel').hidden=unit;$('explorerResults').hidden=true;
