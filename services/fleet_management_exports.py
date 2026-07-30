@@ -93,7 +93,7 @@ def build_comparison_excel(
         sheet.merge_range(6, start_col, 7, start_col + 2, display, kpi_value)
     sheet.merge_range("A10:R10", "INDICADORES PARA DIRECCIÓN", section)
     headers = [
-        "Zona", "Unidades", "Score conductor", "Eventos", "Críticos/altos",
+        "Zona", "Unidades", "Sin datos GPS", "Eventos", "Críticos/altos",
         "Eventos vs anterior", "Km", "Horas motor", "Utilización", "Gasto total MXN",
         "Mantenimiento MXN", "Gasto vs anterior", "km/L", "Costo/km", "Inspecciones",
         "Defectos abiertos", "Defectos vencidos", "Prioridad",
@@ -102,20 +102,20 @@ def build_comparison_excel(
     for row_no, item in enumerate(ordered, 11):
         priority = "Intervención" if item["critical_high"] or item["overdue_defects"] else "Seguimiento"
         values = [
-            item["zone"], item["vehicles"], item["driver_score"], item["events"], item["critical_high"],
+            item["zone"], item["vehicles"], item["vehicles_without_gps"], item["events"], item["critical_high"],
             item["events_delta_pct"], item["distance_km"], item["engine_hours"], item["utilization_pct"],
             item["expenses_mxn"], item["maintenance_mxn"], item["expense_delta_pct"], item["km_per_liter"],
             item["cost_per_km"], item["inspections"], item["open_defects"], item["overdue_defects"], priority,
         ]
         for col, value in enumerate(values):
             fmt = cell
-            if col in {1, 3, 4, 14, 15, 16}:
+            if col in {1, 2, 3, 4, 14, 15, 16}:
                 fmt = integer
             elif col in {9, 10, 13}:
                 fmt = money
             elif col in {5, 8, 11}:
                 fmt = percent
-            elif col in {2, 6, 7, 12}:
+            elif col in {6, 7, 12}:
                 fmt = number
             if value is None:
                 sheet.write(row_no, col, "No disponible", unavailable)
@@ -178,12 +178,12 @@ def build_zone_pdf(
     current = fleet_analytics(data)
     previous = fleet_analytics(previous_data) if previous_data else None
     row = comparison_row(zone, current, previous)
-    top_units = current["units"][:12]
+    top_units = current["units"]
     story: list[Any] = []
     story.extend(_pdf_header(f"Informe de zona · {zone or 'Toda la flotilla'}", start, end))
     story.append(_kpi_table([
-        ("Unidades", _n(row["vehicles"])),
-        ("Score conductores", _n(row["driver_score"], 1)),
+        ("Unidades con datos", _n(row["vehicles_with_data"])),
+        ("Sin datos GPS", _n(row["vehicles_without_gps"])),
         ("Km", _n(row["distance_km"], 1)),
         ("Horas motor", _n(row["engine_hours"], 1)),
         ("Gasto documentado", _money(row["expenses_mxn"]) if row["expense_available"] else "No disponible"),
@@ -204,21 +204,21 @@ def build_zone_pdf(
     story.append(Spacer(1, 4 * mm))
     story.append(_section("Unidades que requieren atención"))
     story.append(_pdf_table(
-        ["Unidad", "Conductor", "Score", "Eventos", "Crít./altos", "Def. abiertos", "Prioridad"],
-        [[u["vehicle_number"], u["driver_name"] or "Sin asignar", _n(u["score"], 1),
-          _n(u["security"] + u["speeding"]), _n(u["critical_high"]), _n(u["open_defects"]),
-          _n(u["attention_index"])] for u in top_units[:8]],
-        [38, 48, 20, 20, 24, 25, 22],
+        ["Unidad", "Conductor", "Cobertura", "Eventos", "Crít./altos", "Def. abiertos"],
+        [[u["vehicle_number"], u["driver_name"] or "Sin asignar", u["coverage_status"],
+          _n(u["security"] + u["speeding"]), _n(u["critical_high"]), _n(u["open_defects"])]
+         for u in top_units],
+        [38, 45, 47, 20, 24, 25],
     ))
     story.append(PageBreak())
     story.extend(_pdf_header(f"Detalle operativo · {zone or 'Toda la flotilla'}", start, end))
-    story.append(_section("Scorecard, utilización e inspecciones"))
+    story.append(_section("Cobertura, utilización e inspecciones"))
     story.append(_pdf_table(
-        ["Unidad", "Score", "Eventos", "Crít./altos", "Utilización", "Hrs motor", "Inspecciones", "Def. vencidos"],
-        [[u["vehicle_number"], _n(u["score"], 1), _n(u["security"] + u["speeding"]),
+        ["Unidad", "Cobertura", "Eventos", "Crít./altos", "Utilización", "Hrs motor", "Inspecciones", "Def. vencidos"],
+        [[u["vehicle_number"], u["coverage_status"], _n(u["security"] + u["speeding"]),
           _n(u["critical_high"]), f"{u['utilization_pct']:.0%}", _n(u["engine_hours"], 1),
           _n(u["inspections"]), _n(u["overdue_defects"])] for u in top_units],
-        [38, 18, 18, 20, 21, 20, 23, 25],
+        [36, 42, 18, 20, 21, 20, 23, 25],
     ))
     expense_units = [unit for unit in top_units if unit["expense_mxn"] or unit["maintenance_mxn"]]
     story.append(Spacer(1, 4 * mm))
@@ -266,8 +266,8 @@ def build_comparison_pdf(
         story.append(Spacer(1, 4 * mm))
     story.append(_section("Prioridades de dirección"))
     story.append(_pdf_table(
-        ["Zona", "Unid.", "Score", "Eventos", "Crít./altos", "Δ eventos", "Gasto", "Δ gasto", "Def. venc."],
-        [[z["zone"], _n(z["vehicles"]), _n(z["driver_score"], 1), _n(z["events"]), _n(z["critical_high"]),
+        ["Zona", "Unid.", "Sin GPS", "Eventos", "Crít./altos", "Δ eventos", "Gasto", "Δ gasto", "Def. venc."],
+        [[z["zone"], _n(z["vehicles"]), _n(z["vehicles_without_gps"]), _n(z["events"]), _n(z["critical_high"]),
           _pct(z["events_delta_pct"]), _money(z["expenses_mxn"]), _pct(z["expense_delta_pct"]),
           _n(z["overdue_defects"])] for z in ordered],
         [45, 16, 18, 18, 21, 22, 25, 22, 22],

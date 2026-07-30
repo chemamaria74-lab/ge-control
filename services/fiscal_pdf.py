@@ -530,12 +530,13 @@ def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragra
     folio_label_style.alignment = 1
     folio_value_style = title_style.clone("BusinessFolioValue")
     folio_value_style.alignment = 1
-    folio_value_style.fontSize = 18.0
-    folio_value_style.leading = 19.5
+    folio_length = len(serie_folio)
+    folio_value_style.fontSize = 9.0 if folio_length > 18 else (11.0 if folio_length > 12 else 16.0)
+    folio_value_style.leading = folio_value_style.fontSize + 1.5
     folio_card = Table([
         [Paragraph("FOLIO", folio_label_style)],
         [Paragraph(f"<b>{_text(serie_folio)}</b>", folio_value_style)],
-    ], colWidths=[1.42 * 72])
+    ], colWidths=[1.90 * 72])
     folio_card.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.65, line),
         ("BACKGROUND", (0, 0), (-1, -1), cream),
@@ -552,7 +553,7 @@ def _modern_header(title, logo, root, emisor, timbre, Table, TableStyle, Paragra
             f"Certificado emisor: {_text(cert_emisor)} &nbsp;&nbsp;|&nbsp;&nbsp; Certificado SAT: {_text(cert_sat)}",
             styles["DocMeta"],
         ), ""],
-    ], colWidths=[3.18 * 72, 1.57 * 72])
+    ], colWidths=[2.85 * 72, 1.90 * 72])
     right.setStyle(TableStyle([
         ("SPAN", (0, 1), (-1, 1)),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
