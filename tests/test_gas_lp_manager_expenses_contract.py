@@ -153,12 +153,17 @@ def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuratio
     admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
 
     assert '<select id="companySelect"' in admin_html
-    assert 'class="active" data-panel="direct">1. Agregar factura' in admin_html
-    assert 'data-panel="queue">2. Revisar para pago' in admin_html
-    assert 'data-panel="catalogs">Configuración' in admin_html
-    assert "se comparten con el Portal de Gerentes" in admin_html
-    assert 'data-content="direct"' in admin_html
+    assert 'class="active" data-panel="expenses">Gastos' in admin_html
+    assert 'data-panel="review">Revisión y pagos' in admin_html
+    assert 'data-panel="catalogs">Catálogos' in admin_html
+    assert "Lista compartida con el Portal de Gerentes" in admin_html
+    assert 'data-content="expenses"' in admin_html
     assert 'data-content="catalogs"' in admin_html
+    assert 'data-subpanel="capture">Agregar gasto' in admin_html
+    assert 'data-subpanel="vouchers">Complemento de vales' in admin_html
+    assert 'id="directSeries"' in admin_html
+    assert 'id="directFolio"' in admin_html
+    assert 'id="directPeriod"' not in admin_html
 
 
 def test_expense_lists_are_server_filtered_and_bounded():

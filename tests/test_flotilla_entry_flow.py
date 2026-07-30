@@ -55,6 +55,24 @@ def test_manager_landing_separates_fleet_and_expenses():
     assert "Vales y gastos" in response.text
 
 
+def test_manager_password_reset_is_verified_before_reporting_success():
+    backend = (ROOT / "routes/internal_users_mod/users_auth.py").read_text(encoding="utf-8")
+    admin_script = (ROOT / "static/js/app/70_admin_catalogs_users.js").read_text(encoding="utf-8")
+
+    assert '"password_verified": True' in backend
+    assert "_verify_secret(temp_pin, verified[0].get(\"pin_hash\") or \"\")" in backend
+    assert 'data.password_verified !== true' in admin_script
+    assert "internal_user_sessions\").delete()" in backend
+
+
+def test_manager_login_uses_direct_username_lookup_and_scope_fallback():
+    backend = (ROOT / "routes/internal_users_mod/users_auth.py").read_text(encoding="utf-8")
+
+    assert '.eq("code", login)' in backend
+    assert '.select("group_id")' in backend
+    assert 'sb.table("fleet_groups").select("id,name,path")' in backend
+
+
 def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_expenses():
     template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
@@ -64,6 +82,39 @@ def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_ex
     assert "$('managerExpensesLink').hidden=true" in script
     assert "await loadReportCatalog({prepare:false,scroll:false})" not in script
     assert "$('executiveDashboard').hidden=true" in script
+
+
+def test_fleet_restores_the_last_complete_analysis_for_twelve_hours():
+    script = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000" in script
+    assert "ge_fleet_report_cache:" in script
+    assert "saved_at:Date.now()" in script
+    assert "data," in script
+    assert "renderReportCatalog(cached.data)" in script
+    assert "Se conservará durante 12 horas" in script
+    assert "flotilla.js?v=20260730f" in template
+
+
+def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
+    script = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert ":zone:" in script
+    assert "restoreZoneAnalysis($('reportGroup').value)" in script
+    assert "Esta zona no tiene un análisis guardado" in script
+    assert "'/gas-lp/conciliacion?area=flotilla'" in script
+    assert "state.explorerUnits.find" in script
+    assert "runExplorer();" in script
+
+
+def test_fleet_reports_exclude_discarded_events_and_closed_faults():
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+
+    assert '"coaching_status"' in backend
+    assert '"discarded", "dismissed", "rejected", "invalid"' in backend
+    assert "if not row.get(\"cleared_at\")" in backend
+    assert '"closed", "cleared", "resolved", "inactive", "dismissed"' in backend
 
 
 def test_legacy_flotilla_login_redirects_to_dedicated_access():

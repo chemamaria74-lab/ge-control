@@ -39,6 +39,36 @@ def test_operator_payment_does_not_fall_back_to_carta_porte_uuid():
     assert _operator_load_invoice_folio(row, {}) == "Sin folio de factura"
 
 
+def test_operator_with_trip_history_is_sent_to_safe_deactivation(monkeypatch):
+    class Query:
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self): return type("Result", (), {"data": [{"id": 77}]})()
+
+    class Supabase:
+        def table(self, name):
+            assert name == transporte_v2.TBL_VIAJES
+            return Query()
+
+    monkeypatch.setattr(transporte_v2, "_sb", lambda _token: Supabase())
+
+    message = transporte_v2._catalog_usage_error("token", "user-1", 9, "operadores", 12)
+
+    assert message == (
+        "Este chofer tiene historial y no puede eliminarse. "
+        "Usa Dar de baja para conservar sus viajes, pagos y bitácoras."
+    )
+
+
+def test_operator_catalog_uses_safe_deactivation_language():
+    frontend = (Path(__file__).parents[1] / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+
+    assert "Dar de baja" in frontend
+    assert "Chofer dado de baja. Su historial se conservó." in frontend
+    assert "name === 'operadores' ? ''" in frontend
+
+
 def test_operator_payment_prefers_invoice_series_and_number_over_generic_detected_folio():
     meta = {"documento_detectado": {"serie": "FE", "folio_numero": "112320", "folio_display": "CO 707169"}}
 
@@ -254,7 +284,7 @@ def test_catalogos_no_conservan_buscador_global_que_oculte_registros():
     assert "trv2-catalog-search" not in template
     assert "trv2-catalog-search" not in frontend
     assert "No hay resultados para la búsqueda." not in frontend
-    assert "catalog-search-removed-20260721a" in shell
+    assert "operator-safe-deactivation-20260730a" in shell
 
 
 def test_cartas_ingreso_priorizan_tarifa_de_ruta_aunque_varie_producto_operativo():
@@ -277,7 +307,7 @@ def test_carta_ingreso_historica_permite_tarifa_manual_sin_recrear_ruta():
     assert "override_tarifa: tarifa" in source
     assert "Ruta o destino histórico ya no disponible" in source
     assert "${!tariff ?" in source
-    assert "transporte_v2.css?v=transport-sat-ingreso-20260729e" in shell
+    assert "transporte_v2.css?v=transport-multiclient-audit-20260729a" in shell
 
 
 def test_resumen_cartas_ingreso_distingue_estimado_facturado_y_pendiente_pago():
@@ -533,8 +563,8 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
     )[0]
     assert 'data-payment-config-nav hidden style="display:none"' in template
     assert shell.count("transport-ondemand-20260729b") == 1
-    assert shell.count("transport-sat-operator-20260729c") == 1
-    assert shell.count("transport-sat-ingreso-20260729e") == 2
+    assert shell.count("transport-multiclient-audit-20260729a") == 2
+    assert shell.count("transport-sat-ingreso-20260729e") == 1
     assert "transport-payroll-catalogs-20260729f" in shell
 
 
