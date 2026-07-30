@@ -238,16 +238,33 @@ def bootstrap(
 ):
     ctx = _ctx(authorization, x_flotilla_access, token)
     profile = _profile(ctx)
+    scope_rows = (ctx["sb"].table("fleet_profile_group_scopes").select("group_id")
+                  .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
+                  .eq("status", "active").execute().data or [])
+    profile_group_ids = {int(row["group_id"]) for row in scope_rows}
+    if not profile_group_ids:
+        return {
+            "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
+                         "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
+            "company": profile, "groups": [], "vehicles": [],
+        }
     groups = (ctx["sb"].table("fleet_groups").select("id,name,path")
-              .eq("tenant_id", ctx["tenant_id"]).order("name").execute().data or [])
+              .eq("tenant_id", ctx["tenant_id"]).in_("id", list(profile_group_ids))
+              .order("name").execute().data or [])
     if ctx.get("allowed_group_ids") is not None:
         allowed = {int(x) for x in ctx["allowed_group_ids"]}
         groups = [row for row in groups if int(row["id"]) in allowed]
+    if not groups:
+        return {
+            "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
+                         "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
+            "company": profile, "groups": [], "vehicles": [],
+        }
     vehicles = (ctx["sb"].table("fleet_vehicles")
                 .select("id,vehicle_number,current_driver_name,status")
                 .eq("tenant_id", ctx["tenant_id"]).order("vehicle_number").execute().data or [])
     memberships_query = (ctx["sb"].table("fleet_vehicle_groups").select("vehicle_id,group_id")
-                         .eq("tenant_id", ctx["tenant_id"]))
+                         .eq("tenant_id", ctx["tenant_id"]).in_("group_id", [int(row["id"]) for row in groups]))
     if ctx.get("allowed_group_ids") is not None:
         memberships_query = memberships_query.in_("group_id", list(ctx["allowed_group_ids"]))
     memberships = memberships_query.execute().data or []
@@ -256,9 +273,8 @@ def bootstrap(
         groups_by_vehicle[int(membership["vehicle_id"])].append(int(membership["group_id"]))
     for vehicle in vehicles:
         vehicle["group_ids"] = groups_by_vehicle.get(int(vehicle["id"]), [])
-    if ctx.get("allowed_group_ids") is not None:
-        vehicle_ids = set(groups_by_vehicle)
-        vehicles = [row for row in vehicles if int(row["id"]) in vehicle_ids]
+    vehicle_ids = set(groups_by_vehicle)
+    vehicles = [row for row in vehicles if int(row["id"]) in vehicle_ids]
     return {
         "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                      "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
@@ -531,10 +547,10 @@ def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Que
                                  authorization: str = Header(default=""),
                                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
     ctx = _ctx(authorization, x_flotilla_access, token)
-    if not ctx["is_manager"]:
-        raise HTTPException(403, "Esta factura debe enviarla el gerente.")
-    rows = (_base_query(ctx, "gas_lp_expense_vouchers").in_("id", payload.voucher_ids)
-            .eq("created_by_internal_user_id", int(ctx["actor_id"])).execute().data or [])
+    rows_query = _base_query(ctx, "gas_lp_expense_vouchers").in_("id", payload.voucher_ids)
+    if ctx["is_manager"]:
+        rows_query = rows_query.eq("created_by_internal_user_id", int(ctx["actor_id"]))
+    rows = rows_query.execute().data or []
     if len(rows) != len(set(payload.voucher_ids)):
         raise HTTPException(400, "Uno o más vales no están disponibles.")
     if any(row["status"] != "ready_to_invoice" for row in rows):
@@ -543,6 +559,8 @@ def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Que
         raise HTTPException(400, "Una factura solo puede agrupar vales del mismo proveedor.")
     if len({int(row["group_id"]) for row in rows}) != 1:
         raise HTTPException(400, "Una factura solo puede agrupar vales de la misma zona.")
+    if len({int(row["created_by_internal_user_id"]) for row in rows}) != 1:
+        raise HTTPException(400, "Una factura solo puede agrupar vales capturados por el mismo gerente.")
     total = round(sum(float(row["amount_mxn"]) for row in rows), 2)
     if abs(total - round(payload.total_mxn, 2)) > MONEY_TOLERANCE:
         raise HTTPException(400, f"El total debe coincidir con la suma de los vales: ${total:,.2f}.")
@@ -552,7 +570,7 @@ def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Que
     )
     invoice_id = ctx["sb"].rpc("create_gas_lp_voucher_invoice", {
         "p_tenant_id": ctx["tenant_id"], "p_profile_id": ctx["perfil_id"],
-        "p_manager_id": int(ctx["actor_id"]), "p_voucher_ids": payload.voucher_ids,
+        "p_manager_id": int(rows[0]["created_by_internal_user_id"]), "p_voucher_ids": payload.voucher_ids,
         "p_invoice_number": payload.invoice_number.strip(),
         "p_invoice_date": payload.invoice_date.isoformat(), "p_total_mxn": total,
     }).execute().data
@@ -637,6 +655,7 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
                 "amount_mxn": float(link.get("amount_mxn") or 0),
                 "group_id": voucher.get("group_id"), "vehicle_id": voucher.get("vehicle_id"),
                 "concept_id": voucher.get("concept_id"), "driver_name": voucher.get("driver_name") or "",
+                "created_by_name": voucher.get("created_by_name") or "",
             })
     for item in items:
         item["vouchers"] = links_by_invoice.get(int(item["id"]), [])

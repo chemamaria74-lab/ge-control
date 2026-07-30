@@ -135,6 +135,42 @@ def _commercial_subscription_for_profile(perfil_id: int) -> dict:
     return rows[0]
 
 
+def _commercial_plan_summary_for_profile(perfil_id: int) -> dict[str, Any] | None:
+    """Read the effective commercial contract owned by Super Admin."""
+    admin = get_supabase_admin()
+    taxes = admin.table("commercial_tax_entities").select("id").eq("perfil_id", perfil_id).limit(1).execute().data or []
+    if not taxes:
+        return None
+    rows = (
+        admin.table("commercial_subscriptions")
+        .select("id,plan_version_id,status,billing_period,starts_on,renews_on,legacy,grandfathered")
+        .eq("tax_entity_id", taxes[0]["id"])
+        .in_("status", ["pending_activation", "trialing", "active", "suspended"])
+        .order("created_at", desc=True).limit(1).execute().data or []
+    )
+    if not rows:
+        return None
+    subscription = rows[0]
+    versions = (
+        admin.table("commercial_plan_versions")
+        .select("id,plan_id,version_number,vehicle_limit,monthly_fiscal_trip_limit,administrator_limit,limits_snapshot")
+        .eq("id", subscription["plan_version_id"]).limit(1).execute().data or []
+    )
+    if not versions:
+        return None
+    version = versions[0]
+    plans = admin.table("commercial_plans").select("id,code,name").eq("id", version["plan_id"]).limit(1).execute().data or []
+    if not plans:
+        return None
+    terms = (
+        admin.table("subscription_term_versions")
+        .select("vehicle_limit,monthly_fiscal_trip_limit,administrator_limit,effective_from,effective_until,status")
+        .eq("subscription_id", subscription["id"]).in_("status", ["accepted", "active"])
+        .order("version_number", desc=True).limit(1).execute().data or []
+    )
+    return {"subscription": subscription, "plan": plans[0], "version": version, "terms": terms[0] if terms else version}
+
+
 def _require_commercial_fiscal_capacity(perfil_id: int) -> dict | None:
     if not _commercial_entitlements_enabled():
         return None
@@ -3451,8 +3487,10 @@ def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalog
     }.get(catalogo, [])
     for table, field, label in checks:
         try:
-            select_cols = "id,status,estatus,uuid_cfdi,metadata" if table == TBL_VIAJES else "id"
-            query = _sb(token).table(table).select(select_cols).eq("user_id", uid).eq(field, item_id).limit(5)
+            # Use only the stable primary key here. Selecting optional legacy
+            # columns made this guard fail open and the physical DELETE then
+            # surfaced a confusing foreign-key error.
+            query = _sb(token).table(table).select("id").eq("user_id", uid).eq(field, item_id).limit(5)
             if perfil_id:
                 query = query.eq("perfil_id", perfil_id)
             rows = query.execute().data or []
@@ -3460,6 +3498,11 @@ def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalog
             continue
         if not rows:
             continue
+        if catalogo == "operadores":
+            return (
+                "Este chofer tiene historial y no puede eliminarse. "
+                "Usa Dar de baja para conservar sus viajes, pagos y bitácoras."
+            )
         if catalogo in {"origenes", "destinos"} and table == TBL_RUTAS:
             route_ids = [int(row["id"]) for row in rows if row.get("id")]
             if not route_ids:
@@ -3535,6 +3578,12 @@ def _delete_catalog_item(token: str, uid: str, perfil_id: Optional[int], catalog
     except HTTPException:
         raise
     except Exception as exc:
+        if catalogo == "operadores" and "foreign key" in str(exc).lower():
+            raise HTTPException(
+                409,
+                "Este chofer tiene historial y no puede eliminarse. "
+                "Usa Dar de baja para conservar sus viajes, pagos y bitácoras.",
+            ) from exc
         logger.exception("Transporte v2 eliminar catalogo error catalogo=%s id=%s", catalogo, item_id)
         raise HTTPException(500, f"No se pudo eliminar {catalogo}: {exc}")
 
@@ -9801,6 +9850,7 @@ async def transporte_v2_subscription_summary(
     pid = _profile_id(perfil_id, x_perfil_id)
     _require_profile_if_present(uid, token, pid)
     sb = _sb(token)
+    commercial = _commercial_plan_summary_for_profile(pid)
     tenant_rows = sb.table("user_sections").select("tenant_id").eq("user_id", uid).limit(1).execute().data or []
     tenant_id = (tenant_rows[0] if tenant_rows else {}).get("tenant_id")
     subscription: dict[str, Any] = {}
@@ -9856,6 +9906,16 @@ async def transporte_v2_subscription_summary(
     }
     timbres_used = len(used_uuids)
     remaining = max(0, timbres_included - timbres_used) if timbres_included is not None else None
+    commercial_plan = commercial.get("plan", {}) if commercial else {}
+    commercial_subscription = commercial.get("subscription", {}) if commercial else {}
+    commercial_terms = commercial.get("terms", {}) if commercial else {}
+    if commercial:
+        try:
+            limit = commercial_terms.get("monthly_fiscal_trip_limit")
+            timbres_included = max(0, int(limit)) if limit is not None else None
+        except (TypeError, ValueError):
+            timbres_included = None
+        remaining = max(0, timbres_included - timbres_used) if timbres_included is not None else None
 
     settings = _load_settings(token, uid, pid)
     fiscal = settings.get("perfil_fiscal") if isinstance(settings.get("perfil_fiscal"), dict) else {}
@@ -9900,12 +9960,20 @@ async def transporte_v2_subscription_summary(
     ]
     return {
         "ok": True,
-        "plan_name": subscription.get("plan_name") or "Pendiente de contrato",
-        "subscription_status": subscription.get("status") or "pending",
-        "expires_at": subscription.get("expires_at"),
+        "source": "commercial_superadmin" if commercial else "legacy",
+        "sync_status": "synchronized" if commercial else "pending_reconciliation",
+        "plan_name": commercial_plan.get("name") or subscription.get("plan_name") or "Sin plan asignado",
+        "plan_code": commercial_plan.get("code"),
+        "subscription_status": commercial_subscription.get("status") or subscription.get("status") or "pending",
+        "billing_period": commercial_subscription.get("billing_period"),
+        "starts_on": commercial_subscription.get("starts_on"),
+        "renews_on": commercial_subscription.get("renews_on"),
+        "expires_at": commercial_terms.get("effective_until") or subscription.get("expires_at"),
         "limits": {
             "companies": transport_limits.get("companies", subscription.get("max_companies")),
             "timbres_included_monthly": timbres_included,
+            "vehicles": commercial_terms.get("vehicle_limit") if commercial else None,
+            "administrators": commercial_terms.get("administrator_limit") if commercial else None,
             "retention_days": retention_days,
         },
         "usage": {

@@ -360,6 +360,31 @@ def vehicles(
     scoped_ids = _scoped_vehicle_ids(ctx)
     if scoped_ids is not None:
         rows = [row for row in rows if int(row["id"]) in scoped_ids]
+    missing_driver_ids = [int(row["id"]) for row in rows if not str(row.get("current_driver_name") or "").strip()]
+    if missing_driver_ids:
+        try:
+            recent_drivers = (
+                ctx["sb"].table("fleet_driving_periods")
+                .select("vehicle_id,driver_name,started_at")
+                .eq("tenant_id", ctx["tenant_id"])
+                .in_("vehicle_id", missing_driver_ids)
+                .order("started_at", desc=True)
+                .limit(1000)
+                .execute().data or []
+            )
+            driver_by_vehicle: dict[int, str] = {}
+            for driver_row in recent_drivers:
+                vehicle_id = int(driver_row.get("vehicle_id") or 0)
+                driver_name = str(driver_row.get("driver_name") or "").strip()
+                if vehicle_id and driver_name and vehicle_id not in driver_by_vehicle:
+                    driver_by_vehicle[vehicle_id] = driver_name
+            for row in rows:
+                if not str(row.get("current_driver_name") or "").strip():
+                    row["current_driver_name"] = driver_by_vehicle.get(int(row["id"]), "")
+        except Exception:
+            # La búsqueda de unidades sigue disponible aunque el histórico aún
+            # no exista en despliegues anteriores.
+            pass
     needle = search.strip().lower()
     if needle:
         keys = ("vehicle_number", "license_plate_number", "make", "model", "current_driver_name")
@@ -574,10 +599,28 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         # Despliegues anteriores a la migración siguen mostrando la caché vigente.
         pass
     fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
-    events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,duration_seconds,location"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
+    events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,coaching_status,duration_seconds,location,raw_metadata"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
+    discarded_statuses = {
+        "discarded", "dismissed", "rejected", "invalid", "not_coachable",
+        "not coachable", "not-coachable", "false_positive", "false positive",
+    }
+    events = [
+        row for row in events
+        if str(row.get("coaching_status") or "").strip().casefold() not in discarded_statuses
+        and not any(
+            str(tag or "").strip().casefold() in discarded_statuses
+            for tag in ((row.get("raw_metadata") or {}).get("annotation_tags") or [])
+        )
+    ]
     speeding = _collect(_between(sb.table("fleet_speeding_events").select("vehicle_id,started_at,ended_at,driver_name,severity,duration_seconds,location,posted_limit_kph,max_over_kph,avg_over_kph,avg_speed_kph,distance_km"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     activity = _collect(_between(sb.table("fleet_driving_periods").select("vehicle_id,started_at,ended_at,driver_name,status,period_type,origin,destination,distance_km,notes"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     faults = _collect(_between(sb.table("fleet_fault_codes").select("vehicle_id,code,code_label,description,severity,status,occurrence_count,occurred_at,cleared_at"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    closed_fault_statuses = {"closed", "cleared", "resolved", "inactive", "dismissed"}
+    faults = [
+        row for row in faults
+        if not row.get("cleared_at")
+        and str(row.get("status") or "").strip().casefold() not in closed_fault_statuses
+    ]
     inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
     selected_inspections = attach(inspections)
     inspection_vehicle = {int(row["id"]): row.get("vehicle_id") for row in selected_inspections}
@@ -721,6 +764,33 @@ def report_catalog(
     analytics = fleet_analytics(data)
     previous_analytics = fleet_analytics(previous)
     comparison = comparison_row("", analytics, previous_analytics)
+    expense_source_labels = {
+        "motive_card": "Motive Card",
+        "ge_control_voucher": "Vales GE Control",
+        "ge_control_direct": "Gastos directos GE Control",
+        "cred_es": "Archivo de gastos",
+    }
+    expense_sources: dict[str, float] = {}
+    for expense_row in data["expenses"]:
+        source = str(expense_row.get("source") or "otro").strip().casefold()
+        expense_sources[source] = expense_sources.get(source, 0.0) + float(expense_row.get("amount_mxn") or 0)
+    has_card_expenses = any(
+        str(expense_row.get("source") or "").strip().casefold() == "motive_card"
+        for expense_row in data["expenses"]
+    )
+    non_mxn_fuel: dict[str, float] = {}
+    if not has_card_expenses:
+        fuel_total = sum(
+            float(fuel_row.get("total_cost") or 0)
+            for fuel_row in data["fuel"]
+            if str(fuel_row.get("currency") or "MXN").strip().upper() == "MXN"
+        )
+        if fuel_total:
+            expense_sources["fuel_purchases"] = expense_sources.get("fuel_purchases", 0.0) + fuel_total
+        for fuel_row in data["fuel"]:
+            currency = str(fuel_row.get("currency") or "MXN").strip().upper()
+            if currency != "MXN" and float(fuel_row.get("total_cost") or 0):
+                non_mxn_fuel[currency] = non_mxn_fuel.get(currency, 0.0) + float(fuel_row.get("total_cost") or 0)
     dated_sources = (
         ("driver_events", "started_at"),
         ("speeding", "started_at"),
@@ -758,8 +828,21 @@ def report_catalog(
                        "fuel_liters": round(analytics["totals"]["liters"], 2),
                        **analytics["totals"]},
             "submitters": _submitter_summary(data["expenses"]),
+            "expense_sources": [
+                {
+                    "source": source,
+                    "label": expense_source_labels.get(source, "Compras de combustible" if source == "fuel_purchases" else source.replace("_", " ").title()),
+                    "amount_mxn": round(amount, 2),
+                }
+                for source, amount in sorted(expense_sources.items())
+                if amount
+            ],
+            "expense_non_mxn": [
+                {"currency": currency, "amount": round(amount, 2)}
+                for currency, amount in sorted(non_mxn_fuel.items())
+            ],
             "analytics": {
-                "top_units": analytics["units"][:10],
+                "top_units": analytics["units"],
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
                 "severity": analytics["severity"],
@@ -852,12 +935,14 @@ def explore_report_entity(
                          "vehicle": row.get("vehicle_number")})
     timeline.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
     totals = analytics["totals"]
+    selected_unit = analytics["units"][0] if analytics["units"] else {}
     return {
         "entity": {"type": entity_type, "name": selected_name},
         "period": {"start": start, "end": end},
         "kpis": {
             "events": sum(row["security"] + row["speeding"] for row in analytics["units"]),
-            "critical_high": analytics["critical_high"], "score": totals["driver_score"],
+            "critical_high": analytics["critical_high"],
+            "coverage_status": selected_unit.get("coverage_status"),
             "distance_km": totals["distance_km"] if totals["distance_available"] else None,
             "engine_hours": totals["engine_hours"] if totals["engine_hours_available"] else None,
             "inspections": totals["inspections"],
