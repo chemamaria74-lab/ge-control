@@ -961,8 +961,8 @@ function trv2RenderCatalogTableRow(name, item, fields) {
         <div class="trv2-row-actions">
           <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
           ${['clientes', 'proveedores'].includes(name) ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallations('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Instalaciones (${trv2RelatedInstallations(name, item).length})</button>` : ''}
-          <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
-          <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar</button>
+          <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">${name === 'operadores' ? 'Dar de baja' : 'Desactivar'}</button>
+          ${name === 'operadores' ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar</button>`}
         </div>
       </td>
     </tr>
@@ -1013,8 +1013,8 @@ function trv2RenderCatalogCard(name, item) {
       <div class="trv2-card-actions">
         <button class="trv2-mini-btn" type="button" onclick="trv2OpenCatalogModal('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Editar</button>
         ${['clientes', 'proveedores'].includes(name) ? `<button class="trv2-mini-btn" type="button" onclick="trv2OpenRelatedInstallations('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Instalaciones (${trv2RelatedInstallations(name, item).length})</button>` : ''}
-        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Desactivar</button>
-        <button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar seguro</button>
+        <button class="trv2-mini-btn" type="button" onclick="trv2DeactivateCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">${name === 'operadores' ? 'Dar de baja' : 'Desactivar'}</button>
+        ${name === 'operadores' ? '' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteCatalogItem('${trv2Esc(name)}', '${trv2Esc(actionId)}')">Eliminar seguro</button>`}
         <button class="trv2-mini-btn" type="button" onclick="trv2CatalogConfigPlaceholder()">Configurar</button>
       </div>
     </article>
@@ -1897,7 +1897,10 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
 
 async function trv2DeactivateCatalogItem(name, itemId) {
   if (!itemId) return;
-  if (!confirm('Se desactivará el registro para esta empresa. No se borrará físicamente.')) return;
+  const promptText = name === 'operadores'
+    ? 'Se dará de baja al chofer. Conservará sus viajes, pagos y bitácoras, y dejará de estar disponible para viajes nuevos. ¿Continuar?'
+    : 'Se desactivará el registro para esta empresa. No se borrará físicamente.';
+  if (!confirm(promptText)) return;
   if (name === 'proveedores') {
     await trv2DeactivatePermisoRfc(Number(itemId));
     trv2BuildProveedoresCatalog();
@@ -1910,7 +1913,7 @@ async function trv2DeactivateCatalogItem(name, itemId) {
     data: {},
   }, {allowError: true});
   if (response?.ok) {
-    trv2Toast(`${TRV2_CATALOG_LABELS[name]} desactivado.`, 'success');
+    trv2Toast(name === 'operadores' ? 'Chofer dado de baja. Su historial se conservó.' : `${TRV2_CATALOG_LABELS[name]} desactivado.`, 'success');
     await trv2LoadCatalogs({silent: true});
   } else {
     trv2Toast(trv2ReadableCatalogError(response, 'No se pudo desactivar el registro.'), 'error');

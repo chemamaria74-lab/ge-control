@@ -26,12 +26,15 @@ function trv2SetAdminSubtab(name = 'configuracion') {
     trv2LoadPermisosRfc();
   }
   if (name === 'usuarios-operador') trv2LoadOperatorAccesses();
+  if (name === 'suscripcion') trv2LoadTransportSubscription();
 }
 
 async function trv2LoadTransportSubscription() {
   const kpis = document.getElementById('trv2-subscription-kpis');
   const checklist = document.getElementById('trv2-onboarding-checklist');
   const policy = document.getElementById('trv2-subscription-policy');
+  const status = document.getElementById('trv2-subscription-status');
+  const sync = document.getElementById('trv2-subscription-sync');
   if (kpis) kpis.innerHTML = '<article><span>Estado</span><strong>Cargando…</strong></article>';
   const data = await trv2Api('GET', '/api/tr-v2/admin/subscription-summary', undefined, {allowError: true, silent: true, force: true});
   if (!data?.ok) {
@@ -42,11 +45,24 @@ async function trv2LoadTransportSubscription() {
   const limits = data.limits || {};
   const included = limits.timbres_included_monthly;
   const remaining = included == null ? 'Ilimitados / por contrato' : Number(usage.timbres_remaining || 0);
+  const statusLabels = {active: 'Activa', trialing: 'Prueba', pending_activation: 'Pendiente de activar', suspended: 'Suspendida', pending: 'Pendiente'};
+  if (status) {
+    status.textContent = statusLabels[data.subscription_status] || data.subscription_status || 'Sin estado';
+    status.classList.toggle('active', ['active', 'trialing'].includes(data.subscription_status));
+    status.classList.toggle('warning', !['active', 'trialing'].includes(data.subscription_status));
+  }
   if (kpis) kpis.innerHTML = `
     <article><span>Plan</span><strong>${trv2Esc(data.plan_name || 'Sin plan')}</strong></article>
-    <article><span>Timbres incluidos</span><strong>${included == null ? 'Por contrato' : Number(included)}</strong></article>
+    <article><span>Viajes fiscales incluidos</span><strong>${included == null ? 'Por contrato' : Number(included)}</strong></article>
     <article><span>Usados este mes</span><strong>${Number(usage.timbres_used || 0)}</strong></article>
-    <article><span>Disponibles</span><strong>${trv2Esc(remaining)}</strong></article>`;
+    <article><span>Disponibles</span><strong>${trv2Esc(remaining)}</strong></article>
+    <article><span>Renovación</span><strong>${trv2Esc(data.renews_on || data.expires_at || 'Según contrato')}</strong></article>`;
+  if (sync) {
+    sync.hidden = data.sync_status !== 'pending_reconciliation';
+    sync.innerHTML = data.sync_status === 'pending_reconciliation'
+      ? '<i class="fa-solid fa-triangle-exclamation"></i><div><strong>Pendiente de sincronizar con Super Admin</strong><span>GE Control debe relacionar el RFC de esta empresa con su suscripción comercial.</span></div>'
+      : '';
+  }
   if (policy) policy.textContent = data.enforcement === 'hard_limit'
     ? 'El plan bloquea nuevos timbrados al alcanzar el límite mensual.'
     : 'Medición informativa: los excedentes no se bloquean automáticamente y deben regirse por el contrato comercial.';
