@@ -1,41 +1,89 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE CONTROL | Gastos y pagos</title>
-  <link rel="icon" href="/static/img/favicon.svg"><link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=20260728a">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a"></head>
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GE CONTROL | Gastos y pagos</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=20260730a">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
+</head>
 <body>
   <header class="expense-top"><img src="/static/img/ge-isotype-light.svg" alt="GE"><h1>Gastos y pagos</h1>
     <nav><a href="/conciliacion/gas-lp">Conciliación fiscal</a><a class="active" href="/gas-lp/gastos">Gastos y pagos</a></nav>
-    <label class="top-company">Empresa
-      <select id="companySelect" aria-label="Cambiar empresa"><option>Cargando empresas…</option></select>
-    </label>
+    <label class="top-company">Empresa<select id="companySelect" aria-label="Cambiar empresa"><option>Cargando empresas…</option></select></label>
     <button id="changeExpenseSpace" type="button">Cambiar espacio</button>
   </header>
   <main class="expense-shell">
-    <div class="hero"><div><span class="eyebrow">Supervisión de gastos</span><h2 id="companyName">Cargando empresa…</h2><p>Registra, revisa y da seguimiento a las facturas desde un solo lugar.</p></div></div>
-    <div class="tabs expense-workflow"><button class="active" data-panel="direct">1. Agregar factura</button><button data-panel="queue">2. Revisar para pago</button><button data-panel="analytics">Análisis</button><button data-panel="catalogs">Configuración</button></div>
-    <div class="kpis" id="expenseKpis" hidden><div class="kpi"><span>Gasto total</span><strong id="kpiTotal">$0</strong></div><div class="kpi"><span>Pagado</span><strong id="kpiPaid">$0</strong></div><div class="kpi"><span>Pendiente</span><strong id="kpiPending">$0</strong></div><div class="kpi"><span>Alertas</span><strong id="kpiAlerts">0</strong></div></div>
-    <section class="panel active" data-content="direct"><div class="query-toolbar"><button class="btn primary" id="prepareDirectExpense" type="button">Preparar nueva factura</button><span class="status" id="directLoadStatus">Los catálogos se cargan solo cuando vas a registrar una factura.</span></div><div class="grid"><article class="card half"><h3>Agregar factura de gasto</h3><p>Telefonía, luz, agua, renta y otros gastos que no provienen de vales.</p>
-      <form id="directForm" class="form-grid"><label>Proveedor<select id="directSupplier" required></select></label><label>Concepto<select id="directConcept" required></select></label>
-        <label>Número de factura<input id="directNumber" required></label><label>Fecha<input id="directDate" type="date" required></label><label>Total<input id="directTotal" type="number" min=".01" step=".01" required></label><label>Periodo<input id="directPeriod" type="month"></label>
-        <label class="wide">Zona / centro de costo (opcional)<select id="directGroup"><option value="">General de la empresa</option></select></label>
-        <label class="wide">Descripción<textarea id="directDescription"></textarea></label><div class="actions wide"><button class="btn primary">Guardar factura</button></div></form><div class="status" id="directMsg"></div>
-    </article></div></section>
-    <section class="panel" data-content="queue"><article class="card"><h3>Revisar facturas para pago</h3><p>Valida, envía a la contadora y registra el pago.</p>
-      <div class="form-grid" style="margin-bottom:14px"><label>Buscar<input id="expenseSearch" placeholder="Número de factura"></label><label>Estado<select id="expenseStatusFilter"><option value="">Todos</option><option value="pending_review">Pendiente de revisión</option><option value="observed">Observada</option><option value="accepted">Aceptada</option><option value="sent_to_accountant">Enviada a contadora</option><option value="paid">Pagada</option><option value="rejected">Rechazada</option><option value="cancelled">Cancelada</option></select></label><label>Tipo<select id="expenseTypeFilter"><option value="">Todos</option><option value="voucher">Con vales</option><option value="direct">Gasto directo</option></select></label><div class="actions"><button class="btn primary" id="searchExpenses" type="button">Buscar facturas</button></div></div><div class="status" id="queueLoadStatus">No se cargan facturas hasta presionar Buscar.</div>
-      <div class="table-wrap"><table><thead><tr><th>Factura</th><th>Tipo</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="invoiceRows"></tbody></table></div></article></section>
-    <section class="panel" data-content="catalogs"><div class="query-toolbar"><button class="btn primary" id="searchAdminCatalogs" type="button">Consultar catálogos</button><span class="status" id="adminCatalogLoadStatus">Los mismos proveedores y conceptos se comparten con el Portal de Gerentes.</span></div><div class="grid">
-      <article class="card half"><h3>Proveedores compartidos</h3><p>Las altas y validaciones realizadas aquí también estarán disponibles para los gerentes.</p><div id="pendingSuppliers"></div></article>
-      <article class="card half"><h3>Agregar proveedor</h3><form id="supplierForm" class="form-grid"><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label><label>RFC<input id="supplierRfc"></label><label>Teléfono<input id="supplierPhone"></label><label class="wide">Correo de pagos<input id="supplierEmail" type="email"></label><div class="actions wide"><button class="btn primary">Agregar validado</button></div></form></article>
-      <article class="card"><h3>Conceptos compartidos</h3><p>Supervisión y Gerentes utilizan esta misma lista desplegable al registrar gastos y vales.</p><form id="adminConceptForm" class="actions"><input id="adminConceptName" placeholder="Ej. Servicio de telefonía" required><button class="btn primary">Agregar concepto</button></form><div id="adminConceptList"></div></article>
-    </div></section>
-    <section class="panel" data-content="analytics"><div class="query-toolbar"><button class="btn primary" id="searchAnalytics" type="button">Generar análisis</button><span class="status" id="analyticsLoadStatus">Las gráficas se calculan únicamente cuando las solicitas.</span></div><div class="grid">
-      <article class="card"><h3>Alertas de control</h3><div id="alertSummary"></div></article>
-      <article class="card half"><h3>Gasto por proveedor</h3><div id="supplierBars" class="bars"></div></article><article class="card half"><h3>Gasto por estado</h3><div id="statusBars" class="bars"></div></article>
-      <article class="card half"><h3>Gasto por zona</h3><div id="zoneBars" class="bars"></div></article><article class="card half"><h3>Gasto por unidad</h3><div id="unitBars" class="bars"></div></article>
-      <article class="card half"><h3>Gasto por concepto</h3><div id="conceptBars" class="bars"></div></article><article class="card half"><h3>Gasto por gerente</h3><div id="managerBars" class="bars"></div></article>
-      <article class="card half"><h3>Gasto por mes</h3><div id="monthBars" class="bars"></div></article><article class="card half"><h3>Vales vs. gasto directo</h3><div id="typeBars" class="bars"></div></article>
-    </div></section>
+    <div class="hero"><div><span class="eyebrow">Control de egresos</span><h2 id="companyName">Cargando empresa…</h2><p>Captura, relaciona vales, revisa y analiza los gastos de la empresa.</p></div></div>
+
+    <nav class="primary-tabs tabs" aria-label="Secciones principales">
+      <button class="active" data-panel="expenses">Gastos</button>
+      <button data-panel="review">Revisión y pagos</button>
+      <button data-panel="analytics">Análisis</button>
+      <button data-panel="catalogs">Catálogos</button>
+    </nav>
+
+    <section class="panel active" data-content="expenses">
+      <div class="subtabs tabs" data-subtabs="expenses">
+        <button class="active" data-subpanel="capture">Agregar gasto</button>
+        <button data-subpanel="all-expenses">Todos los gastos</button>
+        <button data-subpanel="vouchers">Complemento de vales</button>
+      </div>
+
+      <div class="subpanel active" data-subcontent="capture">
+        <div class="query-toolbar"><button class="btn primary" id="prepareDirectExpense" type="button">Preparar captura</button><span class="status" id="directLoadStatus">Los catálogos se consultan sólo cuando vas a capturar.</span></div>
+        <div class="capture-layout">
+          <article class="card"><div class="card-heading"><div><h3>Agregar gasto</h3><p>Registra una factura o comprobante de proveedor.</p></div><span class="context-chip" id="captureCompany">Empresa actual</span></div>
+            <form id="directForm" class="form-grid">
+              <label>Proveedor<select id="directSupplier" required><option value="">Prepara la captura</option></select></label>
+              <label>Concepto<select id="directConcept" required><option value="">Prepara la captura</option></select></label>
+              <label>Serie <input id="directSeries" maxlength="20" placeholder="Ej. F, A, B (opcional)"></label>
+              <label>Folio numérico <input id="directFolio" inputmode="numeric" pattern="[0-9]+" placeholder="Ej. 126" required></label>
+              <label>Fecha <input id="directDate" type="date" required></label>
+              <label>Total <input id="directTotal" type="number" min=".01" step=".01" placeholder="$0.00" required></label>
+              <label class="wide">Zona / centro de costo <select id="directGroup"><option value="">Prepara la captura</option></select><small id="zoneHelp">Sólo se mostrarán zonas asignadas a esta empresa.</small></label>
+              <label class="wide">Descripción <textarea id="directDescription" placeholder="Detalle breve del gasto"></textarea></label>
+              <div class="actions wide"><button class="btn primary">Guardar gasto</button><span class="status" id="directMsg"></span></div>
+            </form>
+          </article>
+          <aside class="card today-card"><div class="card-heading"><div><h3>Capturados hoy</h3><p id="todayDate"></p></div><button class="btn secondary" id="loadToday" type="button">Cargar</button></div><div id="todayExpenses" class="today-list empty">Presiona Cargar para consultar los gastos de hoy.</div></aside>
+        </div>
+      </div>
+
+      <div class="subpanel" data-subcontent="all-expenses">
+        <article class="card"><div class="card-heading"><div><h3>Todos los gastos</h3><p>Consulta únicamente cuando lo necesites y revisa vales, responsable y estado.</p></div></div>
+          <div class="filter-grid"><label>Buscar<input id="expenseSearch" placeholder="Factura, proveedor, gerente o vale"></label><label>Estado<select id="expenseStatusFilter"><option value="">Todos</option><option value="pending_review">Pendiente de revisión</option><option value="observed">Observada</option><option value="accepted">Aceptada</option><option value="sent_to_accountant">Enviada a contadora</option><option value="paid">Pagada</option><option value="rejected">Rechazada</option><option value="cancelled">Cancelada</option></select></label><label>Origen<select id="expenseTypeFilter"><option value="">Todos</option><option value="voucher">Con vales</option><option value="direct">Gasto directo</option></select></label><div class="actions"><button class="btn primary" id="searchExpenses" type="button">Buscar gastos</button></div></div>
+          <div class="status" id="queueLoadStatus">No se cargan gastos hasta presionar Buscar.</div>
+          <div class="table-wrap"><table><thead><tr><th>Gasto</th><th>Origen</th><th>Responsable</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="invoiceRows"><tr><td colspan="7" class="empty">Presiona Buscar gastos.</td></tr></tbody></table></div>
+        </article>
+      </div>
+
+      <div class="subpanel" data-subcontent="vouchers">
+        <div class="query-toolbar"><button class="btn primary" id="searchVouchers" type="button">Buscar vales disponibles</button><span class="status" id="voucherLoadStatus">Los vales se consultan sólo cuando los solicitas.</span></div>
+        <div class="grid"><article class="card half"><h3>Vales por relacionar</h3><p>Selecciona vales del mismo proveedor, zona y gerente.</p><div id="voucherRows" class="checkbox-list empty">Presiona Buscar vales disponibles.</div></article>
+          <article class="card half"><h3>Crear complemento</h3><p>La factura quedará relacionada con los vales seleccionados.</p><form id="voucherInvoiceForm" class="form-grid"><label>Serie<input id="voucherSeries" maxlength="20" placeholder="Opcional"></label><label>Folio numérico<input id="voucherFolio" inputmode="numeric" pattern="[0-9]+" required></label><label>Fecha<input id="voucherInvoiceDate" type="date" required></label><label>Total<input id="voucherInvoiceTotal" type="number" min=".01" step=".01" required></label><div class="actions wide"><button class="btn primary">Relacionar vales</button></div></form><div class="status" id="voucherMsg"></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-content="review">
+      <div class="subtabs tabs"><button class="active">Por revisar</button><button type="button" data-review-filter="sent_to_accountant">En contabilidad</button><button type="button" data-review-filter="paid">Pagados</button></div>
+      <div class="kpis" id="expenseKpis"><div class="kpi"><span>Gasto total</span><strong id="kpiTotal">—</strong></div><div class="kpi"><span>Pagado</span><strong id="kpiPaid">—</strong></div><div class="kpi"><span>Pendiente</span><strong id="kpiPending">—</strong></div><div class="kpi"><span>Alertas</span><strong id="kpiAlerts">—</strong></div></div>
+      <article class="card"><div class="card-heading"><div><h3>Revisión y seguimiento de pago</h3><p>Acepta, observa, envía a contabilidad o registra el pago.</p></div><button class="btn primary" id="searchReview" type="button">Buscar pendientes</button></div><div class="status" id="reviewLoadStatus">Esta bandeja se carga bajo demanda.</div><div class="table-wrap"><table><thead><tr><th>Gasto</th><th>Origen</th><th>Responsable</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="reviewRows"><tr><td colspan="7" class="empty">Presiona Buscar pendientes.</td></tr></tbody></table></div></article>
+    </section>
+
+    <section class="panel" data-content="analytics"><div class="query-toolbar"><button class="btn primary" id="searchAnalytics" type="button">Generar análisis</button><span class="status" id="analyticsLoadStatus">Los indicadores y gráficas se calculan únicamente cuando los solicitas.</span></div>
+      <div class="kpis"><div class="kpi"><span>Gasto total</span><strong id="analyticsTotal">—</strong></div><div class="kpi"><span>Pagado</span><strong id="analyticsPaid">—</strong></div><div class="kpi"><span>Pendiente</span><strong id="analyticsPending">—</strong></div><div class="kpi"><span>Alertas</span><strong id="analyticsAlerts">—</strong></div></div>
+      <div class="grid"><article class="card"><h3>Alertas de control</h3><div id="alertSummary" class="empty">Genera el análisis para consultar alertas.</div></article><article class="card half"><h3>Gasto por proveedor</h3><div id="supplierBars" class="bars"></div></article><article class="card half"><h3>Gasto por estado</h3><div id="statusBars" class="bars"></div></article><article class="card half"><h3>Gasto por zona</h3><div id="zoneBars" class="bars"></div></article><article class="card half"><h3>Gasto por concepto</h3><div id="conceptBars" class="bars"></div></article><article class="card half"><h3>Gasto por gerente</h3><div id="managerBars" class="bars"></div></article><article class="card half"><h3>Vales vs. gasto directo</h3><div id="typeBars" class="bars"></div></article></div>
+    </section>
+
+    <section class="panel" data-content="catalogs">
+      <div class="subtabs tabs" data-subtabs="catalogs"><button class="active" data-subpanel="suppliers">Proveedores</button><button data-subpanel="concepts">Conceptos</button><button data-subpanel="zones">Zonas</button></div>
+      <div class="query-toolbar"><button class="btn primary" id="searchAdminCatalogs" type="button">Consultar catálogos</button><span class="status" id="adminCatalogLoadStatus">Cada catálogo pertenece a la empresa seleccionada.</span></div>
+      <div class="subpanel active" data-subcontent="suppliers"><div class="catalog-layout"><article class="card"><div class="card-heading"><div><h3>Proveedores</h3><p>Busca y administra proveedores frecuentes.</p></div><span class="pill" id="supplierCount">0 proveedores</span></div><label>Buscar proveedor<input id="supplierSearch" placeholder="Nombre o RFC"></label><div id="pendingSuppliers" class="catalog-list empty">Presiona Consultar catálogos.</div></article><article class="card"><h3>Agregar proveedor</h3><p>Se guardará validado para la empresa actual.</p><form id="supplierForm" class="form-grid"><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label><label>RFC<input id="supplierRfc"></label><label>Teléfono<input id="supplierPhone"></label><label class="wide">Correo de pagos<input id="supplierEmail" type="email"></label><div class="actions wide"><button class="btn primary">Agregar proveedor</button></div></form></article></div></div>
+      <div class="subpanel" data-subcontent="concepts"><article class="card"><div class="card-heading"><div><h3>Conceptos de gasto</h3><p>Lista compartida con el Portal de Gerentes.</p></div></div><form id="adminConceptForm" class="actions"><input id="adminConceptName" placeholder="Ej. Servicio de telefonía" required><button class="btn primary">Agregar concepto</button></form><div id="adminConceptList" class="catalog-list empty">Presiona Consultar catálogos.</div></article></div>
+      <div class="subpanel" data-subcontent="zones"><article class="card"><h3>Zonas de la empresa</h3><p>Sólo estas zonas estarán disponibles al capturar gastos de <strong id="zonesCompany">la empresa actual</strong>.</p><div id="zoneCatalog" class="catalog-list empty">Presiona Consultar catálogos.</div></article></div>
+    </section>
   </main>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=20260729c"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=20260730a"></script>
 </body></html>
