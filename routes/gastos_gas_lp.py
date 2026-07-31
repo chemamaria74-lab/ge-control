@@ -32,12 +32,26 @@ class ConceptCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
 
 
+class ConceptUpdate(ConceptCreate):
+    status: Literal["active", "inactive"] = "active"
+
+
+class DriverCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    license_number: str = Field(default="", max_length=80)
+    license_type: str = Field(default="", max_length=40)
+    issued_on: date | None = None
+    expires_on: date
+    phone: str = Field(default="", max_length=40)
+
+
 class SupplierCreate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
     legal_name: str = Field(default="", max_length=220)
     rfc: str = Field(default="", max_length=20)
     phone: str = Field(default="", max_length=40)
     payment_email: str = Field(default="", max_length=180)
+    postal_code: str = Field(default="", max_length=10)
 
 
 class SupplierReview(BaseModel):
@@ -51,6 +65,7 @@ class SupplierUpdate(BaseModel):
     rfc: str = Field(default="", max_length=20)
     phone: str = Field(default="", max_length=40)
     payment_email: str = Field(default="", max_length=180)
+    postal_code: str = Field(default="", max_length=10)
     status: Literal["active", "inactive"] = "active"
 
 
@@ -290,6 +305,36 @@ def list_concepts(limit: int = Query(default=300, ge=1, le=500),
     return {"items": _base_query(ctx, "gas_lp_expense_concepts").order("name").limit(limit).execute().data or []}
 
 
+@router.get("/gastos/drivers")
+def list_drivers(limit: int = Query(default=300, ge=1, le=500),
+                 token: str = Query(default=""), authorization: str = Header(default=""),
+                 x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    return {"items": _base_query(ctx, "gas_lp_expense_drivers").order("name").limit(limit).execute().data or []}
+
+
+@router.post("/gastos/drivers", status_code=201)
+def create_driver(payload: DriverCreate, token: str = Query(default=""), authorization: str = Header(default=""),
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    if payload.issued_on and payload.expires_on < payload.issued_on:
+        raise HTTPException(400, "La vigencia no puede ser anterior a la fecha de expedición.")
+    normalized = _normalize(payload.name)
+    existing = (_base_query(ctx, "gas_lp_expense_drivers").eq("normalized_name", normalized)
+                .eq("status", "active").limit(1).execute().data or [])
+    if existing:
+        raise HTTPException(409, "Este chofer ya existe en el catálogo.")
+    row = {"tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
+           "name": payload.name.strip(), "normalized_name": normalized,
+           "license_number": payload.license_number.strip(), "license_type": payload.license_type.strip(),
+           "issued_on": payload.issued_on.isoformat() if payload.issued_on else None,
+           "expires_on": payload.expires_on.isoformat(), "phone": payload.phone.strip(),
+           "created_by": ctx["actor_id"]}
+    created = ctx["sb"].table("gas_lp_expense_drivers").insert(row).execute().data[0]
+    _audit(ctx, "driver", int(created["id"]), "created", after=created)
+    return {"item": created}
+
+
 @router.post("/gastos/concepts", status_code=201)
 def create_concept(payload: ConceptCreate, token: str = Query(default=""), authorization: str = Header(default=""),
                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
@@ -306,6 +351,26 @@ def create_concept(payload: ConceptCreate, token: str = Query(default=""), autho
     created = ctx["sb"].table("gas_lp_expense_concepts").insert(row).execute().data[0]
     _audit(ctx, "concept", int(created["id"]), "created", after=created)
     return {"item": created}
+
+
+@router.put("/gastos/concepts/{concept_id}")
+def update_concept(concept_id: int, payload: ConceptUpdate, token: str = Query(default=""),
+                   authorization: str = Header(default=""),
+                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    rows = _base_query(ctx, "gas_lp_expense_concepts").eq("id", concept_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Concepto no encontrado.")
+    normalized = _normalize(payload.name)
+    duplicate = (_base_query(ctx, "gas_lp_expense_concepts").eq("normalized_name", normalized)
+                 .neq("id", concept_id).limit(1).execute().data or [])
+    if duplicate:
+        raise HTTPException(409, "Este concepto ya existe en el catálogo.")
+    update = {"name": payload.name.strip(), "normalized_name": normalized,
+              "status": payload.status, "updated_at": _now()}
+    ctx["sb"].table("gas_lp_expense_concepts").update(update).eq("id", concept_id).execute()
+    _audit(ctx, "concept", concept_id, "updated", before=rows[0], after=update)
+    return {"ok": True, "item": {**rows[0], **update}}
 
 
 @router.get("/gastos/suppliers")
@@ -326,6 +391,7 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
         "commercial_name": payload.commercial_name.strip(), "normalized_name": _normalize(payload.commercial_name),
         "legal_name": payload.legal_name.strip(),
         "rfc": clean_rfc, "phone": payload.phone.strip(), "payment_email": clean_email,
+        "postal_code": payload.postal_code.strip(),
         "validation_status": "pending" if ctx["is_manager"] else "validated",
         "created_by_type": "manager" if ctx["is_manager"] else "admin", "created_by": ctx["actor_id"],
         "validated_by": None if ctx["is_manager"] else ctx["actor_id"],
@@ -376,7 +442,7 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
         "commercial_name": payload.commercial_name.strip(),
         "normalized_name": _normalize(payload.commercial_name), "legal_name": payload.legal_name.strip(),
         "rfc": clean_rfc, "phone": payload.phone.strip(),
-        "payment_email": clean_email, "status": payload.status,
+        "payment_email": clean_email, "postal_code": payload.postal_code.strip(), "status": payload.status,
         "updated_at": _now(),
     }
     if ctx["is_manager"]:

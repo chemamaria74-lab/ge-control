@@ -1296,7 +1296,10 @@ def _operator_context(token_plain: str, usuario: str = "") -> tuple[Any, dict[st
     )
     if not chofer_rows or chofer_rows[0].get("activo") is False:
         raise HTTPException(403, "El operador no pertenece al perfil activo o está inactivo.")
-    acc["chofer"] = chofer_rows[0]
+    # Operator fields that are not present as physical columns in older
+    # installations (notably license expiry) live in metadata.  Keep the
+    # operator portal on the same normalized catalog contract as Admin.
+    acc["chofer"] = _normalize_catalog_row("operadores", chofer_rows[0])
     try:
         sb.table(TBL_OPERADOR_ACCESOS).update({"last_used_at": _now_iso()}).eq("id", acc["id"]).execute()
     except Exception:
