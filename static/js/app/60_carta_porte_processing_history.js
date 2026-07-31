@@ -764,7 +764,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const d = await delRes.json();
         document.getElementById('histContent').style.display = 'none';
         document.getElementById('btnDlHistZIP').style.display = 'none';
-        document.getElementById('btnDelHist').style.display = 'none';
         histPeriodo = null; histZipFilename = null;
         showToast(`Se eliminaron ${d.deleted_records} registros y ${d.deleted_reports} reportes.`, 'info');
       } catch(e) { alert('Error al limpiar: ' + e.message); }
@@ -775,36 +774,6 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   const btnCritCancel = document.getElementById('btnCriticalCancel');
   if (btnCritCancel) btnCritCancel.addEventListener('click', closeCriticalModal);
-});
-
-document.getElementById('btnDelHist').addEventListener('click', () => {
-  if (!histPeriodo) return;
-  // Capture the facility id at click-time so the confirm callback always uses
-  // the facility that was active when the history was loaded, not a stale value.
-  const facilityIdForDelete = _histFacilityId;
-  const facLabel = facilityIdForDelete
-    ? (_facilities.find(f => f.id === facilityIdForDelete)?.nombre || `instalación #${facilityIdForDelete}`)
-    : 'todas las instalaciones';
-
-  // Unique ID for the checkbox within this modal instance
-  const chkId = 'chkDelAutoconsumos_' + Date.now();
-
-  showConfirmModal(
-    `<i class="fa-solid fa-trash" style="margin-right:.35rem"></i>¿Estás seguro de que quieres <b>borrar</b> el reporte de <b>${histPeriodo}</b>?<br>
-     <small style="color:#475569">Instalación: <b>${facLabel}</b></small><br>
-     <small style="color:#dc2626">Esta acción eliminará todos los registros de entradas, salidas y el reporte SAT de ese mes. No se puede deshacer.</small>
-     <div style="margin-top:.9rem;padding:.7rem .9rem;background:#fef3c7;border-radius:8px;border:1px solid #fcd34d;display:flex;align-items:center;gap:.6rem;">
-       <input type="checkbox" id="${chkId}" style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
-       <label for="${chkId}" style="font-size:.82rem;color:#92400e;cursor:pointer;margin:0;">
-         <b>También borrar autoconsumos</b> de este periodo<br>
-         <span style="font-weight:400">(marca esto si el cliente cometió un error al registrar)</span>
-       </label>
-     </div>`,
-    () => {
-      const includeAuto = document.getElementById(chkId)?.checked || false;
-      deleteHistPeriodo(histPeriodo, facilityIdForDelete, includeAuto);
-    }
-  );
 });
 
 function histSelectedPeriodAndFacility() {
@@ -906,6 +875,43 @@ document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
   setTimeout(cargarAutoconsumos, 100);
 });
 
+document.getElementById('btnHistInventory')?.addEventListener('click', async () => {
+  const { periodo, facilityId } = histSelectedPeriodAndFacility();
+  if (!periodo || !facilityId) {
+    setHistCloseInfo('Selecciona planta, año y mes antes de capturar el inventario.', false);
+    return;
+  }
+  if (_histMonthClosed) {
+    setHistCloseInfo('El mes está cerrado y su inventario ya no se puede editar.', false);
+    return;
+  }
+  const current = document.getElementById('htInvIni')?.textContent?.replace(/[^0-9.,-]/g, '') || '';
+  const raw = window.prompt(`Inventario inicial para ${periodo} (litros):`, current === '—' ? '' : current);
+  if (raw === null) return;
+  const liters = Number(raw.replace(/,/g, ''));
+  if (!Number.isFinite(liters) || liters < 0) {
+    setHistCloseInfo('Captura una cantidad válida de litros (cero o mayor).', false);
+    return;
+  }
+  const btn = document.getElementById('btnHistInventory');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/history/${periodo}/inventory?facility_id=${facilityId}`, {
+      method: 'PUT',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inventory_liters: liters }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'No fue posible guardar el inventario.');
+    await loadHistorial();
+    setHistCloseInfo(`Inventario inicial actualizado: ${liters.toLocaleString('es-MX')} L. Se incluirá en el JSON del mes.`, true);
+  } catch (e) {
+    setHistCloseInfo(e.message || 'No fue posible guardar el inventario.', false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
 async function closeSelectedHistMonth() {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
@@ -935,7 +941,7 @@ async function closeSelectedHistMonth() {
     link.click();
     URL.revokeObjectURL(objUrl);
     await loadHistorial();
-    setHistCloseInfo('Mes cerrado para la planta seleccionada. El inventario inicial quedó ligado al cierre del mes anterior.', true);
+    setHistCloseInfo('Mes cerrado para la planta seleccionada. El inventario inicial quedó incluido en el JSON SAT.', true);
   } catch (e) {
     setHistCloseInfo(e.message || 'No fue posible cerrar el mes.', false);
   } finally {
@@ -995,7 +1001,6 @@ async function loadHistorial() {
   document.getElementById('histLoading').style.display = 'block';
   document.getElementById('histContent').style.display = 'none';
   document.getElementById('btnDlHistZIP').style.display = 'none';
-  document.getElementById('btnDelHist').style.display = 'none';
 
   let url = `/api/history/${periodo}`;
   if (_histFacilityId) url += `?facility_id=${_histFacilityId}`;
@@ -1121,17 +1126,16 @@ async function loadHistorial() {
     const hasAnyData = (data.report != null) || (data.entradas?.length > 0) || (data.salidas?.length > 0);
     const uploadBtn = document.getElementById('btnHistUploadProvider');
     const autoBtn = document.getElementById('btnHistAutoconsumo');
+    const inventoryBtn = document.getElementById('btnHistInventory');
     const closeBtn = document.getElementById('btnCloseHistMonth');
     const reopenBtn = document.getElementById('btnReopenHistMonth');
     if (uploadBtn) uploadBtn.disabled = _histMonthClosed;
     if (autoBtn) autoBtn.disabled = _histMonthClosed;
+    if (inventoryBtn) inventoryBtn.disabled = _histMonthClosed;
     if (closeBtn) closeBtn.style.display = _histMonthClosed ? 'none' : '';
     if (reopenBtn) reopenBtn.style.display = (_histMonthClosed && currentUserRole === 'admin') ? '' : 'none';
     if (_histMonthClosed && data.report) {
       document.getElementById('btnDlHistZIP').style.display = '';
-    }
-    if (hasAnyData && !_histMonthClosed) {
-      document.getElementById('btnDelHist').style.display = '';
     }
     const missingInitialInventory = !data.report && data.previous_inventory_final == null && hasAnyData;
     setHistCloseInfo(missingInitialInventory
@@ -1230,44 +1234,6 @@ function showConfirmModal(htmlMsg, onConfirm) {
   _confirmCallback = onConfirm;
   const modal = document.getElementById('confirmModal');
   modal.style.display = 'flex';
-}
-
-// ── Borrar periodo desde historial ───────────────────────────────────────
-async function deleteHistPeriodo(periodo, facilityId, includeAutoconsumos = false) {
-  if (!authToken) return;
-  // facilityId is passed explicitly from the confirm modal so there is no risk
-  // of stale closure state. Fall back to module-level var for safety.
-  const fid = (facilityId !== undefined) ? facilityId : _histFacilityId;
-  try {
-    let url = `/api/history/${periodo}?include_autoconsumos=${includeAutoconsumos}`;
-    if (fid) url += `&facility_id=${fid}`;
-    const res = await fetch(url, {
-      method: 'DELETE', headers: authHeader(),
-    });
-    if (!res.ok) { alert('Error al borrar el periodo.'); return; }
-    const data = await res.json();
-    // Reset UI
-    document.getElementById('histContent').style.display = 'none';
-    document.getElementById('btnDlHistZIP').style.display = 'none';
-    document.getElementById('btnDelHist').style.display = 'none';
-    histPeriodo = null;
-    histZipFilename = null;
-    // No consultar automáticamente: el Dashboard se vuelve a buscar bajo demanda.
-    if (document.getElementById('mpanel-ventas').classList.contains('active')) {
-      invalidateVentasAnalyticsCache();
-      resetVentasSearchView();
-    }
-    // Mostrar confirmación
-    const autoMsg = includeAutoconsumos ? ' (incluidos autoconsumos)' : '';
-    showToast(`Reporte de ${periodo} eliminado${autoMsg}.`, 'success');
-    const inf = document.getElementById('histReportInfo');
-    inf.textContent = `Reporte de ${periodo} eliminado correctamente${autoMsg}.`;
-    inf.style.color = '#15803d';
-    inf.style.display = '';
-    setTimeout(() => { inf.style.display = 'none'; inf.style.color = ''; inf.textContent = ''; }, 4000);
-  } catch(e) {
-    alert('Error al borrar: ' + e.message);
-  }
 }
 
 // ── Toast / Notificación ─────────────────────────────────────────────────────
