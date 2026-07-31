@@ -801,7 +801,8 @@ async function createInternalUserGasLp() {
     if (!res.ok || !data.ok) throw new Error(data.detail || 'No fue posible crear usuario interno.');
     if (statusEl) {
       statusEl.style.color = '#15803d';
-      statusEl.innerHTML = `Gerente creado. Usuario: <b>${data.user.code}</b>. La contraseña quedó guardada de forma segura.`;
+      const exactCode = escapeHtml(data.user.code || '');
+      statusEl.innerHTML = `Gerente creado. Usuario exacto: <code style="font-size:1rem;letter-spacing:.08em">${exactCode}</code>. Cópialo tal como aparece; por ejemplo, <b>9</b> y <b>S</b> son distintos. La contraseña quedó guardada de forma segura.`;
     }
     ['gasInternalCode','gasInternalPin','gasInternalPinConfirm'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showGasInternalTab(payload.portal_scope);
@@ -857,11 +858,11 @@ async function resetInternalPinGasLp(id) {
     body: JSON.stringify({pin: password}),
   });
   const data = await res.json().catch(()=>({}));
-  if (!res.ok || !data.ok) {
+  if (!res.ok || !data.ok || data.password_verified !== true) {
     alert(data.detail || 'No se pudo actualizar la contraseña.');
     return;
   }
-  showToast('Contraseña actualizada y usuario desbloqueado.', 'success');
+  showToast('Contraseña verificada, usuario desbloqueado y sesiones anteriores cerradas.', 'success');
   await loadInternalUsersGasLp();
 }
 
