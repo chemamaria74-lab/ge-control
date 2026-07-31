@@ -893,9 +893,17 @@ async def gas_lp_internal_carta_porte(request: Request, token: str):
         }) from exc
 
 
+def _gas_lp_clientes_context(token: str, *, write: bool = False, perfil_id: int | None = None) -> dict:
+    # Supervisión enters with a Supabase JWT and may select any authorized
+    # company. Assistants keep using their opaque internal session token.
+    if str(token or "").count(".") == 2:
+        return _gas_lp_conciliacion_context(token, write=write, perfil_id=perfil_id)
+    return _gas_lp_internal_context(token, write=write)
+
+
 @router.get("/internal-auth/gas-lp/clientes")
-async def gas_lp_internal_clientes(token: str):
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_clientes(token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_clientes_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     sb = get_supabase_admin()
     try:
@@ -908,8 +916,8 @@ async def gas_lp_internal_clientes(token: str):
 
 
 @router.post("/internal-auth/gas-lp/clientes")
-async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_clientes_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     row = _gas_lp_cliente_row(user, payload)
     sb = get_supabase_admin()
@@ -944,8 +952,8 @@ async def gas_lp_internal_crear_cliente(payload: GasLpInternalClientePayload, to
 
 
 @router.put("/internal-auth/gas-lp/clientes/{cliente_id}")
-async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInternalClientePayload, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInternalClientePayload, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_clientes_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     row = _gas_lp_cliente_update_row(user, payload)
     sb = get_supabase_admin()
@@ -988,8 +996,8 @@ async def gas_lp_internal_actualizar_cliente(cliente_id: int, payload: GasLpInte
 
 
 @router.delete("/internal-auth/gas-lp/clientes/{cliente_id}")
-async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str):
-    ctx = _gas_lp_internal_context(token, write=True)
+async def gas_lp_internal_eliminar_cliente(cliente_id: int, token: str, perfil_id: int | None = None):
+    ctx = _gas_lp_clientes_context(token, write=True, perfil_id=perfil_id)
     user = ctx["user"]
     sb = get_supabase_admin()
     current = _gas_lp_cliente_existing_by_id(sb, user, cliente_id, active_only=True)
