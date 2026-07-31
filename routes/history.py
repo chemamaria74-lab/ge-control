@@ -8,12 +8,14 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse, FileResponse
 
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals,
-    delete_period, delete_all_periods, get_archived_records, get_archived_reports,
+    get_archived_records, get_archived_reports,
     get_facility, get_closed_report, mark_reports_closed, reopen_reports, report_is_closed, save_report,
+    set_report_initial_inventory,
 )
 from services.sat_transformer import (
     build_sat_report,
@@ -27,6 +29,10 @@ from supabase_config import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class InitialInventoryPayload(BaseModel):
+    inventory_liters: float = Field(ge=0)
 
 GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
     "id",
@@ -622,15 +628,7 @@ async def wipe_all_history(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    uid, token = _auth(authorization)
-    _deny_assistant_reports(uid, token)
-    perfil_id = _require_perfil(uid, token, x_perfil_id)
-    counts    = delete_all_periods(uid, perfil_id=perfil_id)
-    return JSONResponse(content={
-        "ok": True,
-        "deleted_records": counts.get("records", 0),
-        "deleted_reports": counts.get("reports", 0),
-    })
+    raise HTTPException(403, "El borrado de reportes mensuales está deshabilitado.")
 
 
 @router.delete("/history/{periodo}")
@@ -641,24 +639,39 @@ async def delete_history(
     authorization:        str = Header(default=""),
     x_perfil_id:          str = Header(default=""),
 ):
+    # Los CFDI de Assistant son la base del reporte mensual y no deben poderse
+    # eliminar desde Administración, ni siquiera invocando directamente la API.
+    raise HTTPException(403, "El borrado de reportes mensuales está deshabilitado.")
+
+
+@router.put("/history/{periodo}/inventory")
+async def update_initial_inventory(
+    periodo: str,
+    payload: InitialInventoryPayload,
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Captura el inventario inicial de una instalación y periodo nuevos."""
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
     perfil_id = _require_perfil(uid, token, x_perfil_id)
+    if facility_id is None:
+        raise HTTPException(400, "Selecciona una planta antes de actualizar el inventario.")
     scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
     data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
     if get_closed_report(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
-        raise HTTPException(409, "El mes está cerrado y ya no se puede borrar ni editar.")
-    counts    = delete_period(data_user_id, periodo,
-                              facility_id=facility_id,
-                              include_autoconsumos=include_autoconsumos,
-                              perfil_id=perfil_id)
+        raise HTTPException(409, "El mes está cerrado y su inventario ya no se puede editar.")
+    inventory = round(float(payload.inventory_liters), 4)
+    if not set_report_initial_inventory(
+        data_user_id, periodo, inventory, facility_id, perfil_id,
+    ):
+        raise HTTPException(500, "No fue posible guardar el inventario inicial.")
     return JSONResponse(content={
         "ok": True,
         "periodo": periodo,
-        "deleted_records": counts.get("records", 0),
-        "deleted_reports": counts.get("reports", 0),
-        "deleted_archived": counts.get("archived", 0),
-        "autoconsumos_borrados": include_autoconsumos,
+        "facility_id": facility_id,
+        "inventory_liters": inventory,
     })
 
 
