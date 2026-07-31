@@ -247,5 +247,10 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
-    assert "grid-template-columns:minmax(0,13fr) minmax(280px,7fr)" in css
+    assert ".capture-layout{display:flex;align-items:flex-start" in css
+    assert ".capture-layout>article{flex:13 1 0" in css
+    assert ".capture-layout>aside{flex:7 1 0" in css
     assert "data-payment-check" in script
+    assert 'id="supplierMsg"' in html
+    assert "Captura un RFC válido de 12 o 13 caracteres" in script
+    assert "function apiError(detail)" in script
