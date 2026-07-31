@@ -947,11 +947,14 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
     rows_by_id: dict[int, dict] = {}
     operational_profile_ids = _gas_lp_operational_profile_ids(sb, tenant_ids)
 
-    def add(rows: list[dict]) -> None:
+    def add(rows: list[dict], *, trusted_profile_ids: set[int] | None = None) -> None:
         for row in rows or []:
-            if not _gas_lp_conciliacion_profile_allowed(row, operational_profile_ids):
-                continue
             rid = _safe_int_id(row.get("id"))
+            # The profile explicitly assigned by the Gas LP access record is
+            # authoritative even when an older company row predates module
+            # markers and has not created facilities/invoices yet.
+            if rid not in (trusted_profile_ids or set()) and not _gas_lp_conciliacion_profile_allowed(row, operational_profile_ids):
+                continue
             if not rid:
                 continue
             rows_by_id[rid] = {
@@ -967,7 +970,7 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
         q = sb.table("perfiles_empresa").select(fields).eq("id", assigned_id).eq("activo", True)
         if tenant_id:
             q = q.eq("tenant_id", tenant_id)
-        add(q.limit(1).execute().data or [])
+        add(q.limit(1).execute().data or [], trusted_profile_ids={assigned_id})
 
     if tenant_ids:
         add(
