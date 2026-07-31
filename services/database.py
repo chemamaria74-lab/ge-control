@@ -524,6 +524,47 @@ def save_report(user_id: str, periodo: str, meta: dict, filename_base: str,
         logger.error("save_report: %s", e)
 
 
+def set_report_initial_inventory(user_id: str, periodo: str, inventory_liters: float,
+                                 facility_id: int, perfil_id: int) -> bool:
+    """Guarda el inventario inicial manual sin reemplazar movimientos ni facturas."""
+    try:
+        reports = get_reports(
+            user_id, periodo, facility_id=facility_id, perfil_id=perfil_id,
+        )
+        if reports:
+            report = reports[0]
+            if report_is_closed(report, periodo):
+                return False
+            receptions = float(report.get("total_recepciones") or 0)
+            deliveries = float(report.get("total_entregas") or 0)
+            final_inventory = max(0.0, inventory_liters + receptions - deliveries)
+            (get_supabase_admin().table("reports")
+             .update({
+                 "inventario_inicial": inventory_liters,
+                 "vol_existencias": final_inventory,
+             })
+             .eq("id", report["id"]).execute())
+        else:
+            save_report(
+                user_id,
+                periodo,
+                {
+                    "inventario_inicial_litros": inventory_liters,
+                    "vol_existencias_litros": inventory_liters,
+                },
+                f"inventario_manual_{periodo}",
+                facility_id=facility_id,
+                perfil_id=perfil_id,
+            )
+        saved = get_reports(
+            user_id, periodo, facility_id=facility_id, perfil_id=perfil_id,
+        )
+        return bool(saved and float(saved[0].get("inventario_inicial") or 0) == inventory_liters)
+    except Exception as e:
+        logger.error("set_report_initial_inventory: %s", e)
+        return False
+
+
 def get_reports(user_id: str, periodo: Optional[str] = None,
                 facility_id: Optional[int] = None,
                 perfil_id: Optional[int] = None) -> list:
