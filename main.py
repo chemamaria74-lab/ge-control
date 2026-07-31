@@ -277,7 +277,10 @@ async def security_headers(request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # The operator portal records the location of each logbook event after the
+    # operator accepts the privacy notice. Other pages keep geolocation denied.
+    geolocation = "(self)" if request.url.path == "/transporte-v2/operador" else "()"
+    response.headers.setdefault("Permissions-Policy", f"camera=(), microphone=(), geolocation={geolocation}")
     return response
 
 # ── Routers API ───────────────────────────────────────────────────────────────
@@ -696,7 +699,7 @@ async def frontend_flotilla_gas_lp():
 
 @app.get("/gas-lp/gerentes/inicio", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_gerentes_workspace_selector():
-    """Selector de espacios del Portal de Gerentes."""
+    """Compatibilidad: entrada que deriva directamente al portal unificado."""
     return _render_html_file("gerentes_selector.html")
 
 
