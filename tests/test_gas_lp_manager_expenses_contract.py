@@ -113,6 +113,9 @@ def test_expense_pages_enforce_the_shared_two_hour_session_policy():
     assert "const TIMEOUT_MS = 2 * 60 * 60 * 1000" in timeout
     assert "if (path.startsWith('/gas-lp/gastos'))" in timeout
     assert "login: '/gas-lp/conciliacion?area=gastos'" in timeout
+    assert "token.split('.').length !== 3" in timeout
+    assert "withFreshQueryToken" in timeout
+    assert "if (path.startsWith('/conciliacion/gas-lp'))" in timeout
     assert "if (path.startsWith('/transporte-v2/operador'))" in timeout
     assert "noTimeout: true" in timeout
 
@@ -191,3 +194,35 @@ def test_expense_lists_are_server_filtered_and_bounded():
     assert 'query.ilike("invoice_number"' in route
     assert "le=500" in route
     assert ".limit(limit)" in route
+
+
+def test_manager_driver_catalog_tracks_license_expiry_and_is_preloaded():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
+    migration = (ROOT / "migrations" / "gas_lp_expense_drivers_20260731.sql").read_text(encoding="utf-8")
+
+    assert '@router.get("/gastos/drivers")' in route
+    assert '@router.post("/gastos/drivers"' in route
+    assert "expires_on date not null" in migration
+    assert 'data-catalog="drivers"' in html
+    assert 'id="driverCatalogSearch"' in html
+    assert "Promise.all([api('/drivers?limit=300')" in script
+    assert "license-expired" in script and "license-soon" in script
+
+
+def test_manager_and_supervision_catalogs_share_the_same_interaction_pattern():
+    manager_html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
+    manager_js = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
+    admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    for html in (manager_html, admin_html):
+        assert "catalog-search" in html
+        assert "catalog-drawer" in html
+        assert "Código postal" in html
+        assert "Actualizar" in html and "Agregar" in html and "Cancelar" in html
+    assert 'id="managerSupplierSearch"' in manager_html
+    assert 'id="managerConceptSearch"' in manager_html
+    assert "data-edit-supplier" in manager_js
+    assert "data-edit-concept" in manager_js
+    assert "prompt('Nombre comercial:'" not in manager_js

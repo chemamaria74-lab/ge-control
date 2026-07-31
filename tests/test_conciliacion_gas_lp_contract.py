@@ -910,6 +910,23 @@ def test_gas_lp_crear_cliente_reuses_existing_rfc_in_same_profile(monkeypatch):
     assert db.inserts == []
 
 
+def test_gas_lp_clientes_uses_selected_company_context_for_supervision_jwt(monkeypatch):
+    expected = {"user": {"tenant_id": "tenant-a", "perfil_id": 17}}
+    calls = []
+    monkeypatch.setattr(
+        cp_catalogos,
+        "_gas_lp_conciliacion_context",
+        lambda token, write=False, perfil_id=None: calls.append((token, write, perfil_id)) or expected,
+    )
+
+    result = cp_catalogos._gas_lp_clientes_context(
+        "header.payload.signature", write=True, perfil_id=17
+    )
+
+    assert result == expected
+    assert calls == [("header.payload.signature", True, 17)]
+
+
 def test_gas_lp_crear_cliente_ignores_inactive_and_inserts_real_alfa_gas_rfc(monkeypatch):
     class Result:
         def __init__(self, data):

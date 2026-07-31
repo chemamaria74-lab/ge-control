@@ -285,7 +285,8 @@ def test_operator_portal_includes_empty_trip_and_one_time_location_notice():
     assert "trv2OperadorOpenBitacoraPdf" in frontend
     assert "bitacora-recorrido-vacio.pdf" in frontend
     assert "Registrando..." in frontend
-    assert "timeout: 1500" in frontend
+    assert "timeout: 10000" in frontend
+    assert "enableHighAccuracy: true" in frontend
     assert "/api/tr-v2/operator/privacy/accept" in frontend
     assert "pretrip_json" in migration
 

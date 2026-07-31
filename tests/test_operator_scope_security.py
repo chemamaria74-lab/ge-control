@@ -5,9 +5,12 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-anon-key")
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import routes.transporte as transporte
+import routes.transporte_v2 as transporte
 
 
 class FakeResult:
@@ -52,9 +55,16 @@ class FakeQuery:
 class FakeDB:
     def __init__(self):
         self.rows = {
-            transporte._TBL_OPER_ACC: [],
-            transporte._TBL_CHOFERES: [
-                {"id": 7, "user_id": "owner", "perfil_id": 10, "activo": True},
+            transporte.TBL_OPERADOR_ACCESOS: [],
+            transporte.TBL_OPERADORES: [
+                {
+                    "id": 7,
+                    "user_id": "owner",
+                    "perfil_id": 10,
+                    "activo": True,
+                    "licencia": "LFD01135048",
+                    "metadata": {"licencia_vencimiento": "2028-03-26"},
+                },
                 {"id": 8, "user_id": "owner", "perfil_id": 20, "activo": True},
             ],
         }
@@ -67,7 +77,7 @@ class OperatorScopeSecurityTest(unittest.TestCase):
     def test_operator_context_rejects_orphan_access(self):
         db = FakeDB()
         token = "operator-orphan"
-        db.rows[transporte._TBL_OPER_ACC].append({
+        db.rows[transporte.TBL_OPERADOR_ACCESOS].append({
             "id": 1,
             "user_id": "owner",
             "perfil_id": None,
@@ -78,13 +88,13 @@ class OperatorScopeSecurityTest(unittest.TestCase):
         })
         with patch.object(transporte, "get_supabase_admin", lambda: db):
             with self.assertRaises(HTTPException) as ctx:
-                transporte._operador_context(token)
+                transporte._operator_context(token)
         self.assertEqual(ctx.exception.status_code, 403)
 
     def test_operator_context_rejects_chofer_from_other_profile(self):
         db = FakeDB()
         token = "operator-cross-profile"
-        db.rows[transporte._TBL_OPER_ACC].append({
+        db.rows[transporte.TBL_OPERADOR_ACCESOS].append({
             "id": 2,
             "user_id": "owner",
             "perfil_id": 10,
@@ -95,13 +105,13 @@ class OperatorScopeSecurityTest(unittest.TestCase):
         })
         with patch.object(transporte, "get_supabase_admin", lambda: db):
             with self.assertRaises(HTTPException) as ctx:
-                transporte._operador_context(token)
+                transporte._operator_context(token)
         self.assertEqual(ctx.exception.status_code, 403)
 
     def test_operator_context_accepts_matching_profile_and_chofer(self):
         db = FakeDB()
         token = "operator-ok"
-        db.rows[transporte._TBL_OPER_ACC].append({
+        db.rows[transporte.TBL_OPERADOR_ACCESOS].append({
             "id": 3,
             "user_id": "owner",
             "perfil_id": 10,
@@ -111,9 +121,11 @@ class OperatorScopeSecurityTest(unittest.TestCase):
             "expires_at": "2099-01-01T00:00:00+00:00",
         })
         with patch.object(transporte, "get_supabase_admin", lambda: db):
-            _sb, acc = transporte._operador_context(token)
+            _sb, acc = transporte._operator_context(token)
         self.assertEqual(acc["perfil_id"], 10)
         self.assertEqual(acc["chofer_id"], 7)
+        self.assertEqual(acc["chofer"]["licencia"], "LFD01135048")
+        self.assertEqual(acc["chofer"]["vencimiento_licencia"], "2028-03-26")
 
 
 if __name__ == "__main__":
