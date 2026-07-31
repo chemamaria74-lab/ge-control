@@ -2,7 +2,7 @@
       <div class="panel">
         <div class="section-head compact-head">
           <div><h2>Clientes</h2><div class="muted small">Catálogo compartido con las asistentes de facturación de la empresa seleccionada.</div></div>
-          <div class="toolbar"><span class="pill neutral" id="concClientesCount">0 clientes</span><button class="btn ghost" type="button" onclick="loadConciliacionClientes(true)"><i class="fa-solid fa-rotate"></i> Actualizar</button><button class="btn" type="button" onclick="toggleConciliacionClienteForm(true)"><i class="fa-solid fa-user-plus"></i> Agregar cliente</button></div>
+          <div class="toolbar"><span class="pill neutral" id="concClientesCount">0 clientes</span><button class="btn ghost" type="button" onclick="loadConciliacionClientes(true)"><i class="fa-solid fa-magnifying-glass"></i> Buscar clientes</button><button class="btn" type="button" onclick="toggleConciliacionClienteForm(true)"><i class="fa-solid fa-user-plus"></i> Agregar cliente</button></div>
         </div>
         <form id="concClienteForm" class="client-create-panel hidden" onsubmit="saveConciliacionCliente(event)">
           <div class="client-form-grid">
@@ -17,6 +17,6 @@
         </form>
         <div id="concClientesMsg" class="status" aria-live="polite"></div>
         <div class="client-search"><label>Buscar cliente</label><input id="concClienteSearch" placeholder="Nombre, RFC, CP, régimen, uso CFDI o correo" oninput="renderConciliacionClientes()"></div>
-        <div class="table-wrap clientes-catalogo-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>CP</th><th>Régimen</th><th>Uso CFDI</th><th>Correo</th><th>Crédito</th></tr></thead><tbody id="concClientesRows"><tr><td colspan="7">Abre esta pestaña para cargar los clientes.</td></tr></tbody></table></div>
+        <div class="table-wrap clientes-catalogo-scroll"><table><thead><tr><th>Cliente</th><th>RFC</th><th>CP</th><th>Régimen</th><th>Uso CFDI</th><th>Correo</th><th>Crédito</th></tr></thead><tbody id="concClientesRows"><tr><td colspan="7">Presiona Buscar clientes para cargar el catálogo.</td></tr></tbody></table></div>
       </div>
     </section>
