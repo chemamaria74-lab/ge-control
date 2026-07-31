@@ -312,8 +312,10 @@ async function trv2LoadStampedCartaPorte(options = {}) {
   const filter = TRV2_CP_STAMPED_FILTER || 'hoy';
   const monthInput = document.getElementById('trv2-cp-stamped-month');
   const monthWrap = document.getElementById('trv2-cp-stamped-month-wrap');
+  const actions = document.getElementById('trv2-cp-stamped-actions');
   if (monthInput && !monthInput.value) monthInput.value = TRV2_CP_STAMPED_MONTH;
   if (monthWrap) monthWrap.hidden = filter !== 'todas';
+  if (actions) actions.hidden = filter !== 'todas';
   document.getElementById('trv2-cp-workflow-tab-hoy')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'hoy');
   document.getElementById('trv2-cp-workflow-tab-todas')?.classList.toggle('active', TRV2_CP_WORKFLOW === 'todas');
   const list = document.getElementById('trv2-cp-stamped-list');

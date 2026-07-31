@@ -14,6 +14,7 @@ let TRV2_PAYROLL_WORKSPACE = 'pending';
 let TRV2_OPERATOR_PAYMENT_FILTER_TOUCHED = false;
 let TRV2_OPERATOR_PAYMENT_CATALOGS_PROFILE = 0;
 let TRV2_OPERATOR_PAYMENT_CATALOGS_PROMISE = null;
+let TRV2_OPERATOR_PAYMENT_HISTORY_LOADED = false;
 
 async function trv2LoadOperatorPaymentCatalogs(options = {}) {
   const profileId = Number(TRV2_PERFIL?.id || 0);
@@ -79,7 +80,7 @@ function trv2SetPaymentPeriodView(view = 'pendientes') {
   if (exportButton) exportButton.hidden = TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial';
   if (TRV2_OPERATOR_PAYMENT_PERIOD_VIEW === 'historial') {
     const body = document.getElementById('trv2-payment-history-table');
-    if (body) body.innerHTML = '<tr><td colspan="10"><div class="trv2-empty">Presiona Buscar para consultar los pagos realizados.</div></td></tr>';
+    if (body && !TRV2_OPERATOR_PAYMENT_HISTORY_LOADED) body.innerHTML = '<tr><td colspan="10"><div class="trv2-empty">Presiona Buscar para consultar los pagos realizados.</div></td></tr>';
   }
 }
 
@@ -611,7 +612,8 @@ async function trv2LoadOperatorPaymentHistory() {
   const operatorId = Number(document.getElementById('trv2-payment-history-operator')?.value || 0); if (operatorId) query.set('operador_id', String(operatorId));
   const data = await trv2Api('GET', `/api/tr-v2/operator-payments/history?${query}`, undefined, {silent:true, allowError:true, force:true});
   const items = data?.items || [];
-  body.innerHTML = items.length ? items.map(item => `<tr><td><strong>${trv2Esc(trv2DisplayDate(item.fecha_desde, {fallback:'—'}))} → ${trv2Esc(trv2DisplayDate(item.fecha_hasta, {fallback:'—'}))}</strong><small class="trv2-service-sub">Pago #${Number(item.id)}</small></td><td><strong>${trv2Esc(item.operador)}</strong></td><td class="trv2-num">${Number(item.viajes || 0)}</td><td class="trv2-num">${trv2ServiceMoney(item.comisiones)}</td><td class="trv2-num">${trv2ServiceMoney(item.pago_banco)}</td><td class="trv2-num">${trv2ServiceMoney(item.infonavit)}</td><td class="trv2-num">${trv2ServiceMoney(item.gastos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.pago_efectivo)}</strong></td><td><span class="trv2-status active"><i class="fa-solid fa-check"></i> Pagado</span></td><td><button class="trv2-mini-btn" type="button" onclick="trv2ExportHistoricalOperatorPayment(${Number(item.id)}, '${trv2Esc(item.fecha_desde)}', '${trv2Esc(item.fecha_hasta)}')"><i class="fa-solid fa-file-excel"></i> Excel</button></td></tr>`).join('') : '<tr><td colspan="10"><div class="trv2-empty">No hay pagos realizados para estos filtros.</div></td></tr>';
+  TRV2_OPERATOR_PAYMENT_HISTORY_LOADED = Boolean(data?.ok);
+  body.innerHTML = items.length ? items.map(item => `<tr><td><strong>${trv2Esc(trv2DisplayDate(item.fecha_desde, {fallback:'—'}))} → ${trv2Esc(trv2DisplayDate(item.fecha_hasta, {fallback:'—'}))}</strong><small class="trv2-service-sub">Pago #${Number(item.id)}</small></td><td><strong>${trv2Esc(item.operador)}</strong></td><td class="trv2-num">${Number(item.viajes || 0)}</td><td class="trv2-num">${trv2ServiceMoney(item.comisiones)}</td><td class="trv2-num">${trv2ServiceMoney(item.pago_banco)}</td><td class="trv2-num">${trv2ServiceMoney(item.infonavit)}</td><td class="trv2-num">${trv2ServiceMoney(item.gastos)}</td><td class="trv2-num"><strong>${trv2ServiceMoney(item.pago_efectivo)}</strong></td><td><strong>${trv2Esc(trv2DisplayDate(item.pagado_en, {withTime:true, fallback:'—'}))}</strong><small class="trv2-service-sub"><i class="fa-solid fa-check"></i> Pagado</small></td><td><button class="trv2-mini-btn" type="button" onclick="trv2ExportHistoricalOperatorPayment(${Number(item.id)}, '${trv2Esc(item.fecha_desde)}', '${trv2Esc(item.fecha_hasta)}')"><i class="fa-solid fa-file-excel"></i> Excel</button></td></tr>`).join('') : '<tr><td colspan="10"><div class="trv2-empty">No hay pagos realizados para estos filtros.</div></td></tr>';
 }
 
 async function trv2ExportHistoricalOperatorPayment(liquidationId, from, to) {

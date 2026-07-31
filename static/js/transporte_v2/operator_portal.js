@@ -234,26 +234,52 @@
       if (status) status.textContent = state;
       const buttons = {
         SIN_INICIAR: [['INICIAR_VACIO', 'Iniciar salida vacío', 'primary']],
-        EN_RUTA_VACIO: [['LLEGADA_TERMINAL', 'Llegué a la terminal', 'ok'], ['INCIDENCIA', 'Reportar incidencia', 'warning']],
-        EN_TERMINAL: [['INCIDENCIA', 'Reportar incidencia', 'warning']],
+        EN_RUTA_VACIO: [['LLEGADA_TERMINAL', 'Llegué a la terminal', 'ok'], ['INCIDENCIA', 'Reportar incidencia', 'warning'], ['FINALIZAR_SIN_CARGA', 'Regresé sin carga', 'danger final'], ['VIEW_PDF', 'Ver PDF', ''], ['DOWNLOAD_PDF', 'Descargar PDF', '']],
+        EN_TERMINAL: [['INCIDENCIA', 'Reportar incidencia', 'warning'], ['FINALIZAR_SIN_CARGA', 'Finalizar sin carga', 'danger final'], ['VIEW_PDF', 'Ver PDF', ''], ['DOWNLOAD_PDF', 'Descargar PDF', '']],
+        FINALIZADO_SIN_CARGA: [['VIEW_PDF', 'Ver PDF final', ''], ['DOWNLOAD_PDF', 'Descargar PDF', ''], ['NUEVO_RECORRIDO', 'Iniciar otro recorrido', 'primary']],
       }[state] || [];
       if (actions) actions.innerHTML = buttons.map(([action, label, klass]) => `<button class="${klass}" type="button" onclick="trv2OperadorPretrip('${action}')">${trv2OpEsc(label)}</button>`).join('');
       const events = Array.isArray(TRV2_OPERATOR_PRETRIP?.eventos) ? TRV2_OPERATOR_PRETRIP.eventos : [];
       if (history) history.innerHTML = events.map(event => `<li>${trv2OpEsc(trv2OperadorFormatDate(event.created_at))} · ${trv2OpEsc(event.accion || '')}${event.nota ? ` · ${trv2OpEsc(event.nota)}` : ''}</li>`).join('');
+      const creation = document.querySelector('#trv2-operator-no-trip .start-trip');
+      if (creation) {
+        creation.hidden = state === 'FINALIZADO_SIN_CARGA';
+        creation.style.display = state === 'FINALIZADO_SIN_CARGA' ? 'none' : '';
+      }
     }
     async function trv2OperadorPretrip(action) {
-      const nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
-      const ubicacion = await trv2OperadorCurrentLocation();
-      const response = await fetch('/api/tr-v2/operator/pretrip', {
-        method: 'POST',
-        headers: {...trv2OperadorHeaders(), 'Content-Type': 'application/json'},
-        body: JSON.stringify({action, nota, ...(ubicacion ? {ubicacion} : {})}),
-      });
-      const data = await trv2OperadorReadResponse(response);
-      if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar el recorrido vacío.'));
-      TRV2_OPERATOR_PRETRIP = data.pretrip || {};
-      trv2OperadorRenderPretrip();
-      trv2OperadorToast('Recorrido vacío actualizado.');
+      if (action === 'VIEW_PDF' || action === 'DOWNLOAD_PDF') {
+        return trv2OperadorOpenBitacoraPdf(action === 'DOWNLOAD_PDF', true);
+      }
+      let nota = action === 'INCIDENCIA' ? prompt('Describe la incidencia') || '' : '';
+      if (action === 'FINALIZAR_SIN_CARGA') {
+        if (!confirm('¿Finalizar este recorrido porque no se recibió carga? Se conservará la bitácora y no se creará Carta Porte.')) return;
+        nota = (prompt('Indica el motivo por el que se regresó sin carga:') || '').trim();
+        if (!nota) return trv2OperadorToast('Escribe el motivo para finalizar sin carga.');
+      }
+      if (action === 'NUEVO_RECORRIDO' && !confirm('¿Iniciar un recorrido vacío nuevo? El recorrido finalizado quedará archivado.')) return;
+      const actions = document.getElementById('trv2-operator-pretrip-actions');
+      const buttons = actions ? [...actions.querySelectorAll('button')] : [];
+      buttons.forEach(button => { button.disabled = true; });
+      const selected = buttons.find(button => button.getAttribute('onclick')?.includes(`'${action}'`));
+      const originalLabel = selected?.innerHTML || '';
+      if (selected) selected.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Registrando...';
+      const ubicacion = action === 'NUEVO_RECORRIDO' ? null : await trv2OperadorCurrentLocation();
+      try {
+        const response = await fetch('/api/tr-v2/operator/pretrip', {
+          method: 'POST',
+          headers: {...trv2OperadorHeaders(), 'Content-Type': 'application/json'},
+          body: JSON.stringify({action, nota, ...(ubicacion ? {ubicacion} : {})}),
+        });
+        const data = await trv2OperadorReadResponse(response);
+        if (!response.ok || data.ok === false) return trv2OperadorToast(trv2OperadorError(data, 'No se pudo registrar el recorrido vacío.'));
+        TRV2_OPERATOR_PRETRIP = data.pretrip || {};
+        trv2OperadorRenderPretrip();
+        trv2OperadorToast('Recorrido vacío actualizado.');
+      } finally {
+        buttons.forEach(button => { button.disabled = false; });
+        if (selected && originalLabel) selected.innerHTML = originalLabel;
+      }
     }
     async function trv2OperadorAcceptPrivacy() {
       const response = await fetch('/api/tr-v2/operator/privacy/accept', {method: 'POST', headers: trv2OperadorHeaders()});
@@ -415,14 +441,21 @@
     function trv2OperadorCurrentLocation() {
       return new Promise(resolve => {
         if (!navigator.geolocation) return resolve(null);
+        let settled = false;
+        const finish = value => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        setTimeout(() => finish(null), 1500);
         navigator.geolocation.getCurrentPosition(
-          pos => resolve({
+          pos => finish({
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
             accuracy_m: pos.coords.accuracy,
           }),
-          () => resolve(null),
-          {enableHighAccuracy: false, timeout: 3500, maximumAge: 600000},
+          () => finish(null),
+          {enableHighAccuracy: false, timeout: 1500, maximumAge: 600000},
         );
       });
     }
@@ -500,8 +533,7 @@
       trv2OperadorRenderCartaPorte();
       trv2OperadorToast(`Carta Porte timbrada${uuid ? ': ' + uuid : ''}`);
     }
-    async function trv2OperadorBitacora(action) {
-      if (action === 'DOWNLOAD_PDF' || action === 'VIEW_PDF') {
+    async function trv2OperadorOpenBitacoraPdf(download = false, pretrip = false) {
         const response = await fetch('/api/tr-v2/operator/bitacora.pdf', {headers: trv2OperadorHeaders()});
         if (!response.ok) {
           const data = await trv2OperadorReadResponse(response);
@@ -511,13 +543,16 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        if (action === 'DOWNLOAD_PDF') link.download = `bitacora-viaje-${TRV2_OPERATOR_TRIP?.id || 'operador'}.pdf`;
+        if (download) link.download = pretrip ? 'bitacora-recorrido-vacio.pdf' : `bitacora-viaje-${TRV2_OPERATOR_TRIP?.id || 'operador'}.pdf`;
         else link.target = '_blank';
         document.body.appendChild(link);
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1500);
-        return;
+    }
+    async function trv2OperadorBitacora(action) {
+      if (action === 'DOWNLOAD_PDF' || action === 'VIEW_PDF') {
+        return trv2OperadorOpenBitacoraPdf(action === 'DOWNLOAD_PDF');
       }
       if (action === 'HISTORIAL') return trv2OperadorRenderBitacora();
       if (action === 'FINALIZAR' && !confirm('¿Seguro que quieres finalizar este viaje? Ya no aparecerá como viaje activo del operador.')) return;
