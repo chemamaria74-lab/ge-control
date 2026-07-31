@@ -974,6 +974,39 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     return {"item": {**payment, **email_update}}
 
 
+@router.get("/gastos/payments")
+def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
+                          authorization: str = Header(default=""),
+                          x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede consultar pagos.")
+    payments = (_base_query(ctx, "gas_lp_expense_payments")
+                .order("paid_on", desc=True).order("created_at", desc=True)
+                .limit(limit).execute().data or [])
+    payment_ids = [int(row["id"]) for row in payments]
+    if not payment_ids:
+        return {"items": []}
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                   .select("payment_id,invoice_id,amount_mxn")
+                   .in_("payment_id", payment_ids).execute().data or [])
+    invoice_ids = sorted({int(row["invoice_id"]) for row in allocations})
+    invoices = (_base_query(ctx, "gas_lp_expense_invoices")
+                .in_("id", invoice_ids).execute().data or []) if invoice_ids else []
+    invoices_by_id = {int(row["id"]): row for row in invoices}
+    allocations_by_payment: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
+    for allocation in allocations:
+        invoice = invoices_by_id.get(int(allocation["invoice_id"]))
+        if invoice:
+            allocations_by_payment[int(allocation["payment_id"])].append({
+                "amount_mxn": float(allocation.get("amount_mxn") or 0),
+                "invoice": invoice,
+            })
+    for payment in payments:
+        payment["allocations"] = allocations_by_payment.get(int(payment["id"]), [])
+    return {"items": payments}
+
+
 @router.get("/gastos/payments/export.xlsx")
 def export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
                             x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
@@ -982,54 +1015,52 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
     from openpyxl.utils import get_column_letter
 
     ctx = _ctx(authorization, x_flotilla_access, token)
-    invoices = _base_query(ctx, "gas_lp_expense_invoices").order("invoice_date", desc=True).execute().data or []
+    invoices = (_base_query(ctx, "gas_lp_expense_invoices")
+                .in_("status", ["accepted", "sent_to_accountant"])
+                .order("invoice_date", desc=True).execute().data or [])
     invoice_ids = [int(row["id"]) for row in invoices]
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("*")
                    .in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
-    payment_ids = sorted({int(row["payment_id"]) for row in allocations})
-    payments = (ctx["sb"].table("gas_lp_expense_payments").select("*")
-                .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
-                .in_("id", payment_ids).execute().data or []) if payment_ids else []
     suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
     recipients = _base_query(ctx, "gas_lp_expense_recipients").execute().data or []
     supplier_names = {int(row["id"]): row.get("commercial_name") or "" for row in suppliers}
-    recipient_names = {int(row["id"]): row.get("name") or "" for row in recipients}
     group_names = {int(row["id"]): row.get("name") or "" for row in _profile_expense_groups(ctx)}
     facility_names = {int(row["id"]): row.get("nombre") or row.get("clave_instalacion") or "" for row in _profile_facilities(ctx)}
     expense_zone_names = {int(row["id"]): row.get("name") or "" for row in _expense_zones(ctx)}
-    payment_by_id = {int(row["id"]): row for row in payments}
     allocations_by_invoice: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
     for allocation in allocations:
         allocations_by_invoice[int(allocation["invoice_id"])].append(allocation)
 
     wb = Workbook(); ws = wb.active; ws.title = "Pagos y reembolsos"
-    headers = ["Empresa", "Zona", "Fecha factura", "Proveedor", "Factura", "Total factura",
-               "Destino", "Persona a reembolsar", "Fecha de pago", "Monto aplicado", "Saldo pendiente",
-               "Estado", "Método", "Referencia", "Notas"]
+    headers = ["Empresa", "Zona", "Tipo de pago", "Destinatario", "Correo", "Banco",
+               "Fecha factura", "Proveedor original", "Factura", "Total factura",
+               "Pagado previamente", "Saldo a pagar", "Método sugerido", "Referencia bancaria"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="7A1E2C")
     company = _profile(ctx).get("nombre") or ""
+    supplier_by_id = {int(row["id"]): row for row in suppliers}
+    recipient_by_id = {int(row["id"]): row for row in recipients}
     for invoice in invoices:
-        rows = allocations_by_invoice.get(int(invoice["id"])) or [None]
         total_applied = round(sum(float(row.get("amount_mxn") or 0) for row in allocations_by_invoice.get(int(invoice["id"]), [])), 2)
-        for allocation in rows:
-            payment = payment_by_id.get(int(allocation["payment_id"])) if allocation else {}
-            target = invoice.get("payment_target") or "supplier"
-            ws.append([
-                company, (group_names.get(int(invoice.get("group_id") or 0))
-                          or facility_names.get(int(invoice.get("facility_id") or 0))
-                          or expense_zone_names.get(int(invoice.get("expense_zone_id") or 0))
-                          or "General de la empresa"),
-                str(invoice.get("invoice_date") or ""), supplier_names.get(int(invoice.get("supplier_id") or 0), ""),
-                invoice.get("invoice_number") or "", float(invoice.get("total_mxn") or 0),
-                "Reembolso" if target == "reimbursement" else "Proveedor",
-                recipient_names.get(int(invoice.get("reimbursement_recipient_id") or 0), ""),
-                str(payment.get("paid_on") or ""), float(allocation.get("amount_mxn") or 0) if allocation else 0,
-                max(0, float(invoice.get("total_mxn") or 0) - total_applied), invoice.get("status") or "",
-                payment.get("method") or "", payment.get("reference") or "", payment.get("notes") or "",
-            ])
-    for column in (6, 10, 11):
+        target = invoice.get("payment_target") or "supplier"
+        supplier = supplier_by_id.get(int(invoice.get("supplier_id") or 0), {})
+        recipient = recipient_by_id.get(int(invoice.get("reimbursement_recipient_id") or 0), {})
+        destination = recipient if target == "reimbursement" else supplier
+        ws.append([
+            company, (group_names.get(int(invoice.get("group_id") or 0))
+                      or facility_names.get(int(invoice.get("facility_id") or 0))
+                      or expense_zone_names.get(int(invoice.get("expense_zone_id") or 0))
+                      or "General de la empresa"),
+            "Reembolso" if target == "reimbursement" else "Proveedor",
+            destination.get("name") or destination.get("commercial_name") or "",
+            destination.get("email") or destination.get("payment_email") or "",
+            destination.get("bank_name") or "",
+            str(invoice.get("invoice_date") or ""), supplier_names.get(int(invoice.get("supplier_id") or 0), ""),
+            invoice.get("invoice_number") or "", float(invoice.get("total_mxn") or 0), total_applied,
+            max(0, float(invoice.get("total_mxn") or 0) - total_applied), "Transferencia", "",
+        ])
+    for column in (10, 11, 12):
         for cell in ws[get_column_letter(column)][1:]: cell.number_format = '$#,##0.00'
     for index, header in enumerate(headers, 1):
         ws.column_dimensions[get_column_letter(index)].width = min(34, max(12, len(header) + 3))
@@ -1104,11 +1135,15 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if allocations:
         raise HTTPException(409, "Este gasto tiene pagos relacionados y no se puede eliminar.")
-    _audit(ctx, "invoice", invoice_id, "deleted_capture_error", before=row)
-    ctx["sb"].table("gas_lp_expense_invoices").delete().eq("tenant_id", ctx["tenant_id"]).eq(
-        "profile_id", ctx["perfil_id"]
-    ).eq("id", invoice_id).execute()
-    return {"ok": True}
+    update = {
+        "status": "cancelled", "observation": "Captura eliminada por error.",
+        "reviewed_by": ctx["actor_id"], "reviewed_at": _now(), "updated_at": _now(),
+    }
+    ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(
+        "tenant_id", ctx["tenant_id"]
+    ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
+    _audit(ctx, "invoice", invoice_id, "deleted_capture_error", before=row, after=update)
+    return {"ok": True, "deleted": True}
 
 
 @router.post("/gastos/invoices/{invoice_id}/payment-email")
