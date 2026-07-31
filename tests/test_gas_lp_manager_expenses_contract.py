@@ -302,10 +302,69 @@ def test_expense_capture_uses_motive_zones_not_facilities():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
-    assert '.eq("scope_type", "zone")' in route
+    assert 'row.get("scope_type") == "zone"' in route
     assert '"group_id": payload.group_id' in route
     assert "group_id:zone.startsWith('group:')" in script
     assert 'const groups=state.bootstrap.groups||[]' in script
     assert 'const synced=(state.bootstrap.groups||[])' in script
     assert 'Instalaciones sincronizadas' not in script
     assert 'group_names.get(int(invoice.get("group_id") or 0))' in route
+
+
+def test_successful_delete_is_not_reported_as_failed_when_refresh_fails():
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert "state.invoices=state.invoices.filter" in script
+    assert "renderTables();loadInvoices().catch" in script
+    assert "No se pudo eliminar ${number}:" in script
+    assert "El gasto se eliminó, pero no se pudo refrescar la lista" in script
+
+
+def test_supplier_payment_email_is_optional_for_reimbursements():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert route.count('payment_email: str = Field(default="", max_length=180)') == 2
+    assert 'Correo de pagos (opcional)' in html
+    assert 'id="supplierEmail" type="email" placeholder=' in html
+    assert 'id="supplierEmail" type="email" required' not in html
+    assert "[x.legal_name,x.rfc,x.payment_email].filter(Boolean)" in script
+
+
+def test_recipients_and_concepts_have_search_edit_and_safe_disable_actions():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert '@router.put("/gastos/reimbursement-recipients/{recipient_id}")' in route
+    assert "class ReimbursementRecipientUpdate" in route
+    assert 'id="recipientSearch"' in html and 'id="recipientEditId"' in html
+    assert "data-edit-recipient" in script and "data-disable-recipient" in script
+    assert "function editRecipient" in script and "function toggleRecipient" in script
+    assert "data-disable-concept" in script and "function toggleConcept" in script
+    assert "status:row.status==='active'?'inactive':'active'" in script
+
+
+def test_expense_zones_are_fetched_fresh_from_profile_motive_scopes():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert "cache:'no-store'" in script
+    assert 'select("group_id,scope_type")' in route
+    assert 'row.get("scope_type") == "zone"' in route
+    assert 'row.get("scope_type") == "company_root"' in route
+
+
+def test_review_flow_combines_approved_and_payable_with_email_confirmation():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert 'data-review-filter="approved"' in html
+    assert 'data-review-filter="sent_to_accountant"' not in html
+    assert "> Por pagar</button>" not in html
+    assert "['accepted','sent_to_accountant'].includes(x.status)" in script
+    assert 'data-pay-invoice' in script and "function startPayment" in script
+    assert "Se enviará la notificación de pago" in script
+    assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
+    assert "state.reviewStatus==='approved'?'':state.reviewStatus" in script
