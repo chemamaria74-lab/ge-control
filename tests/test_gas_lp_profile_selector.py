@@ -178,6 +178,26 @@ class GasLpProfileSelectorTest(unittest.TestCase):
         self.assertIn(600, ids)
         self.assertNotIn(407, ids)
 
+    def test_conciliacion_keeps_explicitly_assigned_gas_lp_profile_without_legacy_marker(self):
+        db = FakeDB()
+        db.tables["perfiles_empresa"].append({
+            "id": 701,
+            "user_id": "admin",
+            "tenant_id": "tenant-a",
+            "nombre": "Gas LP legado asignado",
+            "rfc": "LEG010101AAA",
+            "descripcion": "",
+            "activo": True,
+        })
+        with patch.object(internal_users, "get_supabase_admin", lambda: db):
+            rows = internal_users._gas_lp_conciliacion_visible_profiles(
+                "admin",
+                {"section": "gas_lp", "role": "conciliacion", "tenant_id": "tenant-a", "perfil_id": 701},
+                "tok",
+            )
+
+        self.assertIn(701, [row["id"] for row in rows])
+
 
 if __name__ == "__main__":
     unittest.main()

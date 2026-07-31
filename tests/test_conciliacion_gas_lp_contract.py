@@ -100,6 +100,10 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
         assert token in html
     assert "/api/internal-auth/gas-lp/clientes" in html
     assert "Catálogo compartido con las asistentes" in html
+    assert "Buscar clientes" in html
+    assert "Abre esta pestaña para cargar los clientes." not in html
+    assert "metodoFiltro" not in html
+    assert "Selecciona un mes y presiona Cargar mes." in html
 
     for label in ("Dashboard", "Descuentos", "Buscar dashboard", "Buscar PPD pendientes", "Buscar cartera", "Buscar descuentos"):
         assert label in html
