@@ -1050,7 +1050,9 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
         raise HTTPException(404, "Factura no encontrada.")
     row = rows[0]
     transitions = {
-        "accept": ({"pending_review", "observed"}, "accepted"),
+        # Aceptar significa que el gasto ya fue revisado y queda listo para pago.
+        # Conservamos send_to_accountant para registros/clientes antiguos.
+        "accept": ({"pending_review", "observed"}, "sent_to_accountant"),
         "observe": ({"pending_review"}, "observed"),
         "reject": ({"pending_review", "observed"}, "rejected"),
         "send_to_accountant": ({"accepted"}, "sent_to_accountant"),
@@ -1067,7 +1069,7 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
         update["observation"] = payload.observation.strip()
     if payload.action in {"accept", "observe", "reject"}:
         update.update({"reviewed_by": ctx["actor_id"], "reviewed_at": _now()})
-    if payload.action == "send_to_accountant":
+    if payload.action in {"accept", "send_to_accountant"}:
         update["sent_to_accountant_at"] = _now()
     if payload.action == "mark_paid":
         if not payload.paid_on or payload.paid_amount_mxn is None:
