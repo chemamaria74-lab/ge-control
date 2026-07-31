@@ -282,8 +282,106 @@ def test_operator_portal_includes_empty_trip_and_one_time_location_notice():
     assert 'id="trv2-operator-privacy"' in template
     assert "INICIAR_VACIO" in frontend
     assert "LLEGADA_TERMINAL" in frontend
+    assert "trv2OperadorOpenBitacoraPdf" in frontend
+    assert "bitacora-recorrido-vacio.pdf" in frontend
+    assert "Registrando..." in frontend
+    assert "timeout: 1500" in frontend
     assert "/api/tr-v2/operator/privacy/accept" in frontend
     assert "pretrip_json" in migration
+
+
+def test_operator_can_generate_pretrip_pdf_before_trip_exists(monkeypatch):
+    acc = {
+        "id": 3,
+        "chofer": {"nombre": "Julio Operador"},
+        "pretrip_json": {
+            "estado": "EN_TERMINAL",
+            "eventos": [
+                {"accion": "INICIAR_VACIO", "created_at": "2026-07-31T07:47:00-06:00"},
+                {"accion": "LLEGADA_TERMINAL", "created_at": "2026-07-31T07:50:00-06:00"},
+            ],
+        },
+    }
+    captured = {}
+
+    monkeypatch.setattr(transporte_v2, "_operator_context", lambda _token: (object(), acc))
+    monkeypatch.setattr(
+        transporte_v2,
+        "_operator_assigned_trip",
+        lambda *_args: (_ for _ in ()).throw(HTTPException(404, "Sin viaje")),
+    )
+
+    def fake_pdf(trip, _acc, bitacora):
+        captured["trip"] = trip
+        captured["bitacora"] = bitacora
+        return b"%PDF-pretrip"
+
+    monkeypatch.setattr(transporte_v2, "_operator_bitacora_pdf_bytes", fake_pdf)
+
+    response = asyncio.run(transporte_v2.transporte_v2_operator_bitacora_pdf("Bearer token"))
+
+    assert response.body == b"%PDF-pretrip"
+    assert response.headers["content-disposition"] == "attachment; filename=bitacora-recorrido-vacio.pdf"
+    assert captured["trip"]["origen"] == "Salida sin carga"
+    assert [event["accion"] for event in captured["bitacora"]["eventos"]] == ["INICIAR_VACIO", "LLEGADA_TERMINAL"]
+
+
+def test_operator_can_finalize_without_load_and_start_another_pretrip(monkeypatch):
+    acc = {
+        "id": 4,
+        "chofer_id": 16,
+        "pretrip_json": {
+            "estado": "EN_TERMINAL",
+            "etapa": "TRASLADO_VACIO",
+            "eventos": [{"accion": "INICIAR_VACIO", "created_at": "2026-07-31T07:47:00-06:00"}],
+        },
+    }
+
+    class FakeQuery:
+        def __init__(self):
+            self.payload = {}
+
+        def update(self, payload):
+            self.payload = payload
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def execute(self):
+            acc["pretrip_json"] = self.payload["pretrip_json"]
+            return type("Result", (), {"data": [self.payload]})()
+
+    class FakeSupabase:
+        def table(self, name):
+            assert name == transporte_v2.TBL_OPERADOR_ACCESOS
+            return FakeQuery()
+
+    fake_sb = FakeSupabase()
+    monkeypatch.setattr(transporte_v2, "_operator_context", lambda _token: (fake_sb, acc))
+    monkeypatch.setattr(
+        transporte_v2,
+        "_operator_assigned_trip",
+        lambda *_args: (_ for _ in ()).throw(HTTPException(404, "Sin viaje")),
+    )
+
+    finalized = asyncio.run(transporte_v2.transporte_v2_operator_pretrip(
+        {"action": "FINALIZAR_SIN_CARGA", "nota": "La terminal no liberó producto"},
+        "Bearer token",
+    ))
+
+    assert finalized["pretrip"]["estado"] == "FINALIZADO_SIN_CARGA"
+    assert finalized["pretrip"]["eventos"][-1]["accion"] == "FINALIZAR_SIN_CARGA"
+    assert finalized["pretrip"]["eventos"][-1]["nota"] == "La terminal no liberó producto"
+
+    restarted = asyncio.run(transporte_v2.transporte_v2_operator_pretrip(
+        {"action": "NUEVO_RECORRIDO"},
+        "Bearer token",
+    ))
+
+    assert restarted["pretrip"]["estado"] == "SIN_INICIAR"
+    assert restarted["pretrip"]["eventos"] == []
+    assert restarted["pretrip"]["historial"][-1]["estado"] == "FINALIZADO_SIN_CARGA"
 
 
 def test_tolerant_trip_insert_retries_without_missing_optional_column():

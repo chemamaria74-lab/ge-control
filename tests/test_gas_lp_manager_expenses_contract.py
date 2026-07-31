@@ -103,6 +103,20 @@ def test_new_pages_are_mounted_without_replacing_fiscal_conciliation():
     assert selector.headers["location"] == "/gas-lp/conciliacion"
 
 
+def test_expense_pages_enforce_the_shared_two_hour_session_policy():
+    manager_html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
+    admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    timeout = (ROOT / "static" / "js" / "session_timeout.js").read_text(encoding="utf-8")
+
+    assert "session_timeout.js" in manager_html
+    assert "session_timeout.js" in admin_html
+    assert "const TIMEOUT_MS = 2 * 60 * 60 * 1000" in timeout
+    assert "if (path.startsWith('/gas-lp/gastos'))" in timeout
+    assert "login: '/gas-lp/conciliacion?area=gastos'" in timeout
+    assert "if (path.startsWith('/transporte-v2/operador'))" in timeout
+    assert "noTimeout: true" in timeout
+
+
 def test_change_space_clears_session_and_returns_directly_to_login():
     expenses = (ROOT / "static/js/gas_lp/gastos_admin.js").read_text(encoding="utf-8")
     fleet = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
@@ -134,7 +148,7 @@ def test_manager_selector_validates_internal_and_official_sessions():
     assert "data.fleet_access_level !== 'zone_manager'" in selector
 
 
-def test_expense_portals_load_data_only_on_demand():
+def test_expense_portals_keep_large_lists_on_demand_and_preload_admin_catalogs():
     manager = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
     admin = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
     manager_html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
@@ -143,10 +157,12 @@ def test_expense_portals_load_data_only_on_demand():
     assert "else loadBase()" in manager
     assert "loadProfiles().then(()=>{" in admin
     assert ".then(load)" not in admin
+    assert "Promise.all([loadCatalogs(),loadToday()])" in admin
     assert 'id="searchVouchers"' in manager_html
     assert 'id="searchHistory"' in manager_html
     assert 'id="searchExpenses"' in admin_html
     assert 'id="searchAnalytics"' in admin_html
+    assert "Consultar catálogos" not in admin_html
 
 
 def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuration():

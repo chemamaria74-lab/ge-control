@@ -86,6 +86,21 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "sat-month-actions" in html
     assert 'onclick="clearFilters()"' not in html
 
+    # Conciliación opens on the operational Público General flow. Dashboard
+    # controls live inside Resumen instead of leaking into every workspace.
+    assert "const CONCILIACION_DEFAULT_TAB={resumen:'dashboard',facturacion:'publico',control:'credito'}" in html
+    assert "switchTab('publico')" in html
+    assert html.count('id="periodoFiltro"') == 1
+    dashboard_start = html.index('data-section="dashboard"')
+    dashboard_end = html.index('</section>', dashboard_start)
+    assert dashboard_start < html.index('id="periodoFiltro"') < dashboard_end
+
+    # Control shares the same company-scoped customer catalog used by assistants.
+    for token in ('data-tab="clientes"', 'data-section="clientes"', "loadConciliacionClientes", "saveConciliacionCliente"):
+        assert token in html
+    assert "/api/internal-auth/gas-lp/clientes" in html
+    assert "Catálogo compartido con las asistentes" in html
+
     for label in ("Dashboard", "Descuentos", "Buscar dashboard", "Buscar PPD pendientes", "Buscar cartera", "Buscar descuentos"):
         assert label in html
     assert 'data-section="dashboard"' in html

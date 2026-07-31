@@ -69,6 +69,26 @@ def test_operator_catalog_uses_safe_deactivation_language():
     assert "name === 'operadores' ? ''" in frontend
 
 
+def test_operator_deactivation_revokes_portal_access_and_payroll_history_keeps_ui_state():
+    root = Path(__file__).parents[1]
+    backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
+    payments = (root / "static/js/transporte_v2/60_operator_payments.js").read_text(encoding="utf-8")
+    carta_porte = (root / "static/js/transporte_v2/50_carta_porte.js").read_text(encoding="utf-8")
+    template = (root / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
+
+    deactivate_source = backend.split("def _deactivate_catalog_item(", 1)[1].split(
+        "def _catalog_usage_error", 1
+    )[0]
+    assert 'update = {"status": "eliminado", "session_hash": None' in deactivate_source
+    assert '.eq("chofer_id", item_id)' in deactivate_source
+    assert 'chofer.get("activo") is False' in backend
+    assert '"pagado_en": row.get("paid_at") or row.get("created_at")' in backend
+    assert "TRV2_OPERATOR_PAYMENT_HISTORY_LOADED" in payments
+    assert "item.pagado_en" in payments
+    assert 'id="trv2-cp-stamped-actions"' in template
+    assert "actions.hidden = filter !== 'todas'" in carta_porte
+
+
 def test_operator_payment_prefers_invoice_series_and_number_over_generic_detected_folio():
     meta = {"documento_detectado": {"serie": "FE", "folio_numero": "112320", "folio_display": "CO 707169"}}
 

@@ -42,6 +42,16 @@ def test_flotilla_has_a_dedicated_branded_login():
     assert ">Administración</button>" not in response.text
     assert "sessionStorage.setItem(FLOTILLA_ACCESS_KEY" in response.text
     assert "location.replace('/gas-lp/gerentes/inicio')" in response.text
+    assert "9 y S son distintos" in response.text
+    assert "ui-monospace" in response.text
+
+
+def test_manager_list_reads_scopes_without_embedded_relation_cache_dependency():
+    backend = (ROOT / "routes/internal_users_mod/users_auth.py").read_text(encoding="utf-8")
+
+    assert '.select("internal_user_id,group_id")' in backend
+    assert '.eq("tenant_id", tenant_id)' in backend
+    assert '.eq("profile_id", perfil_id)' in backend
 
 
 def test_manager_landing_separates_fleet_and_expenses():
