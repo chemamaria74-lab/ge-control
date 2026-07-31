@@ -177,7 +177,7 @@ def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuratio
     assert 'class="active" data-panel="expenses"><i class="fa-solid fa-receipt"></i> Gastos' in admin_html
     assert 'class="subtabs tabs"' in admin_html
     assert 'fa-solid fa-plus' in admin_html
-    assert 'data-panel="review"' in admin_html and "Revisión y pagos" in admin_html
+    assert 'data-panel="review"' in admin_html and "> Pagos</button>" in admin_html
     assert 'data-panel="catalogs"' in admin_html and "Catálogos" in admin_html
     assert "Lista compartida con el Portal de Gerentes" in admin_html
     assert 'data-content="expenses"' in admin_html
@@ -243,7 +243,7 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "get_facilities" in route and '"facilities": facilities' in route
     assert 'id="directPaymentTarget"' in html and 'id="directRecipient"' in html
     assert 'data-subcontent="recipients"' in html
-    assert 'id="batchPaymentForm"' in html and "Exportar Excel" in html
+    assert 'id="batchPaymentForm"' in html and "Descargar Excel" in html
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
@@ -356,15 +356,43 @@ def test_expense_zones_are_fetched_fresh_from_profile_motive_scopes():
     assert 'row.get("scope_type") == "company_root"' in route
 
 
-def test_review_flow_combines_approved_and_payable_with_email_confirmation():
+def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
-    assert 'data-review-filter="approved"' in html
+    assert 'data-review-filter="payable"' in html
+    assert 'data-review-filter="pending_review"' not in html
     assert 'data-review-filter="sent_to_accountant"' not in html
     assert "> Por pagar</button>" not in html
     assert "['accepted','sent_to_accountant'].includes(x.status)" in script
+    assert "function paymentGroupsHtml()" in script
+    assert "Seleccionar todo para pagar" in script
     assert 'data-pay-invoice' in script and "function startPayment" in script
     assert "Se enviará la notificación de pago" in script
     assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
-    assert "state.reviewStatus==='approved'?'':state.reviewStatus" in script
+    assert "state.reviewStatus==='paid'?'paid':''" in script
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
+
+
+def test_verified_gas_lux_zones_money_format_and_stale_delete_recovery():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert 'id="directTotal" type="text" inputmode="decimal"' in html
+    assert "const parseMoney=" in script and "formatMoneyInput" in script
+    assert "Ejemplo: 5,020.68" in script
+    assert "GLU760309457" in script and "Fresnillo" in script and "Jerez" in script
+    assert "Oficina general" in script and "withVerifiedZones" in script
+    assert "await loadInvoices();const stillExists" in script
+
+
+def test_direct_expense_catalog_selectors_are_searchable():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    for field in ("Supplier", "Concept", "Recipient"):
+        assert f'id="direct{field}Search" type="search"' in html
+        assert f"'direct{field}Search'" in script
+    assert "function searchableOptions" in script
+    assert "renderSearchableDirect" in script
