@@ -195,24 +195,36 @@ async def list_internal_users(
     scope_rows = []
     if fleet_ids:
         try:
+            # El administrador del tenant ya fue autenticado arriba. Leemos las
+            # asignaciones planas porque la relación embebida puede no estar aún
+            # en la caché de esquema de PostgREST y ocultar zonas válidas.
             scope_rows = (
-                get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
-                .select("internal_user_id,group_id,fleet_groups(name,path)")
+                get_supabase_admin().table("fleet_internal_user_group_scopes")
+                .select("internal_user_id,group_id")
+                .eq("tenant_id", tenant_id)
+                .eq("profile_id", perfil_id)
                 .in_("internal_user_id", fleet_ids)
                 .execute().data or []
             )
         except Exception:
-            # La lista de usuarios debe seguir disponible aunque la relación
-            # embebida de PostgREST todavía no esté en su caché de esquema.
+            scope_rows = []
+        group_ids = sorted({int(scope["group_id"]) for scope in scope_rows if scope.get("group_id")})
+        groups_by_id: dict[int, dict] = {}
+        if group_ids:
             try:
-                scope_rows = (
-                    get_supabase_for_user(token).table("fleet_internal_user_group_scopes")
-                    .select("internal_user_id,group_id")
-                    .in_("internal_user_id", fleet_ids)
+                group_rows = (
+                    get_supabase_admin().table("fleet_groups")
+                    .select("id,name,path")
+                    .eq("tenant_id", tenant_id)
+                    .in_("id", group_ids)
                     .execute().data or []
                 )
+                groups_by_id = {int(group["id"]): group for group in group_rows}
             except Exception:
-                scope_rows = []
+                groups_by_id = {}
+        for scope in scope_rows:
+            if not scope.get("fleet_groups"):
+                scope["fleet_groups"] = groups_by_id.get(int(scope["group_id"]), {})
     scopes_by_user: dict[int, list[dict]] = {}
     for scope in scope_rows:
         scopes_by_user.setdefault(int(scope["internal_user_id"]), []).append({
@@ -438,11 +450,26 @@ async def reset_internal_pin(internal_user_id: int, payload: InternalResetPin, a
         )
         if not updated:
             raise HTTPException(500, "Supabase no confirmó el cambio de contraseña.")
+        verified = (
+            sb.table("internal_users").select("id,pin_hash")
+            .eq("id", internal_user_id)
+            .eq("tenant_id", tenant_id)
+            .eq("owner_user_id", admin_uid)
+            .limit(1).execute().data or []
+        )
+        if not verified or not _verify_secret(temp_pin, verified[0].get("pin_hash") or ""):
+            raise HTTPException(500, "La contraseña se guardó, pero no superó la verificación de lectura.")
+        (
+            sb.table("internal_user_sessions").delete()
+            .eq("internal_user_id", internal_user_id)
+            .eq("tenant_id", tenant_id)
+            .execute()
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise _safe_internal_error("reset_pin", e)
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "password_verified": True, "sessions_revoked": True})
 
 
 @router.delete("/internal-users/{internal_user_id}")
@@ -585,11 +612,19 @@ async def fleet_internal_login(payload: FleetInternalLogin):
     if not login or not payload.pin:
         raise HTTPException(400, "Usuario y contraseña son obligatorios.")
     sb = get_supabase_admin()
-    rows = (
+    direct_rows = (
         sb.table("internal_users").select("*")
         .eq("section", "gas_lp")
-        .limit(500).execute().data or []
+        .eq("code", login)
+        .limit(2).execute().data or []
     )
+    rows = direct_rows
+    if not rows:
+        rows = (
+            sb.table("internal_users").select("*")
+            .eq("section", "gas_lp")
+            .limit(1000).execute().data or []
+        )
     candidates = [
         row for row in rows
         if _matches_login(row, login)
@@ -624,16 +659,38 @@ async def fleet_internal_login(payload: FleetInternalLogin):
         raise HTTPException(401, "Usuario o contraseña incorrectos.")
     if user.get("role") not in {"flotilla_gerente", "flotilla_direccion"}:
         raise HTTPException(403, "El usuario no tiene un permiso válido de Flotilla 360.")
-    scopes = (
-        sb.table("fleet_internal_user_group_scopes")
-        .select("group_id,fleet_groups(name,path)")
-        .eq("internal_user_id", user["id"])
-        .eq("tenant_id", tenant_id)
-        .eq("profile_id", user["perfil_id"])
-        .execute().data or []
-    )
+    try:
+        scopes = (
+            sb.table("fleet_internal_user_group_scopes")
+            .select("group_id,fleet_groups(name,path)")
+            .eq("internal_user_id", user["id"])
+            .eq("tenant_id", tenant_id)
+            .eq("profile_id", user["perfil_id"])
+            .execute().data or []
+        )
+    except Exception:
+        scopes = (
+            sb.table("fleet_internal_user_group_scopes")
+            .select("group_id")
+            .eq("internal_user_id", user["id"])
+            .eq("tenant_id", tenant_id)
+            .eq("profile_id", user["perfil_id"])
+            .execute().data or []
+        )
     if not scopes:
         raise HTTPException(403, "Este usuario todavía no tiene zonas asignadas.")
+    missing_group_ids = [
+        int(scope["group_id"]) for scope in scopes
+        if not (scope.get("fleet_groups") or {}).get("name")
+    ]
+    groups_by_id: dict[int, dict] = {}
+    if missing_group_ids:
+        group_rows = (
+            sb.table("fleet_groups").select("id,name,path")
+            .in_("id", sorted(set(missing_group_ids)))
+            .execute().data or []
+        )
+        groups_by_id = {int(group["id"]): group for group in group_rows}
     session_token = secrets.token_urlsafe(32)
     expires_at = _now() + timedelta(hours=SESSION_HOURS)
     sb.table("internal_user_sessions").insert({
@@ -665,8 +722,10 @@ async def fleet_internal_login(payload: FleetInternalLogin):
         "perfil_id": user["perfil_id"],
         "groups": [{
             "id": int(scope["group_id"]),
-            "name": (scope.get("fleet_groups") or {}).get("name") or "",
-            "path": (scope.get("fleet_groups") or {}).get("path") or "",
+            "name": ((scope.get("fleet_groups") or {}).get("name")
+                     or groups_by_id.get(int(scope["group_id"]), {}).get("name") or ""),
+            "path": ((scope.get("fleet_groups") or {}).get("path")
+                     or groups_by_id.get(int(scope["group_id"]), {}).get("path") or ""),
         } for scope in scopes],
     })
 
