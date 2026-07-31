@@ -104,6 +104,11 @@ def test_conciliacion_template_exposes_erp_tabs_and_own_endpoints():
     assert "Abre esta pestaña para cargar los clientes." not in html
     assert "metodoFiltro" not in html
     assert "Selecciona un mes y presiona Cargar mes." in html
+    assert "CONCILIACION_PROFILES_CACHE_KEY" in html
+    assert "restoreCachedPerfiles()" in html
+    assert "setTimeout(init,1200)" in html
+    init_source = (ROOT / "static" / "js" / "gas_lp" / "conciliacion" / "20_data_filters.js").read_text(encoding="utf-8")
+    assert "localStorage.removeItem(CONCILIACION_TOKEN_KEY);location.href='/gas-lp/conciliacion'" not in init_source
 
     for label in ("Dashboard", "Descuentos", "Buscar dashboard", "Buscar PPD pendientes", "Buscar cartera", "Buscar descuentos"):
         assert label in html

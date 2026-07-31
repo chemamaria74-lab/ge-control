@@ -169,14 +169,16 @@ def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuratio
     admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
 
     assert '<select id="companySelect"' in admin_html
-    assert 'class="active" data-panel="expenses">Gastos' in admin_html
-    assert 'data-panel="review">Revisión y pagos' in admin_html
-    assert 'data-panel="catalogs">Catálogos' in admin_html
+    assert 'class="active" data-panel="expenses"><i class="fa-solid fa-receipt"></i> Gastos' in admin_html
+    assert 'class="subtabs tabs"' in admin_html
+    assert 'fa-solid fa-plus' in admin_html
+    assert 'data-panel="review"' in admin_html and "Revisión y pagos" in admin_html
+    assert 'data-panel="catalogs"' in admin_html and "Catálogos" in admin_html
     assert "Lista compartida con el Portal de Gerentes" in admin_html
     assert 'data-content="expenses"' in admin_html
     assert 'data-content="catalogs"' in admin_html
-    assert 'data-subpanel="capture">Agregar gasto' in admin_html
-    assert 'data-subpanel="vouchers">Complemento de vales' in admin_html
+    assert 'data-subpanel="capture"' in admin_html and "Agregar gasto" in admin_html
+    assert 'data-subpanel="vouchers"' in admin_html and "Complemento de vales" in admin_html
     assert 'id="directSeries"' in admin_html
     assert 'id="directFolio"' in admin_html
     assert 'id="directPeriod"' not in admin_html
