@@ -4,7 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>GE CONTROL | Gastos y pagos</title>
   <link rel="icon" href="/static/img/favicon.svg">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=20260731b">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=assistant-tabs-20260731">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
 </head>
 <body>
@@ -18,17 +19,17 @@
     <div class="hero"><div><span class="eyebrow">Control de egresos</span><h2 id="companyName">Cargando empresa…</h2><p>Captura, relaciona vales, revisa y analiza los gastos de la empresa.</p></div></div>
 
     <nav class="primary-tabs tabs" aria-label="Secciones principales">
-      <button class="active" data-panel="expenses">Gastos</button>
-      <button data-panel="review">Revisión y pagos</button>
-      <button data-panel="analytics">Análisis</button>
-      <button data-panel="catalogs">Catálogos</button>
+      <button class="active" data-panel="expenses"><i class="fa-solid fa-receipt"></i> Gastos</button>
+      <button data-panel="review"><i class="fa-solid fa-money-check-dollar"></i> Revisión y pagos</button>
+      <button data-panel="analytics"><i class="fa-solid fa-chart-column"></i> Análisis</button>
+      <button data-panel="catalogs"><i class="fa-solid fa-box-archive"></i> Catálogos</button>
     </nav>
 
     <section class="panel active" data-content="expenses">
       <div class="subtabs tabs" data-subtabs="expenses">
-        <button class="active" data-subpanel="capture">Agregar gasto</button>
-        <button data-subpanel="all-expenses">Todos los gastos</button>
-        <button data-subpanel="vouchers">Complemento de vales</button>
+        <button class="active" data-subpanel="capture"><i class="fa-solid fa-plus"></i> Agregar gasto</button>
+        <button data-subpanel="all-expenses"><i class="fa-solid fa-list-check"></i> Todos los gastos</button>
+        <button data-subpanel="vouchers"><i class="fa-solid fa-file-invoice"></i> Complemento de vales</button>
       </div>
 
       <div class="subpanel active" data-subcontent="capture">
@@ -68,7 +69,7 @@
     </section>
 
     <section class="panel" data-content="review">
-      <div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="pending_review">Por revisar</button><button type="button" data-review-filter="sent_to_accountant">En contabilidad</button><button type="button" data-review-filter="paid">Pagados</button></div>
+      <div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="pending_review"><i class="fa-solid fa-magnifying-glass"></i> Por revisar</button><button type="button" data-review-filter="sent_to_accountant"><i class="fa-solid fa-building-columns"></i> En contabilidad</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div>
       <div class="kpis" id="expenseKpis"><div class="kpi"><span>Gasto total</span><strong id="kpiTotal">—</strong></div><div class="kpi"><span>Pagado</span><strong id="kpiPaid">—</strong></div><div class="kpi"><span>Pendiente</span><strong id="kpiPending">—</strong></div><div class="kpi"><span>Alertas</span><strong id="kpiAlerts">—</strong></div></div>
       <article class="card"><div class="card-heading"><div><h3>Revisión y seguimiento de pago</h3><p>Acepta, observa, envía a contabilidad o registra el pago.</p></div><button class="btn primary" id="searchReview" type="button">Buscar pendientes</button></div><div class="status" id="reviewLoadStatus">Esta bandeja se carga bajo demanda.</div><div class="table-wrap"><table><thead><tr><th>Gasto</th><th>Origen</th><th>Responsable</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="reviewRows"><tr><td colspan="7" class="empty">Presiona Buscar pendientes.</td></tr></tbody></table></div></article>
     </section>
@@ -79,7 +80,7 @@
     </section>
 
     <section class="panel" data-content="catalogs">
-      <div class="subtabs tabs" data-subtabs="catalogs"><button class="active" data-subpanel="suppliers">Proveedores</button><button data-subpanel="concepts">Conceptos</button><button data-subpanel="zones">Zonas</button></div>
+      <div class="subtabs tabs" data-subtabs="catalogs"><button class="active" data-subpanel="suppliers"><i class="fa-solid fa-truck-field"></i> Proveedores</button><button data-subpanel="concepts"><i class="fa-solid fa-tags"></i> Conceptos</button><button data-subpanel="zones"><i class="fa-solid fa-location-dot"></i> Zonas</button></div>
       <div class="subpanel active" data-subcontent="suppliers"><article class="card"><div class="card-heading"><div><h3>Proveedores</h3><p>Catálogo frecuente para seleccionar al capturar.</p></div><div class="toolbar-inline"><span class="pill" id="supplierCount">0 proveedores</span><button class="btn secondary" id="searchAdminCatalogs" type="button">Actualizar</button><button class="btn primary" id="toggleSupplierForm" type="button">Agregar</button></div></div><form id="supplierForm" class="form-grid catalog-form" hidden><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label><label>RFC<input id="supplierRfc"></label><label>Teléfono<input id="supplierPhone"></label><label class="wide">Correo de pagos<input id="supplierEmail" type="email"></label><div class="actions wide"><button class="btn primary">Guardar proveedor</button><button class="btn secondary" id="cancelSupplierForm" type="button">Cancelar</button></div></form><label>Buscar proveedor<input id="supplierSearch" placeholder="Nombre o RFC"></label><div id="pendingSuppliers" class="catalog-list empty">Cargando proveedores…</div></article></div>
       <div class="subpanel" data-subcontent="concepts"><article class="card"><div class="card-heading"><div><h3>Conceptos de gasto</h3><p>Lista compartida con el Portal de Gerentes.</p></div></div><form id="adminConceptForm" class="actions compact-add"><input id="adminConceptName" placeholder="Ej. Servicio de telefonía" required><button class="btn primary">Agregar concepto</button></form><div id="adminConceptList" class="catalog-list empty">Cargando conceptos…</div></article></div>
       <div class="subpanel" data-subcontent="zones"><article class="card"><h3>Zonas de la empresa</h3><p>Disponibles al capturar gastos de <strong id="zonesCompany">la empresa actual</strong>.</p><div id="zoneCatalog" class="catalog-list empty">Cargando zonas…</div></article></div>
