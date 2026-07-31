@@ -998,18 +998,28 @@ async function loadHistorial() {
     return;
   }
 
-  document.getElementById('histLoading').style.display = 'block';
+  const loadingEl = document.getElementById('histLoading');
+  const loadBtn = document.getElementById('btnLoadHist');
+  const originalLoadHtml = loadBtn?.innerHTML;
+  loadingEl.textContent = 'Cargando historial...';
+  loadingEl.style.display = 'block';
+  if (loadBtn) {
+    loadBtn.disabled = true;
+    loadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Cargando...';
+  }
   document.getElementById('histContent').style.display = 'none';
   document.getElementById('btnDlHistZIP').style.display = 'none';
 
   let url = `/api/history/${periodo}`;
   if (_histFacilityId) url += `?facility_id=${_histFacilityId}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
   try {
-    const res  = await fetch(url, { headers: authHeader() });
-    const data = await res.json();
-    document.getElementById('histLoading').style.display = 'none';
+    const res = await fetch(url, { headers: authHeader(), signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
 
     if (res.status === 401) { showLogin(); return; }
+    if (!res.ok) throw new Error(data.detail || `No fue posible consultar el historial (${res.status}).`);
 
     const totals = data.totals || {};
     const rep    = data.report || {};
@@ -1147,8 +1157,20 @@ async function loadHistorial() {
         : 'No hay registros para cerrar en la planta y periodo seleccionados.')), hasAnyData && !missingInitialInventory);
 
   } catch(e) {
-    document.getElementById('histLoading').style.display = 'none';
-    alert('Error al cargar historial: ' + e.message);
+    const timedOut = e?.name === 'AbortError';
+    setHistCloseInfo(
+      timedOut
+        ? 'La consulta tardó más de 20 segundos. Intenta de nuevo; si se repite, el servidor de historial está respondiendo lento.'
+        : `No fue posible cargar el historial: ${e.message || 'error de conexión'}`,
+      false,
+    );
+  } finally {
+    clearTimeout(timeoutId);
+    loadingEl.style.display = 'none';
+    if (loadBtn) {
+      loadBtn.disabled = false;
+      loadBtn.innerHTML = originalLoadHtml || '<i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Revisar mes';
+    }
   }
 }
 
