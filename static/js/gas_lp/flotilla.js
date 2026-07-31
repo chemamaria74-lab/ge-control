@@ -54,7 +54,7 @@
         $('managerHomeLink').hidden=true;
         $('managerExpensesLink').hidden=true;
         $('fleetBack').hidden=false;
-        $('fleetBack').innerHTML='<i class="fa-solid fa-layer-group"></i> Supervisión';
+        $('fleetBack').innerHTML='<i class="fa-solid fa-layer-group"></i> Cambiar espacio';
       }
       document.documentElement.classList.remove('fleet-auth-pending');
       $('fleetAuthGate').hidden=true;
