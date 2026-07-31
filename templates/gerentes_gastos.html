@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>GE CONTROL | Gerentes · Gastos</title>
-  <link rel="icon" href="/static/img/favicon.svg"><link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=20260728a">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="icon" href="/static/img/favicon.svg"><link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=manager-catalog-parity-20260731b">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
 </head>
 <body>
   <header class="expense-top"><img src="/static/img/ge-isotype-light.svg" alt="GE"><h1>Portal de Gerentes</h1>
-    <nav><a href="/gas-lp/gerentes/inicio">Inicio</a><a href="/gas-lp/flotilla">Flotilla</a><a class="active" href="/gas-lp/gerentes/gastos">Vales y gastos</a></nav>
+    <nav class="manager-sections"><a href="/gas-lp/flotilla">Flotilla</a><a class="active" href="/gas-lp/gerentes/gastos">Vales y gastos</a></nav>
     <button id="logout">Salir</button>
   </header>
   <main class="expense-shell">
     <div class="hero"><div><span class="eyebrow">Control operativo</span><h2>Vales y gastos</h2><p id="companyName">Cargando empresa y zonas…</p></div></div>
-    <div class="tabs">
-      <button class="active" data-panel="vouchers">Vales</button><button data-panel="invoice">Formar factura</button>
-      <button data-panel="history">Historial</button><button data-panel="catalogs">Catálogos</button>
+    <div class="tabs primary-tabs">
+      <button class="active" data-panel="vouchers"><i class="fa-solid fa-receipt"></i> Vales</button><button data-panel="invoice"><i class="fa-solid fa-file-invoice"></i> Registrar factura de vales</button>
+      <button data-panel="history"><i class="fa-solid fa-clock-rotate-left"></i> Historial</button><button data-panel="catalogs"><i class="fa-solid fa-box-archive"></i> Catálogos</button>
     </div>
     <section class="panel active" data-content="vouchers">
       <div class="query-toolbar"><label>Buscar folio<input id="voucherSearch" placeholder="Ej. A-AGU-26-0001"></label><button class="btn primary" id="searchVouchers" type="button">Buscar vales</button><span class="status" id="voucherLoadStatus">Los datos se consultan cuando presionas Buscar.</span></div>
@@ -24,7 +25,7 @@
           <form id="voucherForm" class="form-grid">
             <label>Zona<select id="voucherGroup" required></select></label>
             <label>Unidad<select id="voucherVehicle" required></select></label>
-            <label>Chofer<input id="voucherDriver" readonly></label>
+            <label>Chofer<select id="voucherDriver" required></select></label>
             <label>Proveedor validado<select id="voucherSupplier" required></select></label>
             <label>Concepto<select id="voucherConcept" required></select></label>
             <label>Fecha<input id="voucherDate" type="date" required></label>
@@ -38,6 +39,7 @@
       </div>
     </section>
     <section class="panel" data-content="invoice">
+      <div class="workflow-help"><strong>¿Qué se hace aquí?</strong><span>Cuando uno o varios vales ya tienen monto, selecciónalos y registra la factura del proveedor. Solo se pueden agrupar vales de la misma zona y proveedor.</span></div>
       <div class="query-toolbar"><button class="btn primary" id="searchReadyVouchers" type="button">Buscar vales listos</button><span class="status" id="readyLoadStatus">Esta pestaña no consulta datos hasta que presiones Buscar.</span></div>
       <div class="grid"><article class="card half"><h3>Vales listos</h3><p>Selecciona vales del mismo proveedor.</p>
         <div id="readyVouchers" class="checkbox-list"></div></article>
@@ -53,19 +55,13 @@
     <section class="panel" data-content="history"><div class="query-toolbar"><label>Buscar factura<input id="historySearch" placeholder="Número de factura"></label><button class="btn primary" id="searchHistory" type="button">Buscar historial</button><span class="status" id="historyLoadStatus">Consulta manual para evitar precargar el historial.</span></div><div class="grid"><article class="card"><h3>Historial de facturas</h3><div class="table-wrap"><table><thead><tr><th>Factura</th><th>Fecha</th><th>Total</th><th>Estado</th></tr></thead><tbody id="historyRows"></tbody></table></div></article>
       <article class="card"><h3>Historial de vales</h3><div class="table-wrap"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Monto</th><th>Estado / motivo</th></tr></thead><tbody id="voucherHistoryRows"></tbody></table></div></article></div></section>
     <section class="panel" data-content="catalogs">
-      <div class="query-toolbar"><button class="btn primary" id="searchCatalogs" type="button">Consultar catálogos</button><span class="status" id="catalogLoadStatus">Proveedores y conceptos se cargan únicamente al solicitarlos.</span></div>
-      <div class="grid">
-        <article class="card half"><h3>Conceptos</h3><p>Quedan disponibles inmediatamente en la lista del vale.</p>
-          <form id="conceptForm" class="actions"><input id="conceptName" placeholder="Ej. Balatas" required><button class="btn primary">Agregar</button></form>
-          <div id="conceptList"></div></article>
-        <article class="card half"><h3>Proveedores</h3><p>La asistente debe validarlos antes de utilizarlos.</p>
-          <form id="supplierForm" class="form-grid"><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label>
-            <label>RFC<input id="supplierRfc"></label><label>Teléfono<input id="supplierPhone"></label><label class="wide">Correo de pagos (opcional)<input id="supplierEmail" type="email"></label>
-            <div class="actions wide"><button class="btn primary">Enviar a validación</button></div></form><div id="supplierList"></div>
-        </article>
-      </div>
+      <div class="subtabs tabs" id="catalogTabs"><button class="active" data-catalog="drivers"><i class="fa-solid fa-id-card"></i> Choferes</button><button data-catalog="concepts"><i class="fa-solid fa-tags"></i> Conceptos</button><button data-catalog="suppliers"><i class="fa-solid fa-truck-field"></i> Proveedores</button></div>
+      <div class="status" id="catalogLoadStatus">Cargando catálogos…</div>
+      <article class="card catalog-pane active" data-catalog-content="drivers"><div class="card-heading"><div><h3>Choferes</h3><p>Control de licencias y vencimientos.</p></div><div class="toolbar-inline"><span class="selection-count" id="driverCount">0 choferes</span><button class="btn secondary" id="refreshDrivers" type="button">Actualizar</button><button class="btn primary" id="toggleDriverForm" type="button">Agregar</button></div></div><label class="catalog-search">Buscar chofer<input id="driverCatalogSearch" placeholder="Nombre o licencia"></label><form id="driverForm" class="form-grid catalog-create catalog-drawer" hidden><label>Nombre completo<input id="driverName" required></label><label>Número de licencia<input id="driverLicense"></label><label>Tipo de licencia<input id="driverLicenseType" placeholder="Ej. Federal B"></label><label>Teléfono<input id="driverPhone"></label><label>Fecha de expedición<input id="driverIssued" type="date"></label><label>Vigencia hasta<input id="driverExpires" type="date" required></label><div class="actions wide"><button class="btn primary">Guardar chofer</button><button class="btn secondary" id="cancelDriverForm" type="button">Cancelar</button></div></form><div id="driverList" class="catalog-list"></div></article>
+      <article class="card catalog-pane" data-catalog-content="concepts"><div class="card-heading"><div><h3>Conceptos</h3><p>Quedan disponibles inmediatamente en la lista del vale.</p></div><div class="toolbar-inline"><span class="selection-count" id="managerConceptCount">0 conceptos</span><button class="btn secondary" id="refreshManagerConcepts" type="button">Actualizar</button><button class="btn primary" id="toggleManagerConceptForm" type="button">Agregar</button></div></div><label class="catalog-search">Buscar concepto<input id="managerConceptSearch" placeholder="Nombre del concepto"></label><form id="conceptForm" class="form-grid catalog-create catalog-drawer" hidden><input id="managerConceptEditId" type="hidden"><label class="wide">Nombre del concepto<input id="conceptName" placeholder="Ej. Balatas" required></label><div class="actions wide"><button class="btn primary" id="saveManagerConceptButton">Guardar concepto</button><button class="btn secondary" id="cancelManagerConceptForm" type="button">Cancelar</button></div></form><div id="conceptList" class="catalog-list"></div></article>
+      <article class="card catalog-pane" data-catalog-content="suppliers"><div class="card-heading"><div><h3>Proveedores</h3><p>La asistente debe validarlos antes de utilizarlos.</p></div><div class="toolbar-inline"><span class="selection-count" id="managerSupplierCount">0 proveedores</span><button class="btn secondary" id="refreshManagerSuppliers" type="button">Actualizar</button><button class="btn primary" id="toggleManagerSupplierForm" type="button">Agregar</button></div></div><label class="catalog-search">Buscar proveedor<input id="managerSupplierSearch" placeholder="Nombre, RFC, código postal o correo"></label><form id="supplierForm" class="form-grid catalog-create catalog-drawer" hidden><input id="managerSupplierEditId" type="hidden"><label>Nombre comercial<input id="supplierName" required></label><label>Razón social<input id="supplierLegal"></label><label>RFC<input id="supplierRfc"></label><label>Código postal<input id="supplierPostalCode" inputmode="numeric" maxlength="10"></label><label>Teléfono<input id="supplierPhone"></label><label>Correo de pagos (opcional)<input id="supplierEmail" type="email"></label><div class="actions wide"><button class="btn primary" id="saveManagerSupplierButton">Enviar a validación</button><button class="btn secondary" id="cancelManagerSupplierForm" type="button">Cancelar</button></div></form><div id="supplierList" class="catalog-list"></div></article>
     </section>
   </main>
   <script src="/static/js/session_timeout.js?v=two-hour-expenses-20260730"></script>
-  <script src="/static/js/gas_lp/gerentes_gastos.js?v=20260729c"></script>
+  <script src="/static/js/gas_lp/gerentes_gastos.js?v=manager-catalog-parity-20260731b"></script>
 </body></html>
