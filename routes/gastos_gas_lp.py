@@ -21,6 +21,7 @@ from routes.auth import obtener_acceso_modulo, verify_token
 from routes.flotilla import _internal_fleet_context
 from routes.internal_users_mod.core import _gas_lp_conciliacion_context
 from services.email_delivery import send_gas_lp_expense_payment_email
+from services.database import get_facilities
 from supabase_config import get_supabase_admin
 
 
@@ -47,11 +48,10 @@ class DriverCreate(BaseModel):
 
 class SupplierCreate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
-    legal_name: str = Field(default="", max_length=220)
-    rfc: str = Field(default="", max_length=20)
-    phone: str = Field(default="", max_length=40)
-    payment_email: str = Field(default="", max_length=180)
-    postal_code: str = Field(default="", max_length=10)
+    legal_name: str = Field(min_length=2, max_length=220)
+    rfc: str = Field(min_length=12, max_length=20)
+    phone: str = Field(min_length=7, max_length=40)
+    payment_email: str = Field(min_length=5, max_length=180)
 
 
 class SupplierReview(BaseModel):
@@ -61,11 +61,10 @@ class SupplierReview(BaseModel):
 
 class SupplierUpdate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
-    legal_name: str = Field(default="", max_length=220)
-    rfc: str = Field(default="", max_length=20)
-    phone: str = Field(default="", max_length=40)
-    payment_email: str = Field(default="", max_length=180)
-    postal_code: str = Field(default="", max_length=10)
+    legal_name: str = Field(min_length=2, max_length=220)
+    rfc: str = Field(min_length=12, max_length=20)
+    phone: str = Field(min_length=7, max_length=40)
+    payment_email: str = Field(min_length=5, max_length=180)
     status: Literal["active", "inactive"] = "active"
 
 
@@ -103,6 +102,33 @@ class DirectInvoiceCreate(BaseModel):
     period_key: str = Field(default="", pattern=r"^$|^\d{4}-\d{2}$")
     description: str = Field(default="", max_length=500)
     group_id: int | None = None
+    facility_id: int | None = None
+    payment_target: Literal["supplier", "reimbursement"] = "supplier"
+    reimbursement_recipient_id: int | None = None
+
+
+class ReimbursementRecipientCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    phone: str = Field(min_length=7, max_length=40)
+    email: str = Field(min_length=5, max_length=180)
+    bank_name: str = Field(default="", max_length=120)
+    account_holder: str = Field(default="", max_length=180)
+    clabe: str = Field(default="", max_length=18)
+    card_last_four: str = Field(default="", max_length=4)
+
+
+class PaymentAllocation(BaseModel):
+    invoice_id: int
+    amount_mxn: float = Field(gt=0, le=100_000_000)
+
+
+class ExpensePaymentCreate(BaseModel):
+    invoice_allocations: list[PaymentAllocation] = Field(min_length=1, max_length=200)
+    paid_on: date
+    amount_mxn: float = Field(gt=0, le=100_000_000)
+    method: str = Field(default="", max_length=80)
+    reference: str = Field(default="", max_length=160)
+    notes: str = Field(default="", max_length=500)
 
 
 class InvoiceTransition(BaseModel):
@@ -187,6 +213,17 @@ def _profile(ctx: dict[str, Any]) -> dict[str, Any]:
     return rows[0]
 
 
+def _profile_facilities(ctx: dict[str, Any], profile: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Read Mowry/Supabase company facilities; expense zones do not depend on fleet scopes."""
+    profile = profile or _profile(ctx)
+    rows = get_facilities(str(profile.get("user_id") or ""), "gas_lp", perfil_id=ctx["perfil_id"])
+    if not rows:
+        rows = (ctx["sb"].table("user_facilities").select("*")
+                .eq("perfil_id", ctx["perfil_id"]).eq("modulo_propietario", "gas_lp")
+                .order("nombre").execute().data or [])
+    return [row for row in rows if row.get("activo", True) is not False and row.get("status", "active") != "inactive"]
+
+
 def _allowed_group(ctx: dict[str, Any], group_id: int | None) -> None:
     allowed = ctx.get("allowed_group_ids")
     if group_id is not None and allowed is not None and int(group_id) not in {int(x) for x in allowed}:
@@ -253,6 +290,7 @@ def bootstrap(
 ):
     ctx = _ctx(authorization, x_flotilla_access, token)
     profile = _profile(ctx)
+    facilities = _profile_facilities(ctx, profile)
     scope_rows = (ctx["sb"].table("fleet_profile_group_scopes").select("group_id")
                   .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
                   .eq("status", "active").execute().data or [])
@@ -261,7 +299,7 @@ def bootstrap(
         return {
             "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                          "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
-            "company": profile, "groups": [], "vehicles": [],
+            "company": profile, "groups": [], "facilities": facilities, "vehicles": [],
         }
     groups = (ctx["sb"].table("fleet_groups").select("id,name,path")
               .eq("tenant_id", ctx["tenant_id"]).in_("id", list(profile_group_ids))
@@ -273,7 +311,7 @@ def bootstrap(
         return {
             "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                          "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
-            "company": profile, "groups": [], "vehicles": [],
+            "company": profile, "groups": [], "facilities": facilities, "vehicles": [],
         }
     vehicles = (ctx["sb"].table("fleet_vehicles")
                 .select("id,vehicle_number,current_driver_name,status")
@@ -293,7 +331,7 @@ def bootstrap(
     return {
         "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                      "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
-        "company": profile, "groups": groups, "vehicles": vehicles,
+        "company": profile, "groups": groups, "facilities": facilities, "vehicles": vehicles,
     }
 
 
@@ -391,7 +429,6 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
         "commercial_name": payload.commercial_name.strip(), "normalized_name": _normalize(payload.commercial_name),
         "legal_name": payload.legal_name.strip(),
         "rfc": clean_rfc, "phone": payload.phone.strip(), "payment_email": clean_email,
-        "postal_code": payload.postal_code.strip(),
         "validation_status": "pending" if ctx["is_manager"] else "validated",
         "created_by_type": "manager" if ctx["is_manager"] else "admin", "created_by": ctx["actor_id"],
         "validated_by": None if ctx["is_manager"] else ctx["actor_id"],
@@ -442,7 +479,7 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
         "commercial_name": payload.commercial_name.strip(),
         "normalized_name": _normalize(payload.commercial_name), "legal_name": payload.legal_name.strip(),
         "rfc": clean_rfc, "phone": payload.phone.strip(),
-        "payment_email": clean_email, "postal_code": payload.postal_code.strip(), "status": payload.status,
+        "payment_email": clean_email, "status": payload.status,
         "updated_at": _now(),
     }
     if ctx["is_manager"]:
@@ -450,6 +487,38 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
     ctx["sb"].table("gas_lp_expense_suppliers").update(update).eq("id", supplier_id).execute()
     _audit(ctx, "supplier", supplier_id, "updated", before=before, after=update)
     return {"ok": True, "item": {**before, **update}}
+
+
+@router.get("/gastos/reimbursement-recipients")
+def list_reimbursement_recipients(limit: int = Query(default=300, ge=1, le=500),
+                                  token: str = Query(default=""), authorization: str = Header(default=""),
+                                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    return {"items": _base_query(ctx, "gas_lp_expense_recipients").order("name").limit(limit).execute().data or []}
+
+
+@router.post("/gastos/reimbursement-recipients", status_code=201)
+def create_reimbursement_recipient(payload: ReimbursementRecipientCreate, token: str = Query(default=""),
+                                   authorization: str = Header(default=""),
+                                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    _, clean_email = _validate_supplier_fields("", payload.email)
+    clabe = re.sub(r"\D", "", payload.clabe)
+    if clabe and len(clabe) != 18:
+        raise HTTPException(400, "La CLABE debe tener 18 dígitos.")
+    last_four = re.sub(r"\D", "", payload.card_last_four)
+    if last_four and len(last_four) != 4:
+        raise HTTPException(400, "Captura únicamente los últimos 4 dígitos de la tarjeta.")
+    row = {
+        "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
+        "name": payload.name.strip(), "normalized_name": _normalize(payload.name),
+        "phone": payload.phone.strip(), "email": clean_email,
+        "bank_name": payload.bank_name.strip(), "account_holder": payload.account_holder.strip(),
+        "clabe": clabe, "card_last_four": last_four, "created_by": ctx["actor_id"],
+    }
+    created = ctx["sb"].table("gas_lp_expense_recipients").insert(row).execute().data[0]
+    _audit(ctx, "reimbursement_recipient", int(created["id"]), "created", after=created)
+    return {"item": created}
 
 
 @router.get("/gastos/vouchers")
@@ -660,7 +729,17 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
     ctx = _ctx(authorization, x_flotilla_access, token)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede registrar gastos directos.")
-    _allowed_group(ctx, payload.group_id)
+    if payload.payment_target == "reimbursement" and not payload.reimbursement_recipient_id:
+        raise HTTPException(400, "Selecciona a la persona que recibirá el reembolso.")
+    if payload.payment_target == "supplier" and payload.reimbursement_recipient_id:
+        raise HTTPException(400, "Un pago al proveedor no debe incluir una persona a reembolsar.")
+    if payload.facility_id and not any(int(row.get("id") or 0) == payload.facility_id for row in _profile_facilities(ctx)):
+        raise HTTPException(400, "La zona seleccionada no pertenece a esta empresa.")
+    if payload.reimbursement_recipient_id:
+        recipients = (_base_query(ctx, "gas_lp_expense_recipients")
+                      .eq("id", payload.reimbursement_recipient_id).eq("status", "active").limit(1).execute().data or [])
+        if not recipients:
+            raise HTTPException(400, "La persona a reembolsar no está disponible.")
     supplier = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
                 .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
     if not supplier:
@@ -678,7 +757,9 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         "expense_type": "direct", "invoice_number": payload.invoice_number.strip(),
         "invoice_date": payload.invoice_date.isoformat(), "total_mxn": round(payload.total_mxn, 2),
         "period_key": payload.period_key or None, "description": payload.description.strip(),
-        "concept_id": payload.concept_id, "group_id": payload.group_id,
+        "concept_id": payload.concept_id, "group_id": None, "facility_id": payload.facility_id,
+        "payment_target": payload.payment_target,
+        "reimbursement_recipient_id": payload.reimbursement_recipient_id,
         "created_by_type": "admin", "created_by": ctx["actor_id"],
         "observation": "Alerta: " + " ".join(alerts) if alerts else "",
     }
@@ -725,7 +806,153 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
             })
     for item in items:
         item["vouchers"] = links_by_invoice.get(int(item["id"]), [])
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                   .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
+    paid_by_invoice: defaultdict[int, float] = defaultdict(float)
+    for allocation in allocations:
+        paid_by_invoice[int(allocation["invoice_id"])] += float(allocation.get("amount_mxn") or 0)
+    for item in items:
+        paid = round(paid_by_invoice.get(int(item["id"]), float(item.get("paid_amount_mxn") or 0)), 2)
+        item["applied_amount_mxn"] = paid
+        item["balance_mxn"] = round(max(0, float(item.get("total_mxn") or 0) - paid), 2)
     return {"items": items}
+
+
+@router.post("/gastos/payments", status_code=201)
+def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(default=""),
+                           authorization: str = Header(default=""),
+                           x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede registrar pagos.")
+    allocation_map = {int(row.invoice_id): round(float(row.amount_mxn), 2) for row in payload.invoice_allocations}
+    if len(allocation_map) != len(payload.invoice_allocations):
+        raise HTTPException(400, "Una factura no puede repetirse dentro del mismo pago.")
+    allocation_total = round(sum(allocation_map.values()), 2)
+    if abs(allocation_total - round(payload.amount_mxn, 2)) > MONEY_TOLERANCE:
+        raise HTTPException(400, "La suma aplicada a las facturas debe coincidir con el monto pagado.")
+    invoices = (_base_query(ctx, "gas_lp_expense_invoices").in_("id", list(allocation_map)).execute().data or [])
+    if len(invoices) != len(allocation_map):
+        raise HTTPException(400, "Una o más facturas no pertenecen a esta empresa.")
+    if any(row.get("status") not in {"accepted", "sent_to_accountant", "paid"} for row in invoices):
+        raise HTTPException(409, "Todas las facturas deben estar aceptadas o en contabilidad.")
+    target_keys = {
+        (row.get("payment_target") or "supplier",
+         int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0))
+        for row in invoices
+    }
+    if len(target_keys) != 1:
+        raise HTTPException(400, "Un pago agrupado debe corresponder al mismo proveedor o persona a reembolsar.")
+    invoice_ids = list(allocation_map)
+    old_allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                       .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
+    already_paid: defaultdict[int, float] = defaultdict(float)
+    for row in old_allocations:
+        already_paid[int(row["invoice_id"])] += float(row.get("amount_mxn") or 0)
+    for invoice in invoices:
+        invoice_id = int(invoice["id"])
+        outstanding = round(float(invoice["total_mxn"]) - already_paid[invoice_id], 2)
+        if allocation_map[invoice_id] > outstanding + MONEY_TOLERANCE:
+            raise HTTPException(400, f"La aplicación a {invoice['invoice_number']} supera su saldo de ${outstanding:,.2f}.")
+    target, target_id = next(iter(target_keys))
+    payment_row = {
+        "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "payment_target": target,
+        "supplier_id": target_id if target == "supplier" else None,
+        "reimbursement_recipient_id": target_id if target == "reimbursement" else None,
+        "paid_on": payload.paid_on.isoformat(), "amount_mxn": round(payload.amount_mxn, 2),
+        "method": payload.method.strip(), "reference": payload.reference.strip(),
+        "notes": payload.notes.strip(), "created_by": ctx["actor_id"],
+    }
+    payment = ctx["sb"].table("gas_lp_expense_payments").insert(payment_row).execute().data[0]
+    ctx["sb"].table("gas_lp_expense_payment_allocations").insert([
+        {"payment_id": payment["id"], "invoice_id": invoice_id, "amount_mxn": amount}
+        for invoice_id, amount in allocation_map.items()
+    ]).execute()
+    for invoice in invoices:
+        invoice_id = int(invoice["id"])
+        applied = round(already_paid[invoice_id] + allocation_map[invoice_id], 2)
+        complete = applied + MONEY_TOLERANCE >= float(invoice["total_mxn"])
+        update = {"paid_amount_mxn": applied, "paid_on": payload.paid_on.isoformat(),
+                  "status": "paid" if complete else "sent_to_accountant", "updated_at": _now()}
+        if complete:
+            update["paid_at"] = _now()
+        ctx["sb"].table("gas_lp_expense_invoices").update(update).eq("id", invoice_id).execute()
+    if target == "reimbursement":
+        party = (_base_query(ctx, "gas_lp_expense_recipients").eq("id", target_id).limit(1).execute().data or [{}])[0]
+        party_email, party_name = party.get("email"), party.get("name") or "Persona a reembolsar"
+    else:
+        party = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", target_id).limit(1).execute().data or [{}])[0]
+        party_email, party_name = party.get("payment_email"), party.get("commercial_name") or "Proveedor"
+    delivery = send_gas_lp_expense_payment_email(
+        to_email=party_email, supplier_name=party_name, company_name=_profile(ctx).get("nombre") or "",
+        invoice_number=", ".join(str(row.get("invoice_number") or "") for row in invoices),
+        paid_on=payload.paid_on.isoformat(), amount=payload.amount_mxn,
+        idempotency_key=f"gas-lp-expense-payment-{ctx['tenant_id']}-{payment['id']}",
+    )
+    email_update = {"email_status": "sent" if delivery.ok else ("skipped" if delivery.skipped else "failed"),
+                    "email_metadata": delivery.as_metadata()}
+    ctx["sb"].table("gas_lp_expense_payments").update(email_update).eq("id", payment["id"]).execute()
+    _audit(ctx, "payment", int(payment["id"]), "created", after={**payment, **email_update})
+    return {"item": {**payment, **email_update}}
+
+
+@router.get("/gastos/payments/export.xlsx")
+def export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
+                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    invoices = _base_query(ctx, "gas_lp_expense_invoices").order("invoice_date", desc=True).execute().data or []
+    invoice_ids = [int(row["id"]) for row in invoices]
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("*")
+                   .in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
+    payment_ids = sorted({int(row["payment_id"]) for row in allocations})
+    payments = (ctx["sb"].table("gas_lp_expense_payments").select("*")
+                .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
+                .in_("id", payment_ids).execute().data or []) if payment_ids else []
+    suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
+    recipients = _base_query(ctx, "gas_lp_expense_recipients").execute().data or []
+    supplier_names = {int(row["id"]): row.get("commercial_name") or "" for row in suppliers}
+    recipient_names = {int(row["id"]): row.get("name") or "" for row in recipients}
+    facility_names = {int(row["id"]): row.get("nombre") or row.get("clave_instalacion") or "" for row in _profile_facilities(ctx)}
+    payment_by_id = {int(row["id"]): row for row in payments}
+    allocations_by_invoice: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
+    for allocation in allocations:
+        allocations_by_invoice[int(allocation["invoice_id"])].append(allocation)
+
+    wb = Workbook(); ws = wb.active; ws.title = "Pagos y reembolsos"
+    headers = ["Empresa", "Zona", "Fecha factura", "Proveedor", "Factura", "Total factura",
+               "Destino", "Persona a reembolsar", "Fecha de pago", "Monto aplicado", "Saldo pendiente",
+               "Estado", "Método", "Referencia", "Notas"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="7A1E2C")
+    company = _profile(ctx).get("nombre") or ""
+    for invoice in invoices:
+        rows = allocations_by_invoice.get(int(invoice["id"])) or [None]
+        total_applied = round(sum(float(row.get("amount_mxn") or 0) for row in allocations_by_invoice.get(int(invoice["id"]), [])), 2)
+        for allocation in rows:
+            payment = payment_by_id.get(int(allocation["payment_id"])) if allocation else {}
+            target = invoice.get("payment_target") or "supplier"
+            ws.append([
+                company, facility_names.get(int(invoice.get("facility_id") or 0), "General de la empresa"),
+                str(invoice.get("invoice_date") or ""), supplier_names.get(int(invoice.get("supplier_id") or 0), ""),
+                invoice.get("invoice_number") or "", float(invoice.get("total_mxn") or 0),
+                "Reembolso" if target == "reimbursement" else "Proveedor",
+                recipient_names.get(int(invoice.get("reimbursement_recipient_id") or 0), ""),
+                str(payment.get("paid_on") or ""), float(allocation.get("amount_mxn") or 0) if allocation else 0,
+                max(0, float(invoice.get("total_mxn") or 0) - total_applied), invoice.get("status") or "",
+                payment.get("method") or "", payment.get("reference") or "", payment.get("notes") or "",
+            ])
+    for column in (6, 10, 11):
+        for cell in ws[get_column_letter(column)][1:]: cell.number_format = '$#,##0.00'
+    for index, header in enumerate(headers, 1):
+        ws.column_dimensions[get_column_letter(index)].width = min(34, max(12, len(header) + 3))
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": 'attachment; filename="pagos-y-reembolsos.xlsx"'})
 
 
 @router.post("/gastos/invoices/{invoice_id}/transition")
@@ -839,12 +1066,14 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
         "invoice_id,voucher_id,amount_mxn"
     ).in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
     groups = ctx["sb"].table("fleet_groups").select("id,name").eq("tenant_id", ctx["tenant_id"]).execute().data or []
+    facilities = _profile_facilities(ctx)
     vehicles = ctx["sb"].table("fleet_vehicles").select(
         "id,vehicle_number"
     ).eq("tenant_id", ctx["tenant_id"]).execute().data or []
     supplier_names = {int(row["id"]): row["commercial_name"] for row in suppliers}
     concept_names = {int(row["id"]): row["name"] for row in concepts}
     group_names = {int(row["id"]): row["name"] for row in groups}
+    facility_names = {int(row["id"]): row.get("nombre") or row.get("clave_instalacion") or "Zona" for row in facilities}
     vehicle_names = {int(row["id"]): row["vehicle_number"] for row in vehicles}
     voucher_by_id = {int(row["id"]): row for row in vouchers}
     invoice_by_id = {int(row["id"]): row for row in active_invoices}
@@ -860,8 +1089,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
         dimensions["month"][str(row.get("invoice_date") or "")[:7] or "Sin fecha"] += amount
         if row.get("concept_id"):
             dimensions["concept"][concept_names.get(int(row["concept_id"]), "Concepto")] += amount
-        if row.get("group_id") and row["expense_type"] == "direct":
-            dimensions["zone"][group_names.get(int(row["group_id"]), "Zona")] += amount
+        if row["expense_type"] == "direct":
+            if row.get("facility_id"):
+                dimensions["zone"][facility_names.get(int(row["facility_id"]), "Zona")] += amount
+            elif row.get("group_id"):
+                dimensions["zone"][group_names.get(int(row["group_id"]), "Zona")] += amount
+            else:
+                dimensions["zone"]["General de la empresa"] += amount
     for link in links:
         invoice = invoice_by_id.get(int(link["invoice_id"]))
         voucher = voucher_by_id.get(int(link["voucher_id"]))
