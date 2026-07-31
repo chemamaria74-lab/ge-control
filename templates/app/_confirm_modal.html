@@ -21,3 +21,42 @@
     </div>
   </div>
 </div>
+
+<!-- Captura de inventario con identidad visual GE Control -->
+<div id="histInventoryModal" role="dialog" aria-modal="true" aria-labelledby="histInventoryModalTitle" style="
+  display:none;position:fixed;inset:0;z-index:9100;
+  background:rgba(15,23,42,.62);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;padding:1rem">
+  <form id="histInventoryForm" style="
+    background:#fff;border-radius:14px;max-width:430px;width:100%;overflow:hidden;
+    box-shadow:0 20px 55px rgba(15,23,42,.28);font-family:inherit;border:1px solid #e2e8f0">
+    <div style="height:5px;background:#670d22"></div>
+    <div style="padding:1.2rem 1.35rem .25rem;color:#1e293b;display:flex;align-items:center;gap:.7rem">
+      <div style="width:36px;height:36px;border-radius:9px;background:#f8e9ed;color:#670d22;display:grid;place-items:center;font-size:.9rem">
+        <i class="fa-solid fa-warehouse"></i>
+      </div>
+      <div>
+        <div id="histInventoryModalTitle" style="font-size:1rem;font-weight:800">Actualizar inventario</div>
+        <div style="font-size:.72rem;color:#64748b;margin-top:.08rem">Captura el inventario inicial del mes</div>
+      </div>
+    </div>
+    <div style="padding:1rem 1.35rem 1.3rem">
+      <div id="histInventoryContext" style="color:#475569;font-size:.76rem;line-height:1.5;margin-bottom:.85rem"></div>
+      <label for="histInventoryLiters" style="display:block;color:#1e293b;font-size:.82rem;font-weight:750;margin-bottom:.42rem">Inventario inicial</label>
+      <div style="position:relative">
+        <input id="histInventoryLiters" type="number" min="0" step="0.0001" inputmode="decimal" autocomplete="off" placeholder="0.00" style="
+          width:100%;box-sizing:border-box;padding:.78rem 4.3rem .78rem .9rem;border:1.5px solid #cbd5e1;border-radius:10px;
+          color:#0f172a;background:#fff;font:700 1rem inherit;outline:none">
+        <span style="position:absolute;right:.9rem;top:50%;transform:translateY(-50%);font-size:.78rem;font-weight:750;color:#64748b">Litros</span>
+      </div>
+      <div style="font-size:.68rem;color:#64748b;margin-top:.4rem">Puedes capturar 0 si la planta inicia sin existencias.</div>
+      <div id="histInventoryError" style="display:none;margin-top:.7rem;padding:.58rem .7rem;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:.76rem"></div>
+      <div style="display:flex;gap:.7rem;justify-content:flex-end;margin-top:1.25rem">
+        <button id="histInventoryCancel" type="button" style="padding:.62rem 1.15rem;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#475569;font-size:.84rem;font-weight:650;cursor:pointer;font-family:inherit">Cancelar</button>
+        <button id="histInventorySave" type="submit" style="padding:.62rem 1.25rem;border:0;border-radius:9px;background:#670d22;color:#fff;font-size:.84rem;font-weight:750;cursor:pointer;font-family:inherit;box-shadow:0 5px 14px rgba(103,13,34,.22)">
+          <i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i>Guardar inventario
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
