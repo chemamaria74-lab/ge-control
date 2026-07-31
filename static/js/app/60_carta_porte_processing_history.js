@@ -875,7 +875,7 @@ document.getElementById('btnHistAutoconsumo')?.addEventListener('click', () => {
   setTimeout(cargarAutoconsumos, 100);
 });
 
-document.getElementById('btnHistInventory')?.addEventListener('click', async () => {
+document.getElementById('btnHistInventory')?.addEventListener('click', () => {
   const { periodo, facilityId } = histSelectedPeriodAndFacility();
   if (!periodo || !facilityId) {
     setHistCloseInfo('Selecciona planta, año y mes antes de capturar el inventario.', false);
@@ -885,16 +885,56 @@ document.getElementById('btnHistInventory')?.addEventListener('click', async () 
     setHistCloseInfo('El mes está cerrado y su inventario ya no se puede editar.', false);
     return;
   }
-  const current = document.getElementById('htInvIni')?.textContent?.replace(/[^0-9.,-]/g, '') || '';
-  const raw = window.prompt(`Inventario inicial para ${periodo} (litros):`, current === '—' ? '' : current);
-  if (raw === null) return;
-  const liters = Number(raw.replace(/,/g, ''));
-  if (!Number.isFinite(liters) || liters < 0) {
-    setHistCloseInfo('Captura una cantidad válida de litros (cero o mayor).', false);
+  const modal = document.getElementById('histInventoryModal');
+  const input = document.getElementById('histInventoryLiters');
+  const context = document.getElementById('histInventoryContext');
+  const error = document.getElementById('histInventoryError');
+  const facility = _facilities.find(f => Number(f.id) === Number(facilityId));
+  const facilityName = facility?.nombre || facility?.clave_instalacion || `Planta #${facilityId}`;
+  const monthName = document.getElementById('histMes')?.selectedOptions?.[0]?.textContent?.trim() || periodo;
+  const shown = document.getElementById('htInvIni')?.textContent || '';
+  const current = shown.includes('—') ? '' : shown.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
+  context.replaceChildren();
+  const icon = document.createElement('i');
+  icon.className = 'fa-solid fa-location-dot';
+  icon.style.cssText = 'color:#670d22;margin-right:.35rem';
+  const name = document.createElement('b');
+  name.textContent = facilityName;
+  const detail = document.createElement('span');
+  detail.style.marginLeft = '1.05rem';
+  detail.textContent = `${monthName} · ${periodo.slice(0, 4)}`;
+  context.append(icon, name, document.createElement('br'), detail);
+  input.value = current;
+  error.style.display = 'none';
+  error.textContent = '';
+  modal.style.display = 'flex';
+  setTimeout(() => input.focus(), 50);
+});
+
+function closeHistInventoryModal() {
+  const modal = document.getElementById('histInventoryModal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveHistInventory() {
+  const { periodo, facilityId } = histSelectedPeriodAndFacility();
+  const input = document.getElementById('histInventoryLiters');
+  const error = document.getElementById('histInventoryError');
+  const saveBtn = document.getElementById('histInventorySave');
+  const raw = String(input?.value || '').trim();
+  const liters = Number(raw);
+  if (raw === '' || !Number.isFinite(liters) || liters < 0) {
+    error.textContent = 'Captura una cantidad válida de litros (cero o mayor).';
+    error.style.display = 'block';
+    input?.focus();
     return;
   }
-  const btn = document.getElementById('btnHistInventory');
-  if (btn) btn.disabled = true;
+  error.style.display = 'none';
+  const originalHtml = saveBtn?.innerHTML;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i>Guardando...';
+  }
   try {
     const res = await fetch(`/api/history/${periodo}/inventory?facility_id=${facilityId}`, {
       method: 'PUT',
@@ -903,13 +943,34 @@ document.getElementById('btnHistInventory')?.addEventListener('click', async () 
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || 'No fue posible guardar el inventario.');
+    closeHistInventoryModal();
     await loadHistorial();
     setHistCloseInfo(`Inventario inicial actualizado: ${liters.toLocaleString('es-MX')} L. Se incluirá en el JSON del mes.`, true);
   } catch (e) {
-    setHistCloseInfo(e.message || 'No fue posible guardar el inventario.', false);
+    error.textContent = e.message || 'No fue posible guardar el inventario.';
+    error.style.display = 'block';
   } finally {
-    if (btn) btn.disabled = false;
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = originalHtml || '<i class="fa-solid fa-floppy-disk" style="margin-right:.35rem"></i>Guardar inventario';
+    }
   }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('histInventoryModal');
+  const form = document.getElementById('histInventoryForm');
+  document.getElementById('histInventoryCancel')?.addEventListener('click', closeHistInventoryModal);
+  form?.addEventListener('submit', e => {
+    e.preventDefault();
+    saveHistInventory();
+  });
+  modal?.addEventListener('click', e => {
+    if (e.target === modal) closeHistInventoryModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && modal?.style.display === 'flex') closeHistInventoryModal();
+  });
 });
 
 async function closeSelectedHistMonth() {
