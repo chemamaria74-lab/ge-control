@@ -219,10 +219,31 @@ def test_manager_and_supervision_catalogs_share_the_same_interaction_pattern():
     for html in (manager_html, admin_html):
         assert "catalog-search" in html
         assert "catalog-drawer" in html
-        assert "Código postal" in html
+        assert "Código postal" not in html
+        assert "Razón social" in html
+        assert "Teléfono" in html
+        assert "Correo de pagos" in html
         assert "Actualizar" in html and "Agregar" in html and "Cancelar" in html
     assert 'id="managerSupplierSearch"' in manager_html
     assert 'id="managerConceptSearch"' in manager_html
     assert "data-edit-supplier" in manager_js
     assert "data-edit-concept" in manager_js
     assert "prompt('Nombre comercial:'" not in manager_js
+
+
+def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
+    migration = (ROOT / "migrations" / "gas_lp_expense_reimbursements_20260731.sql").read_text(encoding="utf-8")
+
+    assert "get_facilities" in route and '"facilities": facilities' in route
+    assert 'id="directPaymentTarget"' in html and 'id="directRecipient"' in html
+    assert 'data-subcontent="recipients"' in html
+    assert 'id="batchPaymentForm"' in html and "Exportar Excel" in html
+    assert "gas_lp_expense_payment_allocations" in migration
+    assert "gas_lp_expense_recipients" in migration
+    assert "balance_mxn" in route and "invoice_allocations" in route
+    assert "grid-template-columns:minmax(0,65fr) minmax(320px,35fr)" in css
+    assert "data-payment-check" in script
