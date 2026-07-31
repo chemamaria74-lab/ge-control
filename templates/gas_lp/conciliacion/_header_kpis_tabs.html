@@ -1,36 +1,33 @@
-    <section class="header">
+    <section class="header conciliacion-heading">
       <div>
         <h1>Conciliación Gas LP</h1>
         <div class="muted" id="companyLabel">Empresa seleccionada</div>
       </div>
-      <div class="toolbar">
-        <input id="periodoFiltro" class="month-input" type="month" onchange="syncSelectedMonth(this.value)">
-        <button class="btn ghost" type="button" onclick="buscarDashboard()"><i class="fa-solid fa-magnifying-glass"></i> Buscar dashboard</button>
-      </div>
     </section>
 
     <nav class="workspace-tabs" aria-label="Áreas de conciliación">
-      <button class="workspace-tab active" data-workspace="resumen" onclick="switchWorkspace('resumen')"><i class="fa-solid fa-chart-line"></i> Resumen</button>
-      <button class="workspace-tab" data-workspace="facturacion" onclick="switchWorkspace('facturacion')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
+      <button class="workspace-tab" data-workspace="resumen" onclick="switchWorkspace('resumen')"><i class="fa-solid fa-chart-line"></i> Resumen</button>
+      <button class="workspace-tab active" data-workspace="facturacion" onclick="switchWorkspace('facturacion')"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</button>
       <button class="workspace-tab" data-workspace="control" onclick="switchWorkspace('control')"><i class="fa-solid fa-shield-halved"></i> Control</button>
     </nav>
-    <nav class="tabs workspace-subtabs" data-subtabs="resumen">
-      <button class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
+    <nav class="tabs workspace-subtabs hidden" data-subtabs="resumen">
+      <button class="tab" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
     </nav>
-    <nav class="tabs workspace-subtabs hidden" data-subtabs="facturacion">
+    <nav class="tabs workspace-subtabs" data-subtabs="facturacion">
       <button class="tab" data-tab="facturas" onclick="switchTab('facturas')"><i class="fa-solid fa-receipt"></i> Facturas</button>
-      <button class="tab" data-tab="publico" onclick="switchTab('publico')"><i class="fa-solid fa-stamp"></i> Público General</button>
+      <button class="tab active" data-tab="publico" onclick="switchTab('publico')"><i class="fa-solid fa-stamp"></i> Público General</button>
       <button class="tab" data-tab="complementos" onclick="switchTab('complementos')"><i class="fa-solid fa-file-circle-check"></i> Complementos de pago</button>
     </nav>
     <nav class="tabs workspace-subtabs hidden" data-subtabs="control">
       <button class="tab" data-tab="credito" onclick="switchTab('credito')"><i class="fa-solid fa-hand-holding-dollar"></i> Crédito</button>
       <button class="tab" data-tab="descuentos" onclick="switchTab('descuentos')"><i class="fa-solid fa-tags"></i> Descuentos</button>
       <button class="tab" data-tab="sat" onclick="switchTab('sat')"><i class="fa-solid fa-building-columns"></i> Cancelación / Consulta SAT</button>
+      <button class="tab" data-tab="clientes" onclick="switchTab('clientes')"><i class="fa-solid fa-users"></i> Clientes</button>
     </nav>
 
-    <section class="section active" data-section="dashboard">
+    <section class="section" data-section="dashboard">
       <div class="panel dashboard-panel">
-        <div class="section-head"><div><h2>Dashboard del periodo</h2><div class="muted small">Resumen ejecutivo de la empresa seleccionada. Se carga únicamente al presionar Buscar dashboard.</div></div></div>
+        <div class="section-head compact-head"><div><h2>Dashboard del periodo</h2><div class="muted small">Resumen ejecutivo de la empresa seleccionada. Se carga únicamente al presionar Buscar dashboard.</div></div><div class="toolbar dashboard-search-actions"><input id="periodoFiltro" class="month-input" type="month" onchange="syncSelectedMonth(this.value)"><button class="btn ghost" type="button" onclick="buscarDashboard()"><i class="fa-solid fa-magnifying-glass"></i> Buscar dashboard</button></div></div>
         <section class="kpis dashboard-kpis">
           <div class="panel kpi"><span>Facturas del mes</span><b id="kFacturas">0</b></div>
           <div class="panel kpi"><span>Total facturado</span><b id="kTotal">$0.00</b></div>
