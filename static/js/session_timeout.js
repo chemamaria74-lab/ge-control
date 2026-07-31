@@ -30,11 +30,17 @@
     };
     if (path.startsWith('/asistente/gas-lp')) return {
       tokenKeys: ['ge_gaslp_internal_token'], login: '/gas-lp/asistente',
-      internalSection: 'gas_lp',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_internal_token',
     };
     if (path.startsWith('/conciliacion/gas-lp')) return {
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
-      internalSection: 'gas_lp',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_conciliacion_token',
+    };
+    if (path.startsWith('/gas-lp/gastos')) return {
+      tokenKeys: ['ge_gaslp_conciliacion_token', 'sat_token', 'zc_token'],
+      login: '/gas-lp/conciliacion?area=gastos',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_conciliacion_token',
+      renewable: true,
     };
     if (path.startsWith('/gas-lp/flotilla') || path.startsWith('/gas-lp/gerentes')) return {
       tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
@@ -214,10 +220,13 @@
         .finally(() => { authValidation = null; });
       return authValidation;
     }
-    const validationUrl = currentPortal.internalSection
+    const usesInternalToken = Boolean(
+      currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+    );
+    const validationUrl = usesInternalToken
       ? `/api/internal-auth/me?token=${encodeURIComponent(token)}&section=${encodeURIComponent(currentPortal.internalSection)}`
       : '/api/auth/me';
-    const validationInit = currentPortal.internalSection
+    const validationInit = usesInternalToken
       ? {cache: 'no-store'}
       : {headers: {Authorization: `Bearer ${token}`}, cache: 'no-store'};
     authValidation = nativeFetch(validationUrl, validationInit).then(response => response.status === 401)
@@ -229,7 +238,11 @@
 
   window.fetch = async function geSessionFetch(input, init) {
     const path = requestPath(input);
-    const canRefresh = portal().renewable === true
+    const currentPortal = portal();
+    const usesInternalToken = Boolean(
+      currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+    );
+    const canRefresh = currentPortal.renewable === true && !usesInternalToken
       && path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
     const oldToken = activeToken();
     let freshToken = oldToken;
