@@ -223,7 +223,7 @@ def test_manager_and_supervision_catalogs_share_the_same_interaction_pattern():
         assert "catalog-drawer" in html
         assert "Código postal" not in html
         assert "Razón social" in html
-        assert "Teléfono" in html
+        assert "Teléfono" not in html
         assert "Correo de pagos" in html
         assert "Actualizar" in html and "Agregar" in html and "Cancelar" in html
     assert 'id="managerSupplierSearch"' in manager_html
@@ -254,3 +254,58 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert 'id="supplierMsg"' in html
     assert "Captura un RFC válido de 12 o 13 caracteres" in script
     assert "function apiError(detail)" in script
+
+
+def test_expenses_support_custom_zones_without_phone_fields():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    manager_html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    migration = (ROOT / "migrations" / "gas_lp_expense_custom_zones_no_phone_20260731.sql").read_text(encoding="utf-8")
+
+    assert 'id="expenseZoneForm"' in admin_html and 'id="expenseZoneName"' in admin_html
+    assert '@router.post("/gastos/expense-zones"' in route
+    assert 'expense_zone_id' in route and 'expense_zone_id' in migration
+    assert 'Zonas exclusivas de Gastos' in script and 'Solo Gastos' in script
+    assert 'drop column if exists phone' in migration
+    assert "Teléfono" not in admin_html
+    assert "Teléfono" not in manager_html
+
+
+def test_direct_expenses_refresh_today_and_remain_private_from_managers():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
+
+    assert "loadToday().catch" in script
+    assert "Actualizando gastos de hoy" in script
+    assert 'query = query.eq("created_by_type", "manager").eq("created_by", ctx["actor_id"])' in route
+    assert '"created_by_type": "admin"' in route
+    assert ".capture-layout>article .form-grid label{font-size:14px}" in css
+    assert ".capture-layout .today-card .today-row{font-size:12px" in css
+
+
+def test_admin_can_delete_only_early_direct_capture_errors():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert '@router.delete("/gastos/invoices/{invoice_id}")' in route
+    assert 'row.get("expense_type") != "direct"' in route
+    assert '{"pending_review", "observed", "rejected"}' in route
+    assert 'gas_lp_expense_payment_allocations' in route
+    assert '"deleted_capture_error"' in route
+    assert 'data-delete-invoice' in script
+    assert '¿Eliminar definitivamente el gasto' in script
+
+
+def test_expense_capture_uses_motive_zones_not_facilities():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert '.eq("scope_type", "zone")' in route
+    assert '"group_id": payload.group_id' in route
+    assert "group_id:zone.startsWith('group:')" in script
+    assert 'const groups=state.bootstrap.groups||[]' in script
+    assert 'const synced=(state.bootstrap.groups||[])' in script
+    assert 'Instalaciones sincronizadas' not in script
+    assert 'group_names.get(int(invoice.get("group_id") or 0))' in route
