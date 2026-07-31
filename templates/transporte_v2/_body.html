@@ -186,7 +186,7 @@
           <h2>Cartas Porte emitidas</h2>
           <p class="trv2-muted">CFDI de traslado con Complemento Carta Porte timbrados para descargar PDF o XML.</p>
         </div>
-        <div class="trv2-actions">
+        <div class="trv2-actions" id="trv2-cp-stamped-actions">
           <label class="trv2-inline-filter" id="trv2-cp-stamped-month-wrap">Mes <input id="trv2-cp-stamped-month" type="month" onchange="trv2SetCartaPorteStampedMonth(this.value)"></label>
           <label class="trv2-service-search trv2-cp-stamped-search"><i class="fa-solid fa-magnifying-glass"></i><input id="trv2-cp-stamped-search" type="search" placeholder="Buscar Cartas Porte" oninput="trv2SetCpStampedSearch(this.value)"></label>
           <button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2ExportStampedCartaPorteExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
@@ -443,7 +443,7 @@
           <label>Operador <select id="trv2-payment-history-operator"><option value="">Todos los operadores</option></select></label>
           <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadOperatorPaymentHistory()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button></div>
         </div>
-        <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Periodo</th><th>Operador</th><th>Viajes</th><th>Comisiones</th><th>Banco</th><th>INFONAVIT</th><th>Gastos</th><th>Efectivo</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-history-table"><tr><td colspan="10"><div class="trv2-empty">Abre esta vista para consultar los pagos realizados.</div></td></tr></tbody></table></div>
+        <div class="trv2-table-wrap trv2-service-scroll"><table class="trv2-service-generated-table"><thead><tr><th>Periodo</th><th>Operador</th><th>Viajes</th><th>Comisiones</th><th>Banco</th><th>INFONAVIT</th><th>Gastos</th><th>Efectivo</th><th>Pagado el</th><th>Acciones</th></tr></thead><tbody id="trv2-payment-history-table"><tr><td colspan="10"><div class="trv2-empty">Abre esta vista para consultar los pagos realizados.</div></td></tr></tbody></table></div>
       </section>
     </div>
     </div>
@@ -654,7 +654,21 @@
     <nav class="trv2-subtabs" aria-label="Administración Transporte v2">
       <button class="trv2-subtab active" type="button" data-admin-tab="configuracion" onclick="trv2SetAdminSubtab('configuracion')"><i class="fa-solid fa-sliders"></i> Configuración</button>
       <button class="trv2-subtab" type="button" data-admin-tab="usuarios-operador" onclick="trv2SetAdminSubtab('usuarios-operador')"><i class="fa-solid fa-user-lock"></i> Usuarios operador</button>
+      <button class="trv2-subtab" type="button" data-admin-tab="suscripcion" onclick="trv2SetAdminSubtab('suscripcion')"><i class="fa-solid fa-file-signature"></i> Plan y suscripción</button>
     </nav>
+    <div class="trv2-admin-panel" data-admin-panel="suscripcion">
+      <section class="trv2-panel trv2-subscription-panel">
+        <div class="trv2-subscription-heading">
+          <div><h2>Plan y suscripción</h2><p class="trv2-muted">Condiciones comerciales asignadas por GE Control a la empresa activa.</p></div>
+          <span id="trv2-subscription-status" class="trv2-status">Sin consultar</span>
+        </div>
+        <div id="trv2-subscription-kpis" class="trv2-subscription-kpis">
+          <article><span>Estado</span><strong>Abre esta sección para consultar</strong></article>
+        </div>
+        <p id="trv2-subscription-policy" class="trv2-subscription-policy"></p>
+        <div id="trv2-subscription-sync" class="trv2-subscription-sync" hidden></div>
+      </section>
+    </div>
     <div class="trv2-admin-panel" data-admin-panel="usuarios-operador">
       <section class="trv2-panel trv2-operator-admin-panel">
         <div class="trv2-operator-admin-heading">
