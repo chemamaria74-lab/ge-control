@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/conciliacion.css?v=conciliacion-grupos-20260729b">
+  <link rel="stylesheet" href="/static/css/gas_lp/conciliacion.css?v=clientes-compartidos-20260731">
 </head>
 <body>
   <header class="top">
@@ -20,7 +20,7 @@
           <select id="empresaSelect" class="company-select" onchange="changeEmpresa()"><option value="">Cargando empresas...</option></select>
           <span class="top-rfc" id="topRfcLabel">RFC -</span>
         </div>
-        <button class="btn top-btn sm" onclick="logout()">Salir</button>
+        <button class="btn top-btn sm" type="button" onclick="logout()"><i class="fa-solid fa-arrow-right-from-bracket"></i> Salir</button>
       </div>
     </div>
   </header>
@@ -34,6 +34,7 @@
   <!-- ge-include: gas_lp/conciliacion/_credito.html -->
   <!-- ge-include: gas_lp/conciliacion/_descuentos.html -->
   <!-- ge-include: gas_lp/conciliacion/_sat.html -->
+  <!-- ge-include: gas_lp/conciliacion/_clientes.html -->
   </main>
 
   <!-- ge-include: gas_lp/conciliacion/_modals.html -->
@@ -45,6 +46,7 @@
   <script src="/static/js/gas_lp/conciliacion/40_complementos_credito.js?v=search-independent-20260717"></script>
   <script src="/static/js/gas_lp/conciliacion/45_descuentos.js?v=discount-dashboard-20260717"></script>
   <script src="/static/js/gas_lp/conciliacion/50_sat_publico_export.js?v=module-logout-20260714"></script>
+  <script src="/static/js/gas_lp/conciliacion/55_clientes.js?v=clientes-compartidos-20260731"></script>
   <script src="/static/js/gas_lp/conciliacion/60_bank_reconciliation.js"></script>
   <script src="/static/js/gas_lp/conciliacion/90_init.js"></script>
 </body>
