@@ -243,7 +243,7 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "get_facilities" in route and '"facilities": facilities' in route
     assert 'id="directPaymentTarget"' in html and 'id="directRecipient"' in html
     assert 'data-subcontent="recipients"' in html
-    assert 'id="batchPaymentForm"' in html and "Descargar Excel" in html
+    assert 'id="batchPaymentForm"' in html and "Excel para pagar" in html
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
@@ -295,7 +295,9 @@ def test_admin_can_delete_only_early_direct_capture_errors():
     assert 'gas_lp_expense_payment_allocations' in route
     assert '"deleted_capture_error"' in route
     assert 'data-delete-invoice' in script
-    assert '¿Eliminar definitivamente el gasto' in script
+    assert '¿Eliminar el gasto' in script
+    assert "action:'cancel'" in script
+    assert '"status": "cancelled"' in route
 
 
 def test_expense_capture_uses_motive_zones_not_facilities():
@@ -315,9 +317,9 @@ def test_successful_delete_is_not_reported_as_failed_when_refresh_fails():
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     assert "state.invoices=state.invoices.filter" in script
-    assert "renderTables();loadInvoices().catch" in script
+    assert "renderTables();$('queueLoadStatus').textContent" in script
     assert "No se pudo eliminar ${number}:" in script
-    assert "El gasto se eliminó, pero no se pudo refrescar la lista" in script
+    assert "Quedará únicamente la huella de auditoría" in script
 
 
 def test_supplier_payment_email_is_optional_for_reimbursements():
@@ -359,6 +361,7 @@ def test_expense_zones_are_fetched_fresh_from_profile_motive_scopes():
 def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
 
     assert 'data-review-filter="payable"' in html
     assert 'data-review-filter="pending_review"' not in html
@@ -366,12 +369,16 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "> Por pagar</button>" not in html
     assert "['accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
-    assert "Seleccionar todo para pagar" in script
+    assert "Revisar y proceder al pago" in script
+    assert 'id="paymentMethod" value="Transferencia" readonly' in html
+    assert 'id="paymentNotes"' not in html
+    assert "method:'Transferencia'" in script and "notes:''" in script
+    assert '@router.get("/gastos/payments")' in route
+    assert "function paidPaymentsHtml()" in script and "loadPayments()" in script
     assert 'data-pay-invoice' in script and "function startPayment" in script
     assert "Se enviará la notificación de pago" in script
     assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
-    assert "state.reviewStatus==='paid'?'paid':''" in script
-    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    assert "state.reviewStatus==='paid'?loadPayments():loadInvoices()" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
 
 
@@ -384,7 +391,8 @@ def test_verified_gas_lux_zones_money_format_and_stale_delete_recovery():
     assert "Ejemplo: 5,020.68" in script
     assert "GLU760309457" in script and "Fresnillo" in script and "Jerez" in script
     assert "Oficina general" in script and "withVerifiedZones" in script
-    assert "await loadInvoices();const stillExists" in script
+    assert "Captura eliminada por error." in script
+    assert "x.status!=='cancelled'" in script
 
 
 def test_direct_expense_catalog_selectors_are_searchable():
@@ -392,7 +400,9 @@ def test_direct_expense_catalog_selectors_are_searchable():
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     for field in ("Supplier", "Concept", "Recipient"):
-        assert f'id="direct{field}Search" type="search"' in html
+        assert f'id="direct{field}Search" type="text"' in html
         assert f"'direct{field}Search'" in script
-    assert "function searchableOptions" in script
+        assert f'id="direct{field}Options" class="expense-combobox-options"' in html
+    assert "function renderDirectCombo" in script
     assert "renderSearchableDirect" in script
+    assert "expense-combobox-option" in script
