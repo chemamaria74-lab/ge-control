@@ -35,6 +35,7 @@
     if (path.startsWith('/conciliacion/gas-lp')) return {
       tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
       internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_conciliacion_token',
+      renewable: true,
     };
     if (path.startsWith('/gas-lp/gastos')) return {
       tokenKeys: ['ge_gaslp_conciliacion_token', 'sat_token', 'zc_token'],
@@ -198,6 +199,15 @@
     if (authorization === `Bearer ${oldToken}`) headers.set('Authorization', `Bearer ${newToken}`);
     return {...(init || {}), headers};
   }
+  function withFreshQueryToken(input, newToken) {
+    if (!newToken || typeof input !== 'string') return input;
+    try {
+      const url = new URL(input, location.origin);
+      if (!url.searchParams.has('token') || url.searchParams.get('token') === newToken) return input;
+      url.searchParams.set('token', newToken);
+      return url.origin === location.origin ? url.pathname + url.search + url.hash : url.href;
+    } catch (_err) { return input; }
+  }
   function isAuthValidationRequest(input) {
     try {
       const raw = typeof input === 'string' ? input : input?.url;
@@ -222,6 +232,7 @@
     }
     const usesInternalToken = Boolean(
       currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+      && token.split('.').length !== 3
     );
     const validationUrl = usesInternalToken
       ? `/api/internal-auth/me?token=${encodeURIComponent(token)}&section=${encodeURIComponent(currentPortal.internalSection)}`
@@ -239,23 +250,26 @@
   window.fetch = async function geSessionFetch(input, init) {
     const path = requestPath(input);
     const currentPortal = portal();
+    const oldToken = activeToken();
     const usesInternalToken = Boolean(
       currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+      && oldToken.split('.').length !== 3
     );
     const canRefresh = currentPortal.renewable === true && !usesInternalToken
       && path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
-    const oldToken = activeToken();
     let freshToken = oldToken;
     if (canRefresh && oldToken && jwtExpiresSoon(oldToken)) {
       freshToken = await refreshAccessToken() || oldToken;
     }
-    let requestInit = withFreshAuthorization(input, init, oldToken, freshToken);
-    let response = await nativeFetch(input, requestInit);
+    let requestInput = withFreshQueryToken(input, freshToken);
+    let requestInit = withFreshAuthorization(requestInput, init, oldToken, freshToken);
+    let response = await nativeFetch(requestInput, requestInit);
     if (response.status === 401 && canRefresh && activeToken()) {
       const renewed = await refreshAccessToken();
       if (renewed) {
         requestInit = withFreshAuthorization(input, requestInit, freshToken, renewed);
-        response = await nativeFetch(input, requestInit);
+        requestInput = withFreshQueryToken(input, renewed);
+        response = await nativeFetch(requestInput, requestInit);
       }
     }
     if (response.status === 401 && activeToken() && !portal().noTimeout) {
