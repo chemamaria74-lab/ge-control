@@ -49,7 +49,7 @@ class SupplierCreate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
     legal_name: str = Field(min_length=2, max_length=220)
     rfc: str = Field(min_length=12, max_length=20)
-    payment_email: str = Field(min_length=5, max_length=180)
+    payment_email: str = Field(default="", max_length=180)
 
 
 class SupplierReview(BaseModel):
@@ -61,7 +61,7 @@ class SupplierUpdate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
     legal_name: str = Field(min_length=2, max_length=220)
     rfc: str = Field(min_length=12, max_length=20)
-    payment_email: str = Field(min_length=5, max_length=180)
+    payment_email: str = Field(default="", max_length=180)
     status: Literal["active", "inactive"] = "active"
 
 
@@ -112,6 +112,10 @@ class ReimbursementRecipientCreate(BaseModel):
     account_holder: str = Field(default="", max_length=180)
     clabe: str = Field(default="", max_length=18)
     card_last_four: str = Field(default="", max_length=4)
+
+
+class ReimbursementRecipientUpdate(ReimbursementRecipientCreate):
+    status: Literal["active", "inactive"] = "active"
 
 
 class PaymentAllocation(BaseModel):
@@ -231,10 +235,13 @@ def _expense_zones(ctx: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _profile_expense_groups(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     """Return only the Motive zones assigned to the company, never its root company group."""
-    scopes = (ctx["sb"].table("fleet_profile_group_scopes").select("group_id")
+    scopes = (ctx["sb"].table("fleet_profile_group_scopes").select("group_id,scope_type")
               .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
-              .eq("scope_type", "zone").eq("status", "active").execute().data or [])
-    group_ids = [int(row["group_id"]) for row in scopes]
+              .eq("status", "active").execute().data or [])
+    group_ids = [int(row["group_id"]) for row in scopes if row.get("scope_type") == "zone"]
+    if not group_ids:
+        root_ids = {int(row["group_id"]) for row in scopes if row.get("scope_type") == "company_root"}
+        group_ids = [int(row["group_id"]) for row in scopes if int(row["group_id"]) not in root_ids]
     if not group_ids:
         return []
     groups = (ctx["sb"].table("fleet_groups").select("id,name,path")
@@ -527,6 +534,35 @@ def create_reimbursement_recipient(payload: ReimbursementRecipientCreate, token:
     created = ctx["sb"].table("gas_lp_expense_recipients").insert(row).execute().data[0]
     _audit(ctx, "reimbursement_recipient", int(created["id"]), "created", after=created)
     return {"item": created}
+
+
+@router.put("/gastos/reimbursement-recipients/{recipient_id}")
+def update_reimbursement_recipient(recipient_id: int, payload: ReimbursementRecipientUpdate,
+                                   token: str = Query(default=""), authorization: str = Header(default=""),
+                                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+    ctx = _ctx(authorization, x_flotilla_access, token)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Supervisión de gastos administra personas a reembolsar.")
+    rows = _base_query(ctx, "gas_lp_expense_recipients").eq("id", recipient_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Persona no encontrada.")
+    _, clean_email = _validate_supplier_fields("", payload.email)
+    clabe = re.sub(r"\D", "", payload.clabe)
+    if clabe and len(clabe) != 18:
+        raise HTTPException(400, "La CLABE debe tener 18 dígitos.")
+    last_four = re.sub(r"\D", "", payload.card_last_four)
+    if last_four and len(last_four) != 4:
+        raise HTTPException(400, "Captura únicamente los últimos 4 dígitos de la tarjeta.")
+    update = {
+        "name": payload.name.strip(), "normalized_name": _normalize(payload.name), "email": clean_email,
+        "bank_name": payload.bank_name.strip(), "account_holder": payload.account_holder.strip(),
+        "clabe": clabe, "card_last_four": last_four, "status": payload.status, "updated_at": _now(),
+    }
+    ctx["sb"].table("gas_lp_expense_recipients").update(update).eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", recipient_id).execute()
+    _audit(ctx, "reimbursement_recipient", recipient_id, "updated", before=rows[0], after=update)
+    return {"ok": True, "item": {**rows[0], **update}}
 
 
 @router.get("/gastos/expense-zones")
