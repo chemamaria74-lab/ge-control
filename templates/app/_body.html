@@ -1123,6 +1123,11 @@
       <div style="font-size:.72rem;line-height:1.5;color:#475569">Captura consumo propio sin CFDI para incluirlo en el mes.</div>
       <button class="btn-save" id="btnHistAutoconsumo" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem;background:#92400e"><i class="fa-solid fa-plus" style="margin-right:.35rem"></i>Registrar</button>
     </div>
+    <div style="border:1px solid #c4b5fd;background:#f5f3ff;border-radius:8px;padding:.8rem .95rem;color:#5b21b6">
+      <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-warehouse" style="margin-right:.35rem"></i>Actualizar inventario</div>
+      <div style="font-size:.72rem;line-height:1.5;color:#475569">Captura el inventario inicial de la planta para el mes seleccionado.</div>
+      <button class="btn-save" id="btnHistInventory" style="margin-top:.65rem;width:auto;padding:.42rem .8rem;font-size:.78rem;background:#6d28d9"><i class="fa-solid fa-pen-to-square" style="margin-right:.35rem"></i>Capturar litros</button>
+    </div>
     <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;padding:.8rem .95rem;color:#14532d">
       <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-lock" style="margin-right:.35rem"></i>Cerrar mes</div>
       <div style="font-size:.72rem;line-height:1.5;color:#475569">Selecciona planta, año y mes; después descarga el ZIP JSON por instalación.</div>
@@ -1156,11 +1161,6 @@
     <div style="display:flex;align-items:flex-end;gap:.5rem;flex-wrap:wrap">
       <button class="btn-save" id="btnLoadHist"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i> Revisar mes</button>
       <button class="btn-xml" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem" id="btnDlHistZIP"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i> Descargar ZIP JSON</button>
-      <button id="btnDelHist" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem;
-        background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:8px;
-        cursor:pointer;font-family:inherit;font-weight:600">
-        <i class="fa-solid fa-trash" style="margin-right:.35rem"></i>Borrar reporte
-      </button>
     </div>
   </div>
   <div id="histCloseInfo" style="display:none;margin:.2rem 0 .8rem;padding:.6rem .8rem;border-radius:8px;font-size:.78rem"></div>
