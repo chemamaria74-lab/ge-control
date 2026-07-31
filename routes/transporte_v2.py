@@ -1885,6 +1885,9 @@ def _operator_create_trip(
     invoice_content: bytes = b"",
     invoice_sha256: str = "",
 ) -> dict[str, Any]:
+    pretrip = _parse_json_value(acc.get("pretrip_json"), {})
+    if _first_text(pretrip.get("estado")).upper() == "FINALIZADO_SIN_CARGA":
+        raise HTTPException(409, "Este recorrido fue finalizado sin carga. Inicia otro recorrido antes de crear un viaje.")
     if invoice_sha256:
         recent: list[dict[str, Any]] = []
         try:
@@ -1932,7 +1935,6 @@ def _operator_create_trip(
     factura_total = _num(detected.get("total"))
     valor_mercancia = factura_total or factura_subtotal
     product_name = _first_text(product.get("nombre"), detected.get("producto"))
-    pretrip = _parse_json_value(acc.get("pretrip_json"), {})
     pretrip_events = pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else []
     bitacora = {}
     if pretrip_events:
@@ -3472,7 +3474,34 @@ def _deactivate_catalog_item(
     catalogo: str,
     item_id: int,
 ) -> dict[str, Any]:
-    return _update_catalog_item(token, uid, perfil_id, catalogo, item_id, {"activo": False})
+    result = _update_catalog_item(token, uid, perfil_id, catalogo, item_id, {"activo": False})
+    if catalogo != "operadores":
+        return result
+
+    # Dar de baja a un operador también debe cerrar y revocar cualquier acceso
+    # al portal. El historial se conserva; sólo se invalida la credencial.
+    revoked_at = _now_iso()
+    update = {"status": "eliminado", "session_hash": None, "updated_at": revoked_at}
+    query = (
+        _sb(token).table(TBL_OPERADOR_ACCESOS).update(update)
+        .eq("user_id", uid).eq("chofer_id", item_id)
+    )
+    if perfil_id:
+        query = query.eq("perfil_id", perfil_id)
+    try:
+        query.execute()
+    except Exception as exc:
+        if _missing_column_from_error(exc) != "session_hash":
+            raise
+        fallback = (
+            _sb(token).table(TBL_OPERADOR_ACCESOS)
+            .update({"status": "eliminado", "updated_at": revoked_at})
+            .eq("user_id", uid).eq("chofer_id", item_id)
+        )
+        if perfil_id:
+            fallback = fallback.eq("perfil_id", perfil_id)
+        fallback.execute()
+    return result
 
 
 def _catalog_usage_error(token: str, uid: str, perfil_id: Optional[int], catalogo: str, item_id: int) -> str:
@@ -7003,6 +7032,8 @@ async def transporte_v2_operator_accesses(
         items = []
         for row in rows:
             chofer = choferes.get(int(row.get("chofer_id") or 0), {})
+            if not chofer or chofer.get("activo") is False or str(row.get("status") or "").lower() in {"eliminado", "reemplazado"}:
+                continue
             items.append({
                 "id": row.get("id"),
                 "perfil_id": row.get("perfil_id"),
@@ -7654,10 +7685,31 @@ async def transporte_v2_operator_pretrip(payload: dict[str, Any], authorization:
         if exc.status_code != 404:
             raise
     action = _first_text(payload.get("action")).upper()
-    if action not in {"INICIAR_VACIO", "LLEGADA_TERMINAL", "INCIDENCIA"}:
+    if action not in {"INICIAR_VACIO", "LLEGADA_TERMINAL", "INCIDENCIA", "FINALIZAR_SIN_CARGA", "NUEVO_RECORRIDO"}:
         raise HTTPException(400, "Acción de prebitácora inválida.")
     pretrip = _parse_json_value(acc.get("pretrip_json"), {})
     current = _first_text(pretrip.get("estado"), "SIN_INICIAR").upper()
+    if action == "NUEVO_RECORRIDO":
+        if current != "FINALIZADO_SIN_CARGA":
+            raise HTTPException(409, "Sólo puedes iniciar otro recorrido después de finalizar el actual.")
+        history = pretrip.get("historial") if isinstance(pretrip.get("historial"), list) else []
+        history.append({
+            "estado": current,
+            "etapa": "TRASLADO_VACIO",
+            "eventos": pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else [],
+            "archivado_at": _now_iso(),
+        })
+        pretrip = {"estado": "SIN_INICIAR", "etapa": "TRASLADO_VACIO", "eventos": [], "historial": history[-25:]}
+        try:
+            sb.table(TBL_OPERADOR_ACCESOS).update({
+                "pretrip_json": pretrip,
+                "updated_at": _now_iso(),
+            }).eq("id", acc.get("id")).execute()
+        except Exception as exc:
+            if _missing_column_from_error(exc) == "pretrip_json":
+                raise HTTPException(409, "La migración diferida de prebitácora aún no ha sido aplicada.") from exc
+            raise
+        return {"ok": True, "pretrip": pretrip}
     if action == "INICIAR_VACIO":
         if current != "SIN_INICIAR":
             raise HTTPException(409, "El recorrido vacío ya fue iniciado.")
@@ -7666,6 +7718,12 @@ async def transporte_v2_operator_pretrip(payload: dict[str, Any], authorization:
         if current != "EN_RUTA_VACIO":
             raise HTTPException(409, "Primero inicia el recorrido vacío.")
         new_state = "EN_TERMINAL"
+    elif action == "FINALIZAR_SIN_CARGA":
+        if current not in {"EN_RUTA_VACIO", "EN_TERMINAL"}:
+            raise HTTPException(409, "El recorrido vacío no está activo.")
+        if not _first_text(payload.get("nota")):
+            raise HTTPException(400, "Indica el motivo por el que se finaliza sin carga.")
+        new_state = "FINALIZADO_SIN_CARGA"
     else:
         if current not in {"EN_RUTA_VACIO", "EN_TERMINAL"}:
             raise HTTPException(409, "Primero inicia el recorrido vacío.")
@@ -7735,6 +7793,8 @@ async def transporte_v2_operator_preparar_viaje(
 ):
     token_plain = _operator_token_from_header(authorization)
     sb, acc = _operator_context(token_plain)
+    if _first_text(_parse_json_value(acc.get("pretrip_json"), {}).get("estado")).upper() == "FINALIZADO_SIN_CARGA":
+        raise HTTPException(409, "Este recorrido fue finalizado sin carga. Inicia otro recorrido antes de subir una factura.")
     filename = file.filename or "factura"
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if extension not in {"pdf", "xml"}:
@@ -8123,14 +8183,31 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
 async def transporte_v2_operator_bitacora_pdf(authorization: str = Header(default="")):
     token_plain = _operator_token_from_header(authorization)
     sb, acc = _operator_context(token_plain)
-    trip = _operator_assigned_trip(sb, acc)
-    meta = _meta(trip)
-    bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+    is_pretrip = False
+    try:
+        trip = _operator_assigned_trip(sb, acc)
+        meta = _meta(trip)
+        bitacora = meta.get("bitacora_operador") if isinstance(meta.get("bitacora_operador"), dict) else {}
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        bitacora = _parse_json_value(acc.get("pretrip_json"), {})
+        events = bitacora.get("eventos") if isinstance(bitacora.get("eventos"), list) else []
+        if not events:
+            raise HTTPException(404, "Todavía no hay eventos para generar la bitácora.")
+        is_pretrip = True
+        trip = {
+            "id": None,
+            "origen": "Salida sin carga",
+            "destino": "Terminal de carga",
+            "defaults_json": {"operador_nombre": (acc.get("chofer") or {}).get("nombre") or ""},
+        }
     content = _operator_bitacora_pdf_bytes(trip, acc, bitacora)
+    filename = "bitacora-recorrido-vacio.pdf" if is_pretrip else f"bitacora-viaje-{trip.get('id')}.pdf"
     return Response(
         content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=bitacora-viaje-{trip.get('id')}.pdf"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
@@ -10265,6 +10342,7 @@ def transporte_v2_operator_payments_history(
             "fecha_desde": _first_text(row.get("periodo_inicio"))[:10],
             "fecha_hasta": _first_text(row.get("periodo_fin"))[:10],
             "generado_en": row.get("created_at"),
+            "pagado_en": row.get("paid_at") or row.get("created_at"),
             "status": "pagada",
             "viajes": len(details) or int(metadata.get("viajes") or 0),
             "comisiones": _num(metadata.get("total_comisiones") or row.get("subtotal")),
