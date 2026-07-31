@@ -447,7 +447,9 @@
           settled = true;
           resolve(value);
         };
-        setTimeout(() => finish(null), 1500);
+        // A first mobile fix can take several seconds and the permission prompt
+        // itself may outlive the previous 1.5 s deadline.
+        setTimeout(() => finish(null), 10000);
         navigator.geolocation.getCurrentPosition(
           pos => finish({
             lat: pos.coords.latitude,
@@ -455,7 +457,7 @@
             accuracy_m: pos.coords.accuracy,
           }),
           () => finish(null),
-          {enableHighAccuracy: false, timeout: 1500, maximumAge: 600000},
+          {enableHighAccuracy: true, timeout: 10000, maximumAge: 300000},
         );
       });
     }
