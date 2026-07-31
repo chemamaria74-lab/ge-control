@@ -160,7 +160,9 @@ def test_expense_portals_keep_large_lists_on_demand_and_preload_admin_catalogs()
     assert "else loadBase()" in manager
     assert "loadProfiles().then(()=>{" in admin
     assert ".then(load)" not in admin
-    assert "Promise.all([loadCatalogs(),loadToday()])" in admin
+    assert "return loadCatalogs()" in admin
+    assert "Promise.all([loadCatalogs(),loadToday()])" not in admin
+    assert "Presiona Cargar para consultar" in admin_html
     assert 'id="searchVouchers"' in manager_html
     assert 'id="searchHistory"' in manager_html
     assert 'id="searchExpenses"' in admin_html
@@ -245,5 +247,5 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
-    assert "grid-template-columns:minmax(0,65fr) minmax(320px,35fr)" in css
+    assert "grid-template-columns:minmax(0,13fr) minmax(280px,7fr)" in css
     assert "data-payment-check" in script
