@@ -24,9 +24,11 @@ def test_fuel_normalizer_converts_imperial_units():
     assert row["motive_vehicle_id"] == 8
 
 
-def test_inspection_normalizer_extracts_nested_defects():
-    inspection, defects = normalize_inspection({"inspection_report": {"id": 3, "time": "2026-07-02T10:00:00Z", "vehicle": {"id": 8}, "inspected_parts": [{"id": 2, "category": "Frenos", "status": "open", "defects": [{"title": "Presión baja", "severity": "major"}]}]}}, integration_id=1, tenant_id="tenant")
+def test_inspection_normalizer_extracts_driver_and_nested_defects():
+    inspection, defects = normalize_inspection({"inspection_report": {"id": 3, "time": "2026-07-02T10:00:00Z", "vehicle": {"id": 8}, "driver": {"id": 4, "first_name": "Ana", "last_name": "López"}, "inspected_parts": [{"id": 2, "category": "Frenos", "status": "open", "defects": [{"title": "Presión baja", "severity": "major"}]}]}}, integration_id=1, tenant_id="tenant")
     assert inspection["motive_vehicle_id"] == 8
+    assert inspection["motive_driver_id"] == 4
+    assert inspection["driver_name"] == "Ana López"
     assert len(defects) == 1
     assert defects[0]["title"] == "Presión baja"
     assert defects[0]["severity"] == "major"

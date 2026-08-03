@@ -382,17 +382,33 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
 
 
-def test_verified_gas_lux_zones_money_format_and_stale_delete_recovery():
+def test_company_scoped_zones_money_format_and_stale_delete_recovery():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     assert 'id="directTotal" type="text" inputmode="decimal"' in html
     assert "const parseMoney=" in script and "formatMoneyInput" in script
     assert "Ejemplo: 5,020.68" in script
-    assert "GLU760309457" in script and "Fresnillo" in script and "Jerez" in script
-    assert "Oficina general" in script and "withVerifiedZones" in script
+    assert "GLU760309457" not in script and "withVerifiedZones" not in script
+    assert "state.bootstrap.facilities" in script and "facility_id:zone.startsWith" in script
     assert "Captura eliminada por error." in script
     assert "x.status!=='cancelled'" in script
+
+
+def test_supervision_expenses_show_payment_destination_and_date_filters():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+
+    assert 'id="expenseMonthFilter" type="month"' in html
+    assert 'id="expenseDateFrom" type="date"' in html
+    assert 'id="expenseDateTo" type="date"' in html
+    assert "Proveedor / folio" in html and "Se paga a" in html
+    assert "supplier?.commercial_name||'Proveedor'" in script
+    assert "Reembolso a persona" in script and "paymentParty(x)" in script
+    assert "invoice_date_from: date | None" in route
+    assert "invoice_date_to: date | None" in route
+    assert 'row.get("status") == "sent_to_accountant"' in route
 
 
 def test_direct_expense_catalog_selectors_are_searchable():

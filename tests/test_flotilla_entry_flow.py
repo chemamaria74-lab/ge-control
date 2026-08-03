@@ -104,7 +104,7 @@ def test_fleet_restores_the_last_complete_analysis_for_twelve_hours():
     assert "data," in script
     assert "renderReportCatalog(cached.data)" in script
     assert "Se conservará durante 12 horas" in script
-    assert "flotilla.js?v=20260730f" in template
+    assert "flotilla.js?v=20260802a" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():

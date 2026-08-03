@@ -94,6 +94,23 @@ def test_analytics_ranks_by_event_count_and_recovers_driver_from_activity():
     assert analytics["totals"]["vehicles_with_data"] == 2
     assert analytics["totals"]["vehicles_without_gps"] == 1
     assert analytics["units"][-1]["coverage_status"] == "Sin datos GPS / revisión manual"
+    assert [row["vehicle_number"] for row in analytics["attention_units"]] == ["U-1", "U-2"]
+    assert [row["vehicle_number"] for row in analytics["units_without_gps"]] == ["SIN-GPS"]
+
+
+def test_analytics_attributes_inspections_to_reported_driver_with_unit_fallback():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Chofer asignado"}],
+        "inspections": [
+            {"vehicle_number": "U-1", "driver_name": "Quien inspeccionó"},
+            {"vehicle_number": "U-1", "driver_name": ""},
+        ],
+    })
+
+    assert analytics["inspection_credits"] == [
+        {"vehicle_number": "U-1", "driver_name": "Chofer asignado", "inspections": 1},
+        {"vehicle_number": "U-1", "driver_name": "Quien inspeccionó", "inspections": 1},
+    ]
 
 
 def test_excel_dashboard_lists_every_unit_without_proprietary_score_or_activity_sheet(tmp_path):
