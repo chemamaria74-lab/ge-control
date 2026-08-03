@@ -5,7 +5,7 @@
   <title>GE CONTROL | Gastos y pagos</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=expense-payments-20260731p">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=expense-company-scope-20260802a">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
 </head>
 <body>
@@ -55,9 +55,9 @@
 
       <div class="subpanel" data-subcontent="all-expenses">
         <article class="card"><div class="card-heading"><div><h3>Todos los gastos</h3><p>Consulta únicamente cuando lo necesites y revisa vales, responsable y estado.</p></div></div>
-          <div class="filter-grid"><label>Buscar<input id="expenseSearch" placeholder="Factura, proveedor, gerente o vale"></label><label>Estado<select id="expenseStatusFilter"><option value="">Todos</option><option value="pending_review">Pendiente de revisión</option><option value="observed">Observada</option><option value="accepted">Aceptada</option><option value="sent_to_accountant">Enviada a contadora</option><option value="paid">Pagada</option><option value="rejected">Rechazada</option><option value="cancelled">Eliminada</option></select></label><label>Origen<select id="expenseTypeFilter"><option value="">Todos</option><option value="voucher">Con vales</option><option value="direct">Gasto directo</option></select></label><div class="actions"><button class="btn primary" id="searchExpenses" type="button">Buscar gastos</button></div></div>
+          <div class="filter-grid"><label class="filter-search">Buscar<input id="expenseSearch" placeholder="Folio, proveedor, persona, gerente o vale"></label><label>Estado<select id="expenseStatusFilter"><option value="">Todos</option><option value="pending_review">Pendiente de revisión</option><option value="observed">Observada</option><option value="accepted">Aceptada</option><option value="sent_to_accountant">Enviada a contadora</option><option value="paid">Pagada</option><option value="rejected">Rechazada</option><option value="cancelled">Eliminada</option></select></label><label>Origen<select id="expenseTypeFilter"><option value="">Todos</option><option value="voucher">Con vales</option><option value="direct">Gasto directo</option></select></label><label>Mes<input id="expenseMonthFilter" type="month"></label><label>Desde<input id="expenseDateFrom" type="date"></label><label>Hasta<input id="expenseDateTo" type="date"></label><div class="actions"><button class="btn primary" id="searchExpenses" type="button">Buscar gastos</button></div></div>
           <div class="status" id="queueLoadStatus">No se cargan gastos hasta presionar Buscar.</div>
-          <div class="table-wrap"><table><thead><tr><th>Gasto</th><th>Origen</th><th>Responsable</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="invoiceRows"><tr><td colspan="7" class="empty">Presiona Buscar gastos.</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Proveedor / folio</th><th>Origen</th><th>Se paga a</th><th>Responsable</th><th>Fecha</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="invoiceRows"><tr><td colspan="8" class="empty">Presiona Buscar gastos.</td></tr></tbody></table></div>
         </article>
       </div>
 
@@ -89,5 +89,5 @@
     </section>
   </main>
   <script src="/static/js/session_timeout.js?v=two-hour-expenses-20260730"></script>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=expense-payment-flow-20260731t"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=expense-company-scope-20260802a"></script>
 </body></html>
