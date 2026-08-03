@@ -21,7 +21,41 @@ def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_pat
     payload = build_fleet_report({"expenses": [], "driver_events": [], "speeding": [], "activity": [], "faults": []}, date(2026, 7, 1), date(2026, 7, 20))
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
-    assert workbook.sheetnames == ["Dashboard", "Resumen por unidad"]
+    assert workbook.sheetnames == ["Dashboard", "Seguimiento supervisor", "Resumen por unidad"]
+
+
+def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path):
+    payload = build_fleet_report({
+        "vehicles": [
+            {"vehicle_number": "U-ROJA", "current_driver_name": "Ana"},
+            {"vehicle_number": "U-SIN-GPS", "current_driver_name": "Luis"},
+        ],
+        "driver_events": [
+            {"vehicle_number": "U-ROJA", "driver_name": "Ana", "primary_behavior": "hard_brake", "severity": "high"}
+            for _ in range(3)
+        ],
+        "speeding": [], "faults": [], "expenses": [], "activity": [],
+    }, date(2026, 7, 1), date(2026, 7, 7), "Zacatecas")
+    target = tmp_path / "visual-report.xlsx"
+    target.write_bytes(payload)
+    workbook = load_workbook(target, data_only=True)
+
+    dashboard = workbook["Dashboard"]
+    dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
+    assert "REPORTE SEMANAL DE FLOTILLA" in dashboard_values
+    assert "GERENTE: TRES DECISIONES PARA ESTA SEMANA" in dashboard_values
+    assert "U-SIN-GPS" in dashboard_values
+
+    follow_up = workbook["Seguimiento supervisor"]
+    headers = [cell.value for cell in follow_up[7]]
+    assert headers == [
+        "#", "UNIDAD", "CONDUCTOR", "GPS", "EVENTOS", "CRÍTICOS", "DEFECTOS", "ACCIÓN CLARA",
+        "PRIORIDAD", "RESPONSABLE", "FECHA LÍMITE", "ESTADO", "EVIDENCIA / NOTA",
+    ]
+    follow_up_rows = {follow_up.cell(row, 2).value: row for row in range(8, follow_up.max_row + 1)}
+    assert follow_up.cell(follow_up_rows["U-ROJA"], 9).value == "ROJO · HOY"
+    assert follow_up.cell(follow_up_rows["U-SIN-GPS"], 8).value == "Revisar GPS y confirmar señal"
+    assert follow_up.cell(follow_up_rows["U-SIN-GPS"], 12).value == "PENDIENTE"
 
 
 def test_report_adds_executive_chronology_when_events_exist(tmp_path):
