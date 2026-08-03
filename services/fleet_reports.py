@@ -432,11 +432,19 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     dashboard.set_landscape(); dashboard.fit_to_pages(1, 0); dashboard.set_margins(0.25, 0.25, 0.35, 0.35)
     dashboard.set_header("&LGE CONTROL · FLOTILLA 360&RInforme gerencial")
     dashboard.set_footer("&LInformación gerencial&C&P de &N&RGenerado por GE Control")
-    dashboard.set_column("A:A", 2); dashboard.set_column("B:D", 13)
-    dashboard.set_column("E:E", 30); dashboard.set_column("F:F", 11)
-    dashboard.set_column("G:G", 27); dashboard.set_column("H:M", 13)
-    dashboard.set_row(0, 10); dashboard.merge_range("B2:M3", "INFORME EJECUTIVO · FLOTILLA 360", title)
-    dashboard.merge_range("B4:M4", f"{(group_name or 'Toda la flotilla').upper()}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", subtitle)
+    dashboard.set_column("A:A", 2); dashboard.set_column("B:B", 10)
+    dashboard.set_column("C:D", 22); dashboard.set_column("E:F", 14)
+    dashboard.set_column("G:G", 3); dashboard.set_column("H:H", 9)
+    dashboard.set_column("I:J", 21); dashboard.set_column("K:L", 17); dashboard.set_column("M:M", 13)
+    dashboard.set_row(0, 10)
+
+    white_title = workbook.add_format({"bold": True, "font_size": 24, "font_color": "#FFFFFF", "bg_color": "#7C1028", "valign": "vcenter"})
+    gold_subtitle = workbook.add_format({"bold": True, "font_size": 11, "font_color": "#F4D9A6", "bg_color": "#7C1028"})
+    quick_guide = workbook.add_format({"bold": True, "font_size": 10, "font_color": "#FFFFFF", "bg_color": "#7C1028", "border": 1, "border_color": "#B95B70", "text_wrap": True, "valign": "vcenter"})
+    dashboard.merge_range("B2:J3", "REPORTE SEMANAL DE FLOTILLA", white_title)
+    dashboard.merge_range("B4:J4", f"{(group_name or 'Toda la flotilla').upper()}  ·  {start:%d/%m/%Y} al {end:%d/%m/%Y}", gold_subtitle)
+    dashboard.merge_range("K2:M4", "EMPIEZA AQUÍ\n1. Lee las alertas\n2. Asigna responsable\n3. Revisa avance", quick_guide)
+    dashboard.set_row(1, 28); dashboard.set_row(2, 28); dashboard.set_row(3, 28)
     event_total = len(data.get("driver_events", [])) + len(data.get("speeding", []))
     avg_utilization = (
         sum(row["utilization_pct"] for row in analytics["units"]) / len(analytics["units"])
@@ -449,97 +457,145 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
         ("INSPECCIONES", analytics["totals"]["inspections"], False),
         ("DEFECTOS ABIERTOS", analytics["totals"]["open_defects"], False),
-        ("KILÓMETROS", analytics["totals"]["distance_km"] if analytics["totals"]["distance_available"] else None, False),
-        ("HORAS MOTOR", analytics["totals"]["engine_hours"] if analytics["totals"]["engine_hours_available"] else None, False),
-        ("UTILIZACIÓN", avg_utilization, "percent"),
-        ("GASTO REGISTRADO MXN", analytics["totals"]["expenses_mxn"] if analytics["totals"]["expense_available"] else None, True),
-        ("RENDIMIENTO KM/L", analytics["totals"]["km_per_liter"], False),
-        ("COSTO POR KM", analytics["totals"]["cost_per_km"], True),
     ]
+    kpi_backgrounds = ["#E6F4EC", "#FCE8E8", "#F7F3EE", "#FCE8E8", "#E6F4EC", "#FFF3D6"]
+    kpi_accents = ["#2E7D5B", "#C43B3B", "#7C1028", "#C43B3B", "#2E7D5B", "#D7A43A"]
     for index, (label, value, is_money) in enumerate(metrics):
-        band, slot = divmod(index, 6)
-        column = 1 + slot * 2
-        row = 5 + band * 4
-        dashboard.merge_range(row, column, row, column + 1, label, kpi_label)
+        column = 1 + index * 2
+        label_format = workbook.add_format({"bold": True, "font_color": "#6F6965", "font_size": 9, "align": "center", "bg_color": kpi_backgrounds[index], "border": 1, "border_color": "#DED6CF"})
+        value_format = workbook.add_format({"bold": True, "font_color": kpi_accents[index], "font_size": 20, "align": "center", "valign": "vcenter", "bg_color": kpi_backgrounds[index], "border": 1, "border_color": "#DED6CF"})
+        dashboard.merge_range(6, column, 6, column + 1, label, label_format)
         display = "NO DISPONIBLE" if value is None else (
             f"{value:.0%}" if is_money == "percent" else f"${value:,.2f}" if is_money else f"{value:,.1f}"
         )
-        dashboard.merge_range(row + 1, column, row + 2, column + 1, display, kpi_value)
-    dashboard.merge_range("B14:G14", "Unidades con GPS que requieren atención", section)
-    dashboard.merge_range("I14:M14", "Unidades sin datos GPS", section)
+        dashboard.merge_range(7, column, 8, column + 1, display, value_format)
+
+    manager_section = workbook.add_format({"bold": True, "font_size": 15, "font_color": "#FFFFFF", "bg_color": "#7C1028", "valign": "vcenter"})
+    action_headers = [
+        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#C43B3B", "valign": "vcenter"}),
+        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#D7A43A", "valign": "vcenter"}),
+        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#2E7D5B", "valign": "vcenter"}),
+    ]
+    action_bodies = [
+        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#FCE8E8", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
+        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#FFF3D6", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
+        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#E6F4EC", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
+    ]
     ranking = analytics["attention_units"]
-    for row_index, item in enumerate(ranking, 15):
-        dashboard.write(row_index, 1, row_index - 14, cell)
-        dashboard.merge_range(row_index, 2, row_index, 3, item["vehicle_number"], cell)
-        dashboard.write(row_index, 4, item["driver_name"] or "Sin conductor asignado", cell)
-        dashboard.write(row_index, 5, item["security"] + item["speeding"], number)
-        dashboard.write(row_index, 6, "Con datos GPS", cell)
-    dashboard.write_row("B15", ["#", "Unidad", "", "Conductor", "Eventos", "Cobertura"], header)
-    no_gps_rows = analytics["units_without_gps"]
-    dashboard.write_row("I15", ["#", "Unidad", "Conductor", "", "Estado"], header)
-    for row_index, item in enumerate(no_gps_rows, 15):
-        dashboard.write(row_index, 8, row_index - 14, cell)
-        dashboard.write(row_index, 9, item["vehicle_number"], cell)
-        dashboard.merge_range(row_index, 10, row_index, 11, item["driver_name"] or "Sin conductor asignado", cell)
-        dashboard.write(row_index, 12, "Revisión manual", cell)
     behavior_rows = analytics["behaviors"][:10]
-    content_end_row = 15 + max(len(ranking), len(no_gps_rows), 1)
-    chart_start_row = max(27, content_end_row + 2)
-    if ranking:
-        risk_chart = workbook.add_chart({"type": "bar"})
-        risk_chart.add_series({
-            "name": "Eventos",
-            "categories": ["Dashboard", 15, 2, 14 + len(ranking), 2],
-            "values": ["Dashboard", 15, 5, 14 + len(ranking), 5],
-            "fill": {"color": "#8B1E34"},
-            "border": {"none": True},
-        })
-        risk_chart.set_title({"name": "Prioridad por unidad"})
-        risk_chart.set_legend({"none": True})
-        risk_chart.set_x_axis({"name": "Cantidad de eventos", "major_gridlines": {"visible": False}})
-        risk_chart.set_y_axis({"reverse": True})
-        risk_chart.set_style(10)
-        dashboard.insert_chart(chart_start_row, 1, risk_chart, {"x_scale": 1.18, "y_scale": max(0.82, min(1.8, len(ranking) / 10))})
-    dashboard.merge_range(chart_start_row, 7, chart_start_row, 12, "Inspecciones realizadas por chofer", section)
-    dashboard.write_row(chart_start_row + 1, 7, ["#", "Unidad", "", "Chofer", "", "Inspecciones"], header)
-    for offset, item in enumerate(analytics["inspection_credits"][:15], 1):
-        row_index = chart_start_row + 1 + offset
-        dashboard.write(row_index, 7, offset, cell)
-        dashboard.merge_range(row_index, 8, row_index, 9, item["vehicle_number"], cell)
-        dashboard.merge_range(row_index, 10, row_index, 11, item["driver_name"], cell)
-        dashboard.write(row_index, 12, item["inspections"], number)
-    action_title = workbook.add_format({"bold": True, "font_size": 12, "font_color": "#6B1022", "bg_color": "#F7F2EC", "border": 1, "valign": "vcenter"})
-    action_text = workbook.add_format({"font_size": 10, "font_color": "#29231F", "bg_color": "#FFFFFF", "border": 1, "text_wrap": True, "valign": "top"})
-    action_row = chart_start_row + max(18, len(analytics["inspection_credits"][:15]) + 4, int(15 * max(0.82, min(1.8, len(ranking) / 10))))
-    dashboard.merge_range(action_row, 1, action_row, 12, "DECISIONES RECOMENDADAS PARA EL GERENTE", section)
     top_unit = ranking[0] if ranking else None
     top_behavior = behavior_rows[0] if behavior_rows else None
-    dashboard.merge_range(action_row + 1, 1, action_row + 1, 4, "1 · CORREGIR LA MAYOR EXPOSICIÓN", action_title)
-    dashboard.merge_range(action_row + 2, 1, action_row + 4, 4, (
-        f"Revisar la unidad {top_unit['vehicle_number']}: concentra "
-        f"{top_unit['security'] + top_unit['speeding']:,} eventos en el periodo."
-        if top_unit else "No se detectaron unidades con eventos en el periodo."
-    ), action_text)
-    dashboard.merge_range(action_row + 1, 5, action_row + 1, 8, "2 · ATACAR LA CONDUCTA DOMINANTE", action_title)
-    dashboard.merge_range(action_row + 2, 5, action_row + 4, 8, (
-        f"Aplicar retroalimentación y seguimiento sobre “{top_behavior['label']}”, "
-        f"que representa {top_behavior['count']:,} eventos del periodo."
-        if top_behavior else "No se detectaron conductas de seguridad en el periodo."
-    ), action_text)
-    dashboard.merge_range(action_row + 1, 9, action_row + 1, 12, "3 · VALIDAR EL CIERRE", action_title)
-    dashboard.merge_range(action_row + 2, 9, action_row + 4, 12, (
-        f"Asignar responsable y fecha compromiso. Dar seguimiento a {analytics['critical_high']:,} "
-        "eventos críticos/altos y comprobar la reducción en el siguiente informe."
-    ), action_text)
+    dashboard.merge_range("B11:M12", "GERENTE: TRES DECISIONES PARA ESTA SEMANA", manager_section)
+    action_specs = [
+        (1, 4, "1  CORREGIR LA MAYOR EXPOSICIÓN", (
+            f"Revisar {top_unit['vehicle_number']} con {top_unit['driver_name'] or 'el conductor asignado'}.\n"
+            f"Tiene {top_unit['security'] + top_unit['speeding']:,} eventos: es la unidad con mayor exposición."
+            if top_unit else "No se detectaron unidades con eventos en el periodo."
+        )),
+        (5, 8, "2  ATACAR LA CONDUCTA DOMINANTE", (
+            f"Dar retroalimentación sobre {top_behavior['label'].upper()}.\n"
+            f"Es la conducta más repetida: {top_behavior['count']:,} eventos."
+            if top_behavior else "No se detectaron conductas de seguridad en el periodo."
+        )),
+        (9, 12, "3  EXIGIR CIERRE Y EVIDENCIA", (
+            "Asignar nombre y fecha de compromiso.\n"
+            f"Dar seguimiento a {analytics['critical_high']:,} eventos críticos/altos y "
+            f"{analytics['totals']['open_defects']:,} defectos abiertos."
+        )),
+    ]
+    for index, (first_col, last_col, heading, body) in enumerate(action_specs):
+        dashboard.merge_range(12, first_col, 12, last_col, heading, action_headers[index])
+        dashboard.merge_range(13, first_col, 16, last_col, body, action_bodies[index])
+
+    light_section = workbook.add_format({"bold": True, "font_size": 13, "font_color": "#202020", "bg_color": "#F7F3EE", "valign": "vcenter"})
+    dashboard.merge_range("B19:F20", "¿QUÉ UNIDADES REQUIEREN ATENCIÓN PRIMERO?", light_section)
+    dashboard.merge_range("I19:M20", "UNIDADES SIN DATOS GPS", light_section)
+    dashboard.write_row("B21", ["PRIORIDAD", "UNIDAD", "CONDUCTOR", "EVENTOS", "NIVEL"], header)
+    ranking = analytics["attention_units"]
+    priority_high = workbook.add_format({"font_color": "#C43B3B", "bg_color": "#FCE8E8", "border": 1})
+    priority_medium = workbook.add_format({"font_color": "#8A6200", "bg_color": "#FFF3D6", "border": 1})
+    priority_low = workbook.add_format({"font_color": "#2E7D5B", "bg_color": "#E6F4EC", "border": 1})
+    for row_index, item in enumerate(ranking, 21):
+        events = item["security"] + item["speeding"]
+        level, level_format = ("ALTA", priority_high) if events >= 50 else (("MEDIA", priority_medium) if events >= 15 else ("BAJA", priority_low))
+        dashboard.write(row_index, 1, row_index - 20, cell)
+        dashboard.write(row_index, 2, item["vehicle_number"], cell)
+        dashboard.write(row_index, 3, item["driver_name"] or "Sin conductor asignado", cell)
+        dashboard.write(row_index, 4, events, number)
+        dashboard.write(row_index, 5, level, level_format)
+    if ranking:
+        dashboard.conditional_format(21, 4, 20 + len(ranking), 4, {"type": "data_bar", "bar_color": "#98243D"})
+
+    no_gps_rows = analytics["units_without_gps"]
+    dashboard.write_row("I21", ["UNIDAD", "CONDUCTOR", "ESTADO", "ACCIÓN", "PLAZO"], header)
+    alert_cell = workbook.add_format({"bold": True, "font_color": "#202020", "bg_color": "#FCE8E8", "border": 1, "border_color": "#C43B3B", "text_wrap": True})
+    for row_index, item in enumerate(no_gps_rows, 21):
+        dashboard.write_row(row_index, 8, [item["vehicle_number"], item["driver_name"] or "Sin conductor asignado", "SIN GPS", "Revisar equipo / señal", "HOY"], alert_cell)
+    guide_row = 23 + max(len(no_gps_rows), 1)
+    dashboard.merge_range(guide_row, 8, guide_row + 5, 12, (
+        "LECTURA RÁPIDA\n\nROJO = actuar hoy\nAMARILLO = programar esta semana\n"
+        "VERDE = mantener y comprobar\n\nPara registrar responsables y fechas, abre la hoja “Seguimiento supervisor”."
+    ), workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#F7F3EE", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}))
+
     coverage_notes = []
     if not data.get("activity") or not data.get("faults"):
         coverage_notes.append("Alguna fuente de Motive no entregó registros en este corte.")
     if not analytics["totals"]["expense_complete"]:
         coverage_notes.append("El gasto es parcial porque Motive Card no estuvo disponible.")
+    note_end_row = -1
     if coverage_notes:
         coverage_notes.append("Un dato ausente se presenta como “no disponible” y no como cero operativo.")
-        dashboard.merge_range(action_row + 6, 1, action_row + 7, 12, "Cobertura del informe: " + " ".join(coverage_notes), note)
-    dashboard.print_area(1, 1, action_row + 7, 12)
+        note_row = max(guide_row + 7, 23 + len(ranking))
+        dashboard.merge_range(note_row, 1, note_row + 1, 12, "Cobertura del informe: " + " ".join(coverage_notes), note)
+        note_end_row = note_row + 1
+    objective_row = max(guide_row + 7, 23 + len(ranking), note_end_row + 2, 32)
+    dashboard.merge_range(objective_row, 1, objective_row + 2, 12, "OBJETIVO DE LA SEMANA  ·  Que cada alerta tenga una persona responsable, una fecha y evidencia de cierre.", manager_section)
+    dashboard.set_row(objective_row, 28); dashboard.set_row(objective_row + 1, 28); dashboard.set_row(objective_row + 2, 28)
+    dashboard.print_area(1, 1, objective_row + 2, 12)
+
+    supervisor = workbook.add_worksheet("Seguimiento supervisor")
+    supervisor.hide_gridlines(2); supervisor.set_tab_color("#D7A43A")
+    supervisor.set_landscape(); supervisor.fit_to_pages(1, 0); supervisor.freeze_panes(7, 0)
+    supervisor.set_column("A:A", 4); supervisor.set_column("B:B", 20); supervisor.set_column("C:C", 24)
+    supervisor.set_column("D:G", 12); supervisor.set_column("H:H", 38); supervisor.set_column("I:I", 20)
+    supervisor.set_column("J:J", 18); supervisor.set_column("K:K", 15); supervisor.set_column("L:L", 14); supervisor.set_column("M:M", 28)
+    supervisor.merge_range("B2:I3", "SEGUIMIENTO PARA SUPERVISIÓN", white_title)
+    supervisor.merge_range("J2:M3", "USO: filtra PRIORIDAD, asigna responsable y registra el avance.", quick_guide)
+    supervisor.merge_range("B5:M5", "No necesitas interpretar todo el reporte: atiende primero ROJO, después AMARILLO y documenta el cierre.", light_section)
+    follow_headers = ["#", "UNIDAD", "CONDUCTOR", "GPS", "EVENTOS", "CRÍTICOS", "DEFECTOS", "ACCIÓN CLARA", "PRIORIDAD", "RESPONSABLE", "FECHA LÍMITE", "ESTADO", "EVIDENCIA / NOTA"]
+    supervisor.write_row(6, 0, follow_headers, header)
+    supervisor.set_row(6, 38)
+    status_format = workbook.add_format({"font_color": "#C43B3B", "bg_color": "#FCE8E8", "border": 1})
+    for row_index, item in enumerate(analytics["units"], 7):
+        events = item["security"] + item["speeding"]
+        has_gps = item["telemetry_available"]
+        if not has_gps:
+            action, priority, priority_format = "Revisar GPS y confirmar señal", "ROJO · HOY", priority_high
+        elif item["critical_high"] >= 3:
+            action, priority, priority_format = "Hablar con conductor y acordar corrección", "ROJO · HOY", priority_high
+        elif item["critical_high"] or item["open_defects"] or events >= 15:
+            action, priority, priority_format = (
+                "Programar reparación y comprobar cierre" if item["open_defects"] and not item["critical_high"]
+                else "Hablar con conductor y acordar corrección",
+                "AMARILLO · SEMANA", priority_medium,
+            )
+        else:
+            action, priority, priority_format = "Mantener monitoreo", "VERDE · MONITOREAR", priority_low
+        supervisor.write_row(row_index, 0, [
+            row_index - 6, item["vehicle_number"], item["driver_name"] or "Sin conductor asignado",
+            "CON GPS" if has_gps else "SIN GPS", events, item["critical_high"], item["open_defects"], action,
+        ], cell)
+        supervisor.write(row_index, 8, priority, priority_format)
+        supervisor.write_blank(row_index, 9, None, cell); supervisor.write_blank(row_index, 10, None, date_fmt)
+        supervisor.write(row_index, 11, "PENDIENTE", status_format); supervisor.write_blank(row_index, 12, None, cell)
+        supervisor.set_row(row_index, 32)
+    last_supervisor_row = max(7, 6 + len(analytics["units"]))
+    supervisor.autofilter(6, 0, last_supervisor_row, 12)
+    if analytics["units"]:
+        supervisor.data_validation(7, 11, last_supervisor_row, 11, {"validate": "list", "source": ["PENDIENTE", "EN PROCESO", "CERRADO"]})
+        supervisor.conditional_format(7, 11, last_supervisor_row, 11, {"type": "text", "criteria": "containing", "value": "EN PROCESO", "format": priority_medium})
+        supervisor.conditional_format(7, 11, last_supervisor_row, 11, {"type": "text", "criteria": "containing", "value": "CERRADO", "format": priority_low})
+    supervisor.print_area(0, 0, last_supervisor_row, 12)
 
     summary = workbook.add_worksheet("Resumen por unidad")
     summary.hide_gridlines(2); summary.set_landscape(); summary.fit_to_pages(1, 0)
