@@ -137,7 +137,7 @@ class ExpenseZoneCreate(BaseModel):
 
 
 class InvoiceTransition(BaseModel):
-    action: Literal["accept", "observe", "reject", "send_to_accountant", "mark_paid", "cancel"]
+    action: Literal["accept", "observe", "reject", "send_to_accountant", "mark_paid", "cancel", "withdraw_from_payments"]
     observation: str = Field(default="", max_length=500)
     paid_on: date | None = None
     paid_amount_mxn: float | None = Field(default=None, gt=0, le=100_000_000)
@@ -1106,23 +1106,31 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
     for allocation in allocations:
         allocations_by_invoice[int(allocation["invoice_id"])].append(allocation)
 
-    wb = Workbook(); ws = wb.active; ws.title = "Pagos y reembolsos"
+    wb = Workbook(); supplier_ws = wb.active; supplier_ws.title = "Pagos a proveedores"
+    reimbursement_ws = wb.create_sheet("Reembolsos")
+    summary_ws = wb.create_sheet("Resumen")
     headers = ["Empresa", "Zona", "Tipo de pago", "Destinatario", "Correo", "Banco",
                "Fecha factura", "Proveedor original", "Factura", "Total factura",
                "Pagado previamente", "Saldo a pagar", "Método sugerido", "Referencia bancaria"]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="7A1E2C")
+    for worksheet in (supplier_ws, reimbursement_ws):
+        worksheet.append(headers)
+        for cell in worksheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="7A1E2C")
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = f"A1:N1"
     company = _profile(ctx).get("nombre") or ""
     supplier_by_id = {int(row["id"]): row for row in suppliers}
     recipient_by_id = {int(row["id"]): row for row in recipients}
+    totals_by_party: defaultdict[tuple[str, str], dict[str, Any]] = defaultdict(
+        lambda: {"invoices": 0, "total": 0.0, "paid": 0.0, "balance": 0.0}
+    )
     for invoice in invoices:
         total_applied = round(sum(float(row.get("amount_mxn") or 0) for row in allocations_by_invoice.get(int(invoice["id"]), [])), 2)
         target = invoice.get("payment_target") or "supplier"
         supplier = supplier_by_id.get(int(invoice.get("supplier_id") or 0), {})
         recipient = recipient_by_id.get(int(invoice.get("reimbursement_recipient_id") or 0), {})
         destination = recipient if target == "reimbursement" else supplier
-        ws.append([
+        row = [
             company, (group_names.get(int(invoice.get("group_id") or 0))
                       or facility_names.get(int(invoice.get("facility_id") or 0))
                       or expense_zone_names.get(int(invoice.get("expense_zone_id") or 0))
@@ -1134,11 +1142,27 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
             str(invoice.get("invoice_date") or ""), supplier_names.get(int(invoice.get("supplier_id") or 0), ""),
             invoice.get("invoice_number") or "", float(invoice.get("total_mxn") or 0), total_applied,
             max(0, float(invoice.get("total_mxn") or 0) - total_applied), "Transferencia", "",
-        ])
-    for column in (10, 11, 12):
-        for cell in ws[get_column_letter(column)][1:]: cell.number_format = '$#,##0.00'
-    for index, header in enumerate(headers, 1):
-        ws.column_dimensions[get_column_letter(index)].width = min(34, max(12, len(header) + 3))
+        ]
+        (reimbursement_ws if target == "reimbursement" else supplier_ws).append(row)
+        party_name = str(row[3] or "Sin destinatario")
+        summary = totals_by_party[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
+        summary["invoices"] += 1; summary["total"] += row[9]; summary["paid"] += row[10]; summary["balance"] += row[11]
+    for worksheet in (supplier_ws, reimbursement_ws):
+        for column in (10, 11, 12):
+            for cell in worksheet[get_column_letter(column)][1:]: cell.number_format = '$#,##0.00'
+        for index, header in enumerate(headers, 1):
+            worksheet.column_dimensions[get_column_letter(index)].width = min(34, max(12, len(header) + 3))
+    summary_headers = ["Tipo", "Proveedor o persona", "Facturas", "Total facturado", "Pagado previamente", "Total pendiente"]
+    summary_ws.append(summary_headers)
+    for cell in summary_ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="7A1E2C")
+    for (kind, party_name), totals in sorted(totals_by_party.items()):
+        summary_ws.append([kind, party_name, totals["invoices"], totals["total"], totals["paid"], totals["balance"]])
+    for column in (4, 5, 6):
+        for cell in summary_ws[get_column_letter(column)][1:]: cell.number_format = '$#,##0.00'
+    summary_ws.freeze_panes = "A2"; summary_ws.auto_filter.ref = "A1:F1"
+    for index, header in enumerate(summary_headers, 1):
+        summary_ws.column_dimensions[get_column_letter(index)].width = min(36, max(14, len(header) + 3))
     output = BytesIO(); wb.save(output); output.seek(0)
     return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": 'attachment; filename="pagos-y-reembolsos.xlsx"'})
@@ -1169,11 +1193,12 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
         "send_to_accountant": ({"accepted"}, "sent_to_accountant"),
         "mark_paid": ({"sent_to_accountant"}, "paid"),
         "cancel": ({"pending_review", "observed", "accepted"}, "cancelled"),
+        "withdraw_from_payments": ({"sent_to_accountant"}, "pending_review"),
     }
     allowed, new_status = transitions[payload.action]
     if row["status"] not in allowed:
         raise HTTPException(409, f"No se puede aplicar esta acción desde {row['status']}.")
-    if payload.action in {"observe", "reject", "cancel"} and len(payload.observation.strip()) < 3:
+    if payload.action in {"observe", "reject", "cancel", "withdraw_from_payments"} and len(payload.observation.strip()) < 3:
         raise HTTPException(400, "Captura el motivo de esta acción.")
     update: dict[str, Any] = {"status": new_status, "updated_at": _now()}
     if payload.observation:
@@ -1182,6 +1207,8 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
         update.update({"reviewed_by": ctx["actor_id"], "reviewed_at": _now()})
     if payload.action in {"accept", "send_to_accountant"}:
         update["sent_to_accountant_at"] = _now()
+    if payload.action == "withdraw_from_payments":
+        update.update({"sent_to_accountant_at": None, "reviewed_by": ctx["actor_id"], "reviewed_at": _now()})
     if payload.action == "mark_paid":
         if not payload.paid_on or payload.paid_amount_mxn is None:
             raise HTTPException(400, "Confirma fecha y monto pagado.")
