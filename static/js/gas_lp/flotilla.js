@@ -246,13 +246,15 @@
   }
 
   function renderDashboard(analytics){
-    const units=analytics.top_units||[], behaviors=analytics.behaviors||[];
+    const units=analytics.top_units||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], behaviors=analytics.behaviors||[];
     const maxUnit=Math.max(...units.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=units.length?units.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
       const coverage=row.coverage_status||'Cobertura no determinada';
       return `<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')} · ${fmt(row.critical_high)} críticos/altos · ${esc(coverage)}</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxUnit*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
-    }).join(''):'<div class="empty">No hay unidades para este periodo.</div>';
+    }).join(''):'<div class="empty">No hay unidades con GPS que requieran atención en este periodo.</div>';
+    $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
+    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor identificado')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{
       const unitName=button.dataset.unitSearch||'';
