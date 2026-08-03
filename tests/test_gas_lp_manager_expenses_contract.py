@@ -51,6 +51,40 @@ def test_manager_group_scope_rejects_other_zone():
     assert error.value.status_code == 403
 
 
+def test_expense_context_uses_latest_profile_suffix(monkeypatch):
+    captured = {}
+
+    def fake_context(token, *, write, perfil_id):
+        captured.update(token=token, write=write, perfil_id=perfil_id)
+        return {"user": {"id": "u1", "tenant_id": "t1", "perfil_id": perfil_id,
+                         "role": "admin", "display_name": "Admin"}}
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(gastos_gas_lp, "_gas_lp_conciliacion_context", fake_context)
+
+    result = gastos_gas_lp._ctx("", "", "session-token~5~9")
+
+    assert captured == {"token": "session-token", "write": True, "perfil_id": 9}
+    assert result["perfil_id"] == 9
+
+
+def test_expense_context_prefers_explicit_profile_header(monkeypatch):
+    captured = {}
+
+    def fake_context(token, *, write, perfil_id):
+        captured.update(token=token, write=write, perfil_id=perfil_id)
+        return {"user": {"id": "u1", "tenant_id": "t1", "perfil_id": perfil_id,
+                         "role": "admin", "display_name": "Admin"}}
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(gastos_gas_lp, "_gas_lp_conciliacion_context", fake_context)
+
+    result = gastos_gas_lp._ctx("", "", "session-token~5", "3")
+
+    assert captured == {"token": "session-token", "write": True, "perfil_id": 3}
+    assert result["perfil_id"] == 3
+
+
 def test_manager_ui_does_not_load_assistant_or_fiscal_scripts():
     html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
     assert "gas_lp/conciliacion/" not in html
@@ -405,12 +439,15 @@ def test_supervision_expenses_show_payment_destination_and_date_filters():
 
     assert 'id="expenseMonthFilter" type="month"' in html
     assert 'id="expenseSpecificDate" type="date"' in html
+    assert "Fecha específica" not in html
     assert 'id="expenseDateFrom"' not in html and 'id="expenseDateTo"' not in html
     assert "Proveedor / folio" in html and "Se paga a" in html
     assert "supplier?.commercial_name||'Proveedor'" in script
     assert "Reembolso a persona" in script and "paymentParty(x)" in script
     assert "scopedRows(i.items,profile)" in script
-    assert "verifyBootstrapProfile" in script
+    assert "'X-Perfil-ID':String(profile)" in script
+    assert "token+(profile" not in script
+    assert "verifyBootstrapProfile" not in script
     assert "icon-action" in script and "fa-comment-dots" in script
     assert "invoice_date_from: date | None" in route
     assert "invoice_date_to: date | None" in route
