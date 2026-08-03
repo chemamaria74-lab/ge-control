@@ -891,7 +891,8 @@ document.getElementById('btnHistInventory')?.addEventListener('click', () => {
   const error = document.getElementById('histInventoryError');
   const facility = _facilities.find(f => Number(f.id) === Number(facilityId));
   const facilityName = facility?.nombre || facility?.clave_instalacion || `Planta #${facilityId}`;
-  const monthName = document.getElementById('histMes')?.selectedOptions?.[0]?.textContent?.trim() || periodo;
+  const monthOption = document.getElementById('histMes')?.selectedOptions?.[0]?.textContent?.trim() || periodo;
+  const monthName = monthOption.replace(/^\d{2}\s*[—-]\s*/, '');
   const shown = document.getElementById('htInvIni')?.textContent || '';
   const current = shown.includes('—') ? '' : shown.replace(/[^0-9.,-]/g, '').replace(/,/g, '');
   context.replaceChildren();
@@ -902,7 +903,7 @@ document.getElementById('btnHistInventory')?.addEventListener('click', () => {
   name.textContent = facilityName;
   const detail = document.createElement('span');
   detail.style.marginLeft = '1.05rem';
-  detail.textContent = `${monthName} · ${periodo.slice(0, 4)}`;
+  detail.textContent = `${monthName} ${periodo.slice(0, 4)}`;
   context.append(icon, name, document.createElement('br'), detail);
   input.value = current;
   error.style.display = 'none';
