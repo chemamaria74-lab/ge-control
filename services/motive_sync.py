@@ -171,11 +171,15 @@ def normalize_inspection(item: Any, *, integration_id: int, tenant_id: str) -> t
     if motive_id is None or not inspected_at:
         raise ValueError("Inspección Motive incompleta.")
     vehicle = report.get("vehicle") if isinstance(report.get("vehicle"), dict) else {}
+    driver = report.get("driver") if isinstance(report.get("driver"), dict) else {}
+    driver_name = " ".join(filter(None, [driver.get("first_name"), driver.get("last_name")])).strip()
     inspection = {
         "integration_id": integration_id,
         "tenant_id": tenant_id,
         "motive_id": int(motive_id),
         "motive_vehicle_id": vehicle.get("id"),
+        "motive_driver_id": driver.get("id"),
+        "driver_name": driver_name or str(driver.get("username") or report.get("driver_name") or ""),
         "inspected_at": inspected_at,
         "inspection_type": str(report.get("inspection_type") or ""),
         "status": str(report.get("status") or ""),

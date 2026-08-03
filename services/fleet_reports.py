@@ -263,8 +263,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item["fuel_consumption_available"] = True
         if row.get("utilization_pct") is not None:
             item["utilization_pct"] = float(row["utilization_pct"])
+    inspection_credits: dict[tuple[str, str], dict[str, Any]] = {}
     for row in data.get("inspections", []):
-        unit(row.get("vehicle_number"))["inspections"] += 1
+        item = unit(row.get("vehicle_number"))
+        item["inspections"] += 1
+        driver_name = _text(row.get("driver_name")) or item["driver_name"] or "Sin conductor identificado"
+        key = (item["vehicle_number"], driver_name)
+        credit = inspection_credits.setdefault(key, {
+            "vehicle_number": item["vehicle_number"], "driver_name": driver_name, "inspections": 0,
+        })
+        credit["inspections"] += 1
     for row in data.get("defects", []):
         item = unit(row.get("vehicle_number"))
         if _text(row.get("status")).casefold() in {"open", "pending", "unresolved", "with_defects"}:
@@ -347,8 +355,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         driver["score"] = max(0.0, 100.0 - float(driver["attention_index"]))
         driver_rows.append(driver)
     driver_rows.sort(key=lambda row: (-(row["security"] + row["speeding"]), row["driver_name"]))
+    attention_units = [row for row in units if row["telemetry_available"] and row["security"] + row["speeding"] > 0]
+    units_without_gps = [row for row in units if not row["telemetry_available"]]
+    inspection_credit_rows = sorted(
+        inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
+    )
     return {
         "units": units,
+        "attention_units": attention_units,
+        "units_without_gps": units_without_gps,
+        "inspection_credits": inspection_credit_rows,
         "drivers": driver_rows,
         "behaviors": [{"label": name, "count": count} for name, count in behaviors.most_common()],
         "severity": [{"label": name, "count": count} for name, count in severity.most_common()],
@@ -449,24 +465,25 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
             f"{value:.0%}" if is_money == "percent" else f"${value:,.2f}" if is_money else f"{value:,.1f}"
         )
         dashboard.merge_range(row + 1, column, row + 2, column + 1, display, kpi_value)
-    dashboard.merge_range("B14:G14", "Unidades que requieren atención", section)
-    dashboard.merge_range("I14:M14", "Conductas más frecuentes", section)
-    ranking = analytics["units"]
+    dashboard.merge_range("B14:G14", "Unidades con GPS que requieren atención", section)
+    dashboard.merge_range("I14:M14", "Unidades sin datos GPS", section)
+    ranking = analytics["attention_units"]
     for row_index, item in enumerate(ranking, 15):
         dashboard.write(row_index, 1, row_index - 14, cell)
         dashboard.merge_range(row_index, 2, row_index, 3, item["vehicle_number"], cell)
         dashboard.write(row_index, 4, item["driver_name"] or "Sin conductor asignado", cell)
         dashboard.write(row_index, 5, item["security"] + item["speeding"], number)
-        dashboard.write(row_index, 6, item["coverage_status"], cell)
+        dashboard.write(row_index, 6, "Con datos GPS", cell)
     dashboard.write_row("B15", ["#", "Unidad", "", "Conductor", "Eventos", "Cobertura"], header)
+    no_gps_rows = analytics["units_without_gps"]
+    dashboard.write_row("I15", ["#", "Unidad", "Conductor", "", "Estado"], header)
+    for row_index, item in enumerate(no_gps_rows, 15):
+        dashboard.write(row_index, 8, row_index - 14, cell)
+        dashboard.write(row_index, 9, item["vehicle_number"], cell)
+        dashboard.merge_range(row_index, 10, row_index, 11, item["driver_name"] or "Sin conductor asignado", cell)
+        dashboard.write(row_index, 12, "Revisión manual", cell)
     behavior_rows = analytics["behaviors"][:10]
-    dashboard.write_row("I15", ["Conducta", "", "", "Eventos", "%"], header)
-    total_behaviors = sum(item["count"] for item in analytics["behaviors"]) or 1
-    for row_index, item in enumerate(behavior_rows, 15):
-        dashboard.merge_range(row_index, 8, row_index, 10, item["label"], cell)
-        dashboard.write(row_index, 11, item["count"], number)
-        dashboard.write_number(row_index, 12, item["count"] / total_behaviors, workbook.add_format({"num_format": "0.0%", "border": 1}))
-    content_end_row = 15 + max(len(ranking), len(behavior_rows), 1)
+    content_end_row = 15 + max(len(ranking), len(no_gps_rows), 1)
     chart_start_row = max(27, content_end_row + 2)
     if ranking:
         risk_chart = workbook.add_chart({"type": "bar"})
@@ -483,23 +500,17 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         risk_chart.set_y_axis({"reverse": True})
         risk_chart.set_style(10)
         dashboard.insert_chart(chart_start_row, 1, risk_chart, {"x_scale": 1.18, "y_scale": max(0.82, min(1.8, len(ranking) / 10))})
-    if behavior_rows:
-        behavior_chart = workbook.add_chart({"type": "column"})
-        behavior_chart.add_series({
-            "name": "Eventos",
-            "categories": ["Dashboard", 15, 8, 14 + len(behavior_rows), 8],
-            "values": ["Dashboard", 15, 11, 14 + len(behavior_rows), 11],
-            "fill": {"color": "#C8A96B"},
-            "border": {"none": True},
-        })
-        behavior_chart.set_title({"name": "Conductas más frecuentes"})
-        behavior_chart.set_legend({"none": True})
-        behavior_chart.set_y_axis({"major_gridlines": {"visible": False}})
-        behavior_chart.set_style(10)
-        dashboard.insert_chart(chart_start_row, 7, behavior_chart, {"x_scale": 1.18, "y_scale": 0.82})
+    dashboard.merge_range(chart_start_row, 7, chart_start_row, 12, "Inspecciones realizadas por chofer", section)
+    dashboard.write_row(chart_start_row + 1, 7, ["#", "Unidad", "", "Chofer", "", "Inspecciones"], header)
+    for offset, item in enumerate(analytics["inspection_credits"][:15], 1):
+        row_index = chart_start_row + 1 + offset
+        dashboard.write(row_index, 7, offset, cell)
+        dashboard.merge_range(row_index, 8, row_index, 9, item["vehicle_number"], cell)
+        dashboard.merge_range(row_index, 10, row_index, 11, item["driver_name"], cell)
+        dashboard.write(row_index, 12, item["inspections"], number)
     action_title = workbook.add_format({"bold": True, "font_size": 12, "font_color": "#6B1022", "bg_color": "#F7F2EC", "border": 1, "valign": "vcenter"})
     action_text = workbook.add_format({"font_size": 10, "font_color": "#29231F", "bg_color": "#FFFFFF", "border": 1, "text_wrap": True, "valign": "top"})
-    action_row = chart_start_row + max(15, int(15 * max(0.82, min(1.8, len(ranking) / 10))))
+    action_row = chart_start_row + max(18, len(analytics["inspection_credits"][:15]) + 4, int(15 * max(0.82, min(1.8, len(ranking) / 10))))
     dashboard.merge_range(action_row, 1, action_row, 12, "DECISIONES RECOMENDADAS PARA EL GERENTE", section)
     top_unit = ranking[0] if ranking else None
     top_behavior = behavior_rows[0] if behavior_rows else None
@@ -586,7 +597,7 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("Primera detección", "occurred_at"), ("Unidad", "vehicle_number"), ("Código", "code"), ("Etiqueta", "code_label"),
         ("Descripción", "description"), ("Estado", "status"), ("Ocurrencias", "occurrence_count")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Inspecciones", data.get("inspections", []), [
-        ("Fecha", "inspected_at"), ("Unidad", "vehicle_number"), ("Tipo", "inspection_type"),
+        ("Fecha", "inspected_at"), ("Unidad", "vehicle_number"), ("Chofer que inspeccionó", "driver_name"), ("Tipo", "inspection_type"),
         ("Estado", "status"), ("Rechazada", "is_rejected"), ("Odómetro km", "odometer_km")], header, cell, date_fmt, money)
     actionable_defects = [
         row for row in data.get("defects", [])
