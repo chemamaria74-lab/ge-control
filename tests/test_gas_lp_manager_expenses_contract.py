@@ -404,11 +404,14 @@ def test_supervision_expenses_show_payment_destination_and_date_filters():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
 
     assert 'id="expenseMonthFilter" type="month"' in html
-    assert 'id="expenseDateFrom" type="date"' in html
-    assert 'id="expenseDateTo" type="date"' in html
+    assert 'id="expenseSpecificDate" type="date"' in html
+    assert 'id="expenseDateFrom"' not in html and 'id="expenseDateTo"' not in html
     assert "Proveedor / folio" in html and "Se paga a" in html
     assert "supplier?.commercial_name||'Proveedor'" in script
     assert "Reembolso a persona" in script and "paymentParty(x)" in script
+    assert "scopedRows(i.items,profile)" in script
+    assert "verifyBootstrapProfile" in script
+    assert "icon-action" in script and "fa-comment-dots" in script
     assert "invoice_date_from: date | None" in route
     assert "invoice_date_to: date | None" in route
     assert 'row.get("status") == "sent_to_accountant"' in route
