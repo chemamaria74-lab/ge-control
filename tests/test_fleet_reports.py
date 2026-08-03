@@ -34,7 +34,14 @@ def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path)
             {"vehicle_number": "U-ROJA", "driver_name": "Ana", "primary_behavior": "hard_brake", "severity": "high"}
             for _ in range(3)
         ],
-        "speeding": [], "faults": [], "expenses": [], "activity": [],
+        "speeding": [],
+        "faults": [
+            {"vehicle_number": "U-ROJA", "code": "P0201", "occurrence_count": 4},
+            {"vehicle_number": "U-ROJA", "code": "P0201", "occurrence_count": 2},
+            {"vehicle_number": "U-ROJA", "code": "P0351", "occurrence_count": 1},
+        ],
+        "inspections": [{"vehicle_number": "U-ROJA", "driver_name": "Ana"}],
+        "expenses": [], "activity": [],
     }, date(2026, 7, 1), date(2026, 7, 7), "Zacatecas")
     target = tmp_path / "visual-report.xlsx"
     target.write_bytes(payload)
@@ -42,9 +49,16 @@ def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path)
 
     dashboard = workbook["Dashboard"]
     dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
-    assert "REPORTE SEMANAL DE FLOTILLA" in dashboard_values
-    assert "GERENTE: TRES DECISIONES PARA ESTA SEMANA" in dashboard_values
+    assert "INFORME EJECUTIVO · FLOTILLA 360" in dashboard_values
+    assert "Unidades con GPS" in dashboard_values
+    assert "Unidades sin datos GPS" in dashboard_values
+    assert "Inspecciones realizadas por chofer" in dashboard_values
+    assert "DECISIONES RECOMENDADAS PARA EL GERENTE" in dashboard_values
     assert "U-SIN-GPS" in dashboard_values
+    assert dashboard["O2"].value == "P0201"
+    assert dashboard["P2"].value == 6
+    assert len(dashboard._charts) == 1
+    assert dashboard._charts[0].__class__.__name__ == "DoughnutChart"
 
     follow_up = workbook["Seguimiento supervisor"]
     headers = [cell.value for cell in follow_up[7]]
