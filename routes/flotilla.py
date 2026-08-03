@@ -621,7 +621,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         if not row.get("cleared_at")
         and str(row.get("status") or "").strip().casefold() not in closed_fault_statuses
     ]
-    inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
+    inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km,driver_name"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
     selected_inspections = attach(inspections)
     inspection_vehicle = {int(row["id"]): row.get("vehicle_id") for row in selected_inspections}
     inspection_ids = list(inspection_vehicle)
@@ -842,7 +842,9 @@ def report_catalog(
                 for currency, amount in sorted(non_mxn_fuel.items())
             ],
             "analytics": {
-                "top_units": analytics["units"],
+                "top_units": analytics["attention_units"],
+                "units_without_gps": analytics["units_without_gps"],
+                "inspection_credits": analytics["inspection_credits"],
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
                 "severity": analytics["severity"],

@@ -848,6 +848,8 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
 
 @router.get("/gastos/invoices")
 def list_invoices(status: str = Query(default=""), search: str = Query(default="", max_length=100),
+                  invoice_date_from: date | None = Query(default=None),
+                  invoice_date_to: date | None = Query(default=None),
                   limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
@@ -857,6 +859,10 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
         query = query.eq("created_by_type", "manager").eq("created_by", ctx["actor_id"])
     if status:
         query = query.eq("status", status)
+    if invoice_date_from:
+        query = query.gte("invoice_date", invoice_date_from.isoformat())
+    if invoice_date_to:
+        query = query.lte("invoice_date", invoice_date_to.isoformat())
     if search.strip():
         query = query.ilike("invoice_number", f"%{search.strip()}%")
     items = query.order("created_at", desc=True).limit(limit).execute().data or []
@@ -1080,6 +1086,10 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
     if not rows:
         raise HTTPException(404, "Factura no encontrada.")
     row = rows[0]
+    # A double click or a stale browser tab must not fail after the first
+    # request already moved the expense to payments.
+    if payload.action == "accept" and row.get("status") == "sent_to_accountant":
+        return {"ok": True, "item": row, "already_applied": True}
     transitions = {
         # Aceptar significa que el gasto ya fue revisado y queda listo para pago.
         # Conservamos send_to_accountant para registros/clientes antiguos.
