@@ -325,7 +325,7 @@ def bootstrap(
             "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                          "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
             "company": profile, "groups": [], "facilities": facilities,
-            "expense_zones": _expense_zones(ctx), "vehicles": [],
+            "expense_zones": _expense_zones(ctx), "vehicles": [], "mobile_drivers": [],
         }
     vehicles = (ctx["sb"].table("fleet_vehicles")
                 .select("id,vehicle_number,current_driver_name,status")
@@ -342,11 +342,50 @@ def bootstrap(
         vehicle["group_ids"] = groups_by_vehicle.get(int(vehicle["id"]), [])
     vehicle_ids = set(groups_by_vehicle)
     vehicles = [row for row in vehicles if int(row["id"]) in vehicle_ids]
+    mobile_drivers_by_name: dict[str, dict[str, Any]] = {}
+
+    def add_mobile_driver(name: Any, vehicle_id: Any) -> None:
+        clean_name = str(name or "").strip()
+        clean_vehicle_id = int(vehicle_id or 0)
+        if not clean_name or clean_vehicle_id not in vehicle_ids:
+            return
+        key = _normalize(clean_name)
+        driver = mobile_drivers_by_name.setdefault(key, {"name": clean_name, "group_ids": set()})
+        driver["group_ids"].update(groups_by_vehicle.get(clean_vehicle_id, []))
+
+    for vehicle in vehicles:
+        add_mobile_driver(vehicle.get("current_driver_name"), vehicle.get("id"))
+    try:
+        periods = (ctx["sb"].table("fleet_driving_periods")
+                   .select("vehicle_id,driver_name")
+                   .eq("tenant_id", ctx["tenant_id"])
+                   .in_("vehicle_id", list(vehicle_ids))
+                   .order("started_at", desc=True).limit(5000).execute().data or [])
+        latest_driver_by_vehicle: dict[int, str] = {}
+        for period in periods:
+            add_mobile_driver(period.get("driver_name"), period.get("vehicle_id"))
+            period_vehicle_id = int(period.get("vehicle_id") or 0)
+            period_driver_name = str(period.get("driver_name") or "").strip()
+            if period_vehicle_id and period_driver_name and period_vehicle_id not in latest_driver_by_vehicle:
+                latest_driver_by_vehicle[period_vehicle_id] = period_driver_name
+        for vehicle in vehicles:
+            if not str(vehicle.get("current_driver_name") or "").strip():
+                vehicle["current_driver_name"] = latest_driver_by_vehicle.get(int(vehicle["id"]), "")
+    except Exception:
+        # La lista sigue mostrando los choferes actuales aunque un despliegue
+        # anterior todavía no tenga el histórico de conducción de Móvil.
+        pass
+    mobile_drivers = [
+        {"name": row["name"], "group_ids": sorted(row["group_ids"]), "source": "mobile"}
+        for row in mobile_drivers_by_name.values()
+    ]
+    mobile_drivers.sort(key=lambda row: _normalize(row["name"]))
     return {
         "identity": {"is_manager": ctx["is_manager"], "is_admin": ctx["is_admin"],
                      "name": ctx["actor_name"], "profile_id": ctx["perfil_id"]},
         "company": profile, "groups": groups, "facilities": facilities,
         "expense_zones": _expense_zones(ctx), "vehicles": vehicles,
+        "mobile_drivers": mobile_drivers,
     }
 
 
