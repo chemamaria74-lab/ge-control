@@ -42,7 +42,8 @@ def test_flotilla_has_a_dedicated_branded_login():
     assert ">Administración</button>" not in response.text
     assert "sessionStorage.setItem(FLOTILLA_ACCESS_KEY" in response.text
     assert "location.replace('/gas-lp/gerentes/inicio')" in response.text
-    assert "9 y S son distintos" in response.text
+    assert "9 y S son distintos" not in response.text
+    assert "Usuario o contraseña incorrectos." in response.text
     assert "ui-monospace" in response.text
 
 

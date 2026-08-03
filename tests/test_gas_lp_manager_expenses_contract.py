@@ -198,19 +198,22 @@ def test_expense_lists_are_server_filtered_and_bounded():
     assert ".limit(limit)" in route
 
 
-def test_manager_driver_catalog_tracks_license_expiry_and_is_preloaded():
+def test_manager_mobile_units_and_drivers_are_read_only_and_zone_scoped():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gerentes_gastos.js").read_text(encoding="utf-8")
-    migration = (ROOT / "migrations" / "gas_lp_expense_drivers_20260731.sql").read_text(encoding="utf-8")
-
-    assert '@router.get("/gastos/drivers")' in route
-    assert '@router.post("/gastos/drivers"' in route
-    assert "expires_on date not null" in migration
+    assert '"mobile_drivers": mobile_drivers' in route
+    assert 'groups_by_vehicle' in route
+    assert 'table("fleet_driving_periods")' in route
+    assert 'data-catalog="vehicles"' in html
     assert 'data-catalog="drivers"' in html
+    assert 'id="vehicleCatalogSearch"' in html
     assert 'id="driverCatalogSearch"' in html
-    assert "Promise.all([api('/drivers?limit=300')" in script
-    assert "license-expired" in script and "license-soon" in script
+    assert 'id="toggleDriverForm"' not in html
+    assert 'id="driverForm"' not in html
+    assert "b.mobile_drivers||[]" in script
+    assert "renderDriverOptions" in script
+    assert "current_driver_name" in script
 
 
 def test_manager_and_supervision_catalogs_share_the_same_interaction_pattern():
