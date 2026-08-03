@@ -68,10 +68,9 @@
         });
         const session = await readJson(response);
         if (!response.ok || !session.ok || !session.token) {
-          const detail = session.detail || 'Usuario o contraseña incorrectos.';
           throw new Error(response.status === 401
-            ? `${detail} Confirma el usuario exacto: 9 y S son distintos.`
-            : detail);
+            ? 'Usuario o contraseña incorrectos.'
+            : (session.detail || 'No fue posible iniciar sesión.'));
         }
         ['sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key => localStorage.removeItem(key));
         localStorage.setItem('sat_modulo', 'gas_lp');
