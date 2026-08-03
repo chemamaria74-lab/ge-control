@@ -280,7 +280,7 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "get_facilities" in route and '"facilities": facilities' in route
     assert 'id="directPaymentTarget"' in html and 'id="directRecipient"' in html
     assert 'data-subcontent="recipients"' in html
-    assert 'id="batchPaymentForm"' in html and "Excel para pagar" in html
+    assert 'id="batchPaymentForm"' in html and "Excel para contabilidad" in html
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
@@ -417,6 +417,23 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
     assert "state.reviewStatus==='paid'?loadPayments():loadInvoices()" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
+
+
+def test_payment_queue_can_be_safely_withdrawn_and_export_is_separated():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+
+    assert "withdraw_from_payments" in route and "withdraw_from_payments" in script
+    assert '({"sent_to_accountant"}, "pending_review")' in route
+    assert "Escribe ELIMINAR" in script and "Retirar" in script
+    assert 'supplier_ws.title = "Pagos a proveedores"' in route
+    assert 'wb.create_sheet("Reembolsos")' in route
+    assert 'wb.create_sheet("Resumen")' in route
+    assert "'X-Perfil-ID':String(activeProfile)" in script
+    assert "Generar análisis" in html
+    assert "sent_to_accountant:'Pendiente de pago'" in script
+    assert "id==='statusBars'?label(x.label):x.label" in script
 
 
 def test_company_scoped_zones_money_format_and_stale_delete_recovery():
