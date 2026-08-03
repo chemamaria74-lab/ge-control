@@ -436,15 +436,16 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     dashboard.set_column("C:D", 22); dashboard.set_column("E:F", 14)
     dashboard.set_column("G:G", 3); dashboard.set_column("H:H", 9)
     dashboard.set_column("I:J", 21); dashboard.set_column("K:L", 17); dashboard.set_column("M:M", 13)
+    dashboard.set_column("O:P", None, None, {"hidden": True})
     dashboard.set_row(0, 10)
 
+    dashboard_title = workbook.add_format({"bold": True, "font_size": 24, "font_color": "#6B1022", "valign": "vcenter"})
     white_title = workbook.add_format({"bold": True, "font_size": 24, "font_color": "#FFFFFF", "bg_color": "#7C1028", "valign": "vcenter"})
-    gold_subtitle = workbook.add_format({"bold": True, "font_size": 11, "font_color": "#F4D9A6", "bg_color": "#7C1028"})
+    gold_subtitle = workbook.add_format({"font_size": 11, "font_color": "#6F665E"})
     quick_guide = workbook.add_format({"bold": True, "font_size": 10, "font_color": "#FFFFFF", "bg_color": "#7C1028", "border": 1, "border_color": "#B95B70", "text_wrap": True, "valign": "vcenter"})
-    dashboard.merge_range("B2:J3", "REPORTE SEMANAL DE FLOTILLA", white_title)
-    dashboard.merge_range("B4:J4", f"{(group_name or 'Toda la flotilla').upper()}  ·  {start:%d/%m/%Y} al {end:%d/%m/%Y}", gold_subtitle)
-    dashboard.merge_range("K2:M4", "EMPIEZA AQUÍ\n1. Lee las alertas\n2. Asigna responsable\n3. Revisa avance", quick_guide)
-    dashboard.set_row(1, 28); dashboard.set_row(2, 28); dashboard.set_row(3, 28)
+    dashboard.merge_range("B2:M3", "INFORME EJECUTIVO · FLOTILLA 360", dashboard_title)
+    dashboard.merge_range("B4:M4", f"{(group_name or 'Toda la flotilla').upper()}  |  {start:%d/%m/%Y} al {end:%d/%m/%Y}", gold_subtitle)
+    dashboard.set_row(1, 28); dashboard.set_row(2, 28); dashboard.set_row(3, 22)
     event_total = len(data.get("driver_events", [])) + len(data.get("speeding", []))
     avg_utilization = (
         sum(row["utilization_pct"] for row in analytics["units"]) / len(analytics["units"])
@@ -470,88 +471,103 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         )
         dashboard.merge_range(7, column, 8, column + 1, display, value_format)
 
-    manager_section = workbook.add_format({"bold": True, "font_size": 15, "font_color": "#FFFFFF", "bg_color": "#7C1028", "valign": "vcenter"})
-    action_headers = [
-        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#C43B3B", "valign": "vcenter"}),
-        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#D7A43A", "valign": "vcenter"}),
-        workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#2E7D5B", "valign": "vcenter"}),
-    ]
-    action_bodies = [
-        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#FCE8E8", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
-        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#FFF3D6", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
-        workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#E6F4EC", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}),
-    ]
+    manager_section = workbook.add_format({"bold": True, "font_size": 13, "font_color": "#FFFFFF", "bg_color": "#7C1028", "valign": "vcenter"})
+    light_section = workbook.add_format({"bold": True, "font_size": 13, "font_color": "#202020", "bg_color": "#F7F3EE", "valign": "vcenter"})
+    action_headers = workbook.add_format({"bold": True, "font_color": "#6B1022", "bg_color": "#F7F3EE", "border": 1, "valign": "vcenter"})
+    action_body = workbook.add_format({"font_size": 10, "font_color": "#202020", "border": 1, "text_wrap": True, "valign": "top"})
     ranking = analytics["attention_units"]
     behavior_rows = analytics["behaviors"][:10]
     top_unit = ranking[0] if ranking else None
     top_behavior = behavior_rows[0] if behavior_rows else None
-    dashboard.merge_range("B11:M12", "GERENTE: TRES DECISIONES PARA ESTA SEMANA", manager_section)
-    action_specs = [
-        (1, 4, "1  CORREGIR LA MAYOR EXPOSICIÓN", (
-            f"Revisar {top_unit['vehicle_number']} con {top_unit['driver_name'] or 'el conductor asignado'}.\n"
-            f"Tiene {top_unit['security'] + top_unit['speeding']:,} eventos: es la unidad con mayor exposición."
-            if top_unit else "No se detectaron unidades con eventos en el periodo."
-        )),
-        (5, 8, "2  ATACAR LA CONDUCTA DOMINANTE", (
-            f"Dar retroalimentación sobre {top_behavior['label'].upper()}.\n"
-            f"Es la conducta más repetida: {top_behavior['count']:,} eventos."
-            if top_behavior else "No se detectaron conductas de seguridad en el periodo."
-        )),
-        (9, 12, "3  EXIGIR CIERRE Y EVIDENCIA", (
-            "Asignar nombre y fecha de compromiso.\n"
-            f"Dar seguimiento a {analytics['critical_high']:,} eventos críticos/altos y "
-            f"{analytics['totals']['open_defects']:,} defectos abiertos."
-        )),
-    ]
-    for index, (first_col, last_col, heading, body) in enumerate(action_specs):
-        dashboard.merge_range(12, first_col, 12, last_col, heading, action_headers[index])
-        dashboard.merge_range(13, first_col, 16, last_col, body, action_bodies[index])
 
-    light_section = workbook.add_format({"bold": True, "font_size": 13, "font_color": "#202020", "bg_color": "#F7F3EE", "valign": "vcenter"})
-    dashboard.merge_range("B19:F20", "¿QUÉ UNIDADES REQUIEREN ATENCIÓN PRIMERO?", light_section)
-    dashboard.merge_range("I19:M20", "UNIDADES SIN DATOS GPS", light_section)
-    dashboard.write_row("B21", ["PRIORIDAD", "UNIDAD", "CONDUCTOR", "EVENTOS", "NIVEL"], header)
-    ranking = analytics["attention_units"]
+    with_gps = sorted(
+        (row for row in analytics["units"] if row["telemetry_available"]),
+        key=lambda row: (-(row["security"] + row["speeding"]), row["vehicle_number"]),
+    )
+    without_gps = analytics["units_without_gps"]
+    inspection_rows = analytics["inspection_credits"]
+
+    dashboard.merge_range("B10:F10", "Unidades con GPS", section)
+    dashboard.write_row("B11", ["#", "Unidad", "Conductor", "Eventos", "Cobertura"], header)
     priority_high = workbook.add_format({"font_color": "#C43B3B", "bg_color": "#FCE8E8", "border": 1})
     priority_medium = workbook.add_format({"font_color": "#8A6200", "bg_color": "#FFF3D6", "border": 1})
     priority_low = workbook.add_format({"font_color": "#2E7D5B", "bg_color": "#E6F4EC", "border": 1})
-    for row_index, item in enumerate(ranking, 21):
+    for row_index, item in enumerate(with_gps, 11):
         events = item["security"] + item["speeding"]
-        level, level_format = ("ALTA", priority_high) if events >= 50 else (("MEDIA", priority_medium) if events >= 15 else ("BAJA", priority_low))
-        dashboard.write(row_index, 1, row_index - 20, cell)
+        dashboard.write(row_index, 1, row_index - 10, cell)
         dashboard.write(row_index, 2, item["vehicle_number"], cell)
         dashboard.write(row_index, 3, item["driver_name"] or "Sin conductor asignado", cell)
         dashboard.write(row_index, 4, events, number)
-        dashboard.write(row_index, 5, level, level_format)
-    if ranking:
-        dashboard.conditional_format(21, 4, 20 + len(ranking), 4, {"type": "data_bar", "bar_color": "#98243D"})
+        dashboard.write(row_index, 5, "Con datos GPS", cell)
+    if with_gps:
+        dashboard.conditional_format(11, 4, 10 + len(with_gps), 4, {"type": "data_bar", "bar_color": "#98243D"})
 
-    no_gps_rows = analytics["units_without_gps"]
-    dashboard.write_row("I21", ["UNIDAD", "CONDUCTOR", "ESTADO", "ACCIÓN", "PLAZO"], header)
+    dashboard.merge_range("I10:M10", "Unidades sin datos GPS", section)
+    dashboard.write_row("I11", ["#", "Unidad", "Conductor", "Estado", "Acción"], header)
     alert_cell = workbook.add_format({"bold": True, "font_color": "#202020", "bg_color": "#FCE8E8", "border": 1, "border_color": "#C43B3B", "text_wrap": True})
-    for row_index, item in enumerate(no_gps_rows, 21):
-        dashboard.write_row(row_index, 8, [item["vehicle_number"], item["driver_name"] or "Sin conductor asignado", "SIN GPS", "Revisar equipo / señal", "HOY"], alert_cell)
-    guide_row = 23 + max(len(no_gps_rows), 1)
-    dashboard.merge_range(guide_row, 8, guide_row + 5, 12, (
-        "LECTURA RÁPIDA\n\nROJO = actuar hoy\nAMARILLO = programar esta semana\n"
-        "VERDE = mantener y comprobar\n\nPara registrar responsables y fechas, abre la hoja “Seguimiento supervisor”."
-    ), workbook.add_format({"bold": True, "font_size": 11, "font_color": "#202020", "bg_color": "#F7F3EE", "border": 1, "border_color": "#DED6CF", "text_wrap": True, "valign": "vcenter"}))
+    for row_index, item in enumerate(without_gps, 11):
+        dashboard.write_row(row_index, 8, [row_index - 10, item["vehicle_number"], item["driver_name"] or "Sin conductor asignado", "Revisión manual", "Revisar GPS"], alert_cell)
 
-    coverage_notes = []
-    if not data.get("activity") or not data.get("faults"):
-        coverage_notes.append("Alguna fuente de Motive no entregó registros en este corte.")
-    if not analytics["totals"]["expense_complete"]:
-        coverage_notes.append("El gasto es parcial porque Motive Card no estuvo disponible.")
-    note_end_row = -1
-    if coverage_notes:
-        coverage_notes.append("Un dato ausente se presenta como “no disponible” y no como cero operativo.")
-        note_row = max(guide_row + 7, 23 + len(ranking))
-        dashboard.merge_range(note_row, 1, note_row + 1, 12, "Cobertura del informe: " + " ".join(coverage_notes), note)
-        note_end_row = note_row + 1
-    objective_row = max(guide_row + 7, 23 + len(ranking), note_end_row + 2, 32)
-    dashboard.merge_range(objective_row, 1, objective_row + 2, 12, "OBJETIVO DE LA SEMANA  ·  Que cada alerta tenga una persona responsable, una fecha y evidencia de cierre.", manager_section)
-    dashboard.set_row(objective_row, 28); dashboard.set_row(objective_row + 1, 28); dashboard.set_row(objective_row + 2, 28)
-    dashboard.print_area(1, 1, objective_row + 2, 12)
+    detail_end = max(14, 10 + len(with_gps), 10 + len(without_gps))
+    analysis_row = detail_end + 3
+    chart_end_row = analysis_row + 18
+
+    dashboard.merge_range(analysis_row, 8, analysis_row, 12, "Inspecciones realizadas por chofer", section)
+    dashboard.write_row(analysis_row + 1, 8, ["#", "Unidad", "Chofer", "Tipo", "Inspecciones"], header)
+    if inspection_rows:
+        for row_index, item in enumerate(inspection_rows, analysis_row + 2):
+            dashboard.write_row(row_index, 8, [row_index - analysis_row - 1, item["vehicle_number"], item["driver_name"], "Registrada", item["inspections"]], cell)
+    else:
+        empty_inspections = workbook.add_format({"italic": True, "font_color": "#6F665E", "bg_color": "#F7F3EE", "border": 1, "align": "center", "valign": "vcenter"})
+        dashboard.merge_range(analysis_row + 2, 8, analysis_row + 4, 12, "No se registraron inspecciones en el periodo.", empty_inspections)
+
+    pid_counts: Counter[str] = Counter()
+    for fault in data.get("faults", []):
+        pid = _text(fault.get("code") or fault.get("code_label")) or "Sin código"
+        pid_counts[pid] += int(_amount(fault.get("occurrence_count")) or 1)
+    pid_rows = pid_counts.most_common()
+    dashboard.write_row("O1", ["PID", "Incidencias"], header)
+    for row_index, (pid, count) in enumerate(pid_rows, 1):
+        dashboard.write_row(row_index, 14, [pid, count], cell)
+    if pid_rows:
+        chart = workbook.add_chart({"type": "doughnut"})
+        chart.add_series({
+            "name": "Incidencias",
+            "categories": ["Dashboard", 1, 14, len(pid_rows), 14],
+            "values": ["Dashboard", 1, 15, len(pid_rows), 15],
+            "data_labels": {"percentage": True, "leader_lines": True},
+        })
+        chart.set_title({"name": "Incidencias por código PID"})
+        chart.set_legend({"position": "right"})
+        chart.set_hole_size(58)
+        chart.set_style(10)
+        chart.set_size({"width": 650, "height": 360})
+        chart.set_chartarea({"border": {"none": True}})
+        dashboard.insert_chart(analysis_row, 1, chart, {"x_offset": 4, "y_offset": 4})
+    else:
+        empty_pid = workbook.add_format({"italic": True, "font_color": "#6F665E", "bg_color": "#F7F3EE", "border": 1, "align": "center", "valign": "vcenter"})
+        dashboard.merge_range(analysis_row, 1, analysis_row + 5, 6, "Sin incidencias PID registradas en el periodo.", empty_pid)
+
+    decisions_row = chart_end_row + 2
+    dashboard.merge_range(decisions_row, 1, decisions_row, 12, "DECISIONES RECOMENDADAS PARA EL GERENTE", manager_section)
+    decision_specs = [
+        (1, 4, "1 · CORREGIR LA MAYOR EXPOSICIÓN", (
+            f"Revisar {top_unit['vehicle_number']}: concentra {top_unit['security'] + top_unit['speeding']:,} eventos en el periodo."
+            if top_unit else "No se detectaron unidades con eventos en el periodo."
+        )),
+        (5, 8, "2 · ATACAR LA CONDUCTA DOMINANTE", (
+            f"Aplicar retroalimentación sobre {top_behavior['label']}, con {top_behavior['count']:,} eventos."
+            if top_behavior else "No se detectaron conductas de seguridad en el periodo."
+        )),
+        (9, 12, "3 · REVISAR EL PID DOMINANTE", (
+            f"Priorizar {pid_rows[0][0]}, que concentra {pid_rows[0][1]:,} incidencias, y documentar su cierre."
+            if pid_rows else "No se registraron incidencias PID en el periodo."
+        )),
+    ]
+    for first_col, last_col, heading, body in decision_specs:
+        dashboard.merge_range(decisions_row + 1, first_col, decisions_row + 1, last_col, heading, action_headers)
+        dashboard.merge_range(decisions_row + 2, first_col, decisions_row + 4, last_col, body, action_body)
+    dashboard.print_area(1, 1, decisions_row + 4, 12)
 
     supervisor = workbook.add_worksheet("Seguimiento supervisor")
     supervisor.hide_gridlines(2); supervisor.set_tab_color("#D7A43A")
