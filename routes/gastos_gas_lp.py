@@ -173,7 +173,7 @@ def _validate_supplier_fields(rfc: str, email: str) -> tuple[str, str]:
     return clean_rfc, clean_email
 
 
-def _ctx(authorization: str, fleet_access: str, token: str) -> dict[str, Any]:
+def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str = "") -> dict[str, Any]:
     sb = get_supabase_admin()
     if fleet_access:
         ctx = _internal_fleet_context(fleet_access)
@@ -183,10 +183,14 @@ def _ctx(authorization: str, fleet_access: str, token: str) -> dict[str, Any]:
         ctx["actor_name"] = ctx.get("display_name") or "Gerente"
         return ctx
     if token:
-        requested_profile_id = None
+        requested_profile_id = int(profile_header) if str(profile_header).isdigit() else None
         if "~" in token:
             token, raw_profile_id = token.rsplit("~", 1)
-            requested_profile_id = int(raw_profile_id) if raw_profile_id.isdigit() else None
+            # Compatibility for sessions opened by an older portal build. The
+            # explicit profile header is authoritative in the current contract.
+            if requested_profile_id is None:
+                requested_profile_id = int(raw_profile_id) if raw_profile_id.isdigit() else None
+            token = re.sub(r"(?:~\d+)+$", "", token)
         session_ctx = _gas_lp_conciliacion_context(token, write=True, perfil_id=requested_profile_id)
         user = session_ctx["user"]
         if str(user.get("role") or "").lower() not in {"conciliacion", "admin"}:
@@ -315,8 +319,9 @@ def _send_payment_notification(ctx: dict[str, Any], invoice: dict[str, Any]) -> 
 def bootstrap(
     token: str = Query(default=""), authorization: str = Header(default=""),
     x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+    x_perfil_id: str = Header(default="", alias="X-Perfil-ID"),
 ):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     profile = _profile(ctx)
     facilities = _profile_facilities(ctx, profile)
     groups = _profile_expense_groups(ctx)
@@ -392,23 +397,26 @@ def bootstrap(
 @router.get("/gastos/concepts")
 def list_concepts(limit: int = Query(default=300, ge=1, le=500),
                   token: str = Query(default=""), authorization: str = Header(default=""),
-                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     return {"items": _base_query(ctx, "gas_lp_expense_concepts").order("name").limit(limit).execute().data or []}
 
 
 @router.get("/gastos/drivers")
 def list_drivers(limit: int = Query(default=300, ge=1, le=500),
                  token: str = Query(default=""), authorization: str = Header(default=""),
-                 x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     return {"items": _base_query(ctx, "gas_lp_expense_drivers").order("name").limit(limit).execute().data or []}
 
 
 @router.post("/gastos/drivers", status_code=201)
 def create_driver(payload: DriverCreate, token: str = Query(default=""), authorization: str = Header(default=""),
-                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if payload.issued_on and payload.expires_on < payload.issued_on:
         raise HTTPException(400, "La vigencia no puede ser anterior a la fecha de expedición.")
     normalized = _normalize(payload.name)
@@ -429,8 +437,9 @@ def create_driver(payload: DriverCreate, token: str = Query(default=""), authori
 
 @router.post("/gastos/concepts", status_code=201)
 def create_concept(payload: ConceptCreate, token: str = Query(default=""), authorization: str = Header(default=""),
-                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     normalized = _normalize(payload.name)
     existing = (_base_query(ctx, "gas_lp_expense_concepts").eq("normalized_name", normalized)
                 .limit(1).execute().data or [])
@@ -448,8 +457,9 @@ def create_concept(payload: ConceptCreate, token: str = Query(default=""), autho
 @router.put("/gastos/concepts/{concept_id}")
 def update_concept(concept_id: int, payload: ConceptUpdate, token: str = Query(default=""),
                    authorization: str = Header(default=""),
-                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     rows = _base_query(ctx, "gas_lp_expense_concepts").eq("id", concept_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Concepto no encontrado.")
@@ -468,15 +478,17 @@ def update_concept(concept_id: int, payload: ConceptUpdate, token: str = Query(d
 @router.get("/gastos/suppliers")
 def list_suppliers(limit: int = Query(default=300, ge=1, le=500),
                    token: str = Query(default=""), authorization: str = Header(default=""),
-                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     return {"items": _base_query(ctx, "gas_lp_expense_suppliers").order("commercial_name").limit(limit).execute().data or []}
 
 
 @router.post("/gastos/suppliers", status_code=201)
 def create_supplier(payload: SupplierCreate, token: str = Query(default=""), authorization: str = Header(default=""),
-                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, payload.payment_email)
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
@@ -496,8 +508,9 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
 @router.post("/gastos/suppliers/{supplier_id}/review")
 def review_supplier(supplier_id: int, payload: SupplierReview, token: str = Query(default=""),
                     authorization: str = Header(default=""),
-                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo la asistente de gastos puede validar proveedores.")
     rows = _base_query(ctx, "gas_lp_expense_suppliers").eq("id", supplier_id).limit(1).execute().data or []
@@ -517,8 +530,9 @@ def review_supplier(supplier_id: int, payload: SupplierReview, token: str = Quer
 @router.put("/gastos/suppliers/{supplier_id}")
 def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Query(default=""),
                     authorization: str = Header(default=""),
-                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     rows = _base_query(ctx, "gas_lp_expense_suppliers").eq("id", supplier_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Proveedor no encontrado.")
@@ -546,16 +560,18 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
 @router.get("/gastos/reimbursement-recipients")
 def list_reimbursement_recipients(limit: int = Query(default=300, ge=1, le=500),
                                   token: str = Query(default=""), authorization: str = Header(default=""),
-                                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     return {"items": _base_query(ctx, "gas_lp_expense_recipients").order("name").limit(limit).execute().data or []}
 
 
 @router.post("/gastos/reimbursement-recipients", status_code=201)
 def create_reimbursement_recipient(payload: ReimbursementRecipientCreate, token: str = Query(default=""),
                                    authorization: str = Header(default=""),
-                                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     _, clean_email = _validate_supplier_fields("", payload.email)
     clabe = re.sub(r"\D", "", payload.clabe)
     if clabe and len(clabe) != 18:
@@ -578,8 +594,9 @@ def create_reimbursement_recipient(payload: ReimbursementRecipientCreate, token:
 @router.put("/gastos/reimbursement-recipients/{recipient_id}")
 def update_reimbursement_recipient(recipient_id: int, payload: ReimbursementRecipientUpdate,
                                    token: str = Query(default=""), authorization: str = Header(default=""),
-                                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Supervisión de gastos administra personas a reembolsar.")
     rows = _base_query(ctx, "gas_lp_expense_recipients").eq("id", recipient_id).limit(1).execute().data or []
@@ -606,16 +623,18 @@ def update_reimbursement_recipient(recipient_id: int, payload: ReimbursementReci
 
 @router.get("/gastos/expense-zones")
 def list_expense_zones(token: str = Query(default=""), authorization: str = Header(default=""),
-                       x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     return {"items": _base_query(ctx, "gas_lp_expense_zones").order("name").execute().data or []}
 
 
 @router.post("/gastos/expense-zones", status_code=201)
 def create_expense_zone(payload: ExpenseZoneCreate, token: str = Query(default=""),
                         authorization: str = Header(default=""),
-                        x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Supervisión de gastos puede agregar zonas internas.")
     normalized = _normalize(payload.name)
@@ -634,8 +653,9 @@ def create_expense_zone(payload: ExpenseZoneCreate, token: str = Query(default="
 def list_vouchers(status: str = Query(default=""), search: str = Query(default="", max_length=80),
                   limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
-                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     query = _base_query(ctx, "gas_lp_expense_vouchers")
     if ctx["is_manager"]:
         query = query.eq("created_by_internal_user_id", int(ctx["actor_id"]))
@@ -648,8 +668,9 @@ def list_vouchers(status: str = Query(default=""), search: str = Query(default="
 
 @router.post("/gastos/vouchers", status_code=201)
 def create_voucher(payload: VoucherCreate, token: str = Query(default=""), authorization: str = Header(default=""),
-                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_manager"]:
         raise HTTPException(403, "Los vales los genera un gerente de zona.")
     _allowed_group(ctx, payload.group_id)
@@ -705,8 +726,9 @@ def _manager_voucher(ctx: dict[str, Any], voucher_id: int) -> dict[str, Any]:
 @router.put("/gastos/vouchers/{voucher_id}/amount")
 def set_voucher_amount(voucher_id: int, payload: VoucherAmount, token: str = Query(default=""),
                        authorization: str = Header(default=""),
-                       x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     row = _manager_voucher(ctx, voucher_id)
     if row["status"] not in {"amount_pending", "ready_to_invoice"}:
         raise HTTPException(409, "El monto ya no puede modificarse.")
@@ -719,8 +741,9 @@ def set_voucher_amount(voucher_id: int, payload: VoucherAmount, token: str = Que
 @router.post("/gastos/vouchers/{voucher_id}/cancel")
 def cancel_voucher(voucher_id: int, payload: CancelPayload, token: str = Query(default=""),
                    authorization: str = Header(default=""),
-                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     row = _manager_voucher(ctx, voucher_id)
     if row["status"] == "invoiced":
         raise HTTPException(409, "Un vale facturado no puede cancelarse.")
@@ -735,8 +758,9 @@ def cancel_voucher(voucher_id: int, payload: CancelPayload, token: str = Query(d
 
 @router.get("/gastos/vouchers/{voucher_id}/print")
 def print_voucher(voucher_id: int, token: str = Query(default=""), authorization: str = Header(default=""),
-                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     row = _manager_voucher(ctx, voucher_id)
     profile = _profile(ctx)
     suppliers = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", row["supplier_id"]).limit(1).execute().data or [{}])
@@ -789,8 +813,9 @@ def print_voucher(voucher_id: int, token: str = Query(default=""), authorization
 @router.post("/gastos/invoices/from-vouchers", status_code=201)
 def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Query(default=""),
                                  authorization: str = Header(default=""),
-                                 x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     rows_query = _base_query(ctx, "gas_lp_expense_vouchers").in_("id", payload.voucher_ids)
     if ctx["is_manager"]:
         rows_query = rows_query.eq("created_by_internal_user_id", int(ctx["actor_id"]))
@@ -834,8 +859,9 @@ def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Que
 @router.post("/gastos/invoices/direct", status_code=201)
 def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(default=""),
                           authorization: str = Header(default=""),
-                          x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede registrar gastos directos.")
     if payload.payment_target == "reimbursement" and not payload.reimbursement_recipient_id:
@@ -891,8 +917,9 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
                   invoice_date_to: date | None = Query(default=None),
                   limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
-                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     query = _base_query(ctx, "gas_lp_expense_invoices")
     if ctx["is_manager"]:
         query = query.eq("created_by_type", "manager").eq("created_by", ctx["actor_id"])
@@ -944,8 +971,9 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
 @router.post("/gastos/payments", status_code=201)
 def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(default=""),
                            authorization: str = Header(default=""),
-                           x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede registrar pagos.")
     allocation_map = {int(row.invoice_id): round(float(row.amount_mxn), 2) for row in payload.invoice_allocations}
@@ -1022,8 +1050,9 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
 @router.get("/gastos/payments")
 def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                           authorization: str = Header(default=""),
-                          x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede consultar pagos.")
     payments = (_base_query(ctx, "gas_lp_expense_payments")
@@ -1054,12 +1083,13 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
 
 @router.get("/gastos/payments/export.xlsx")
 def export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
-                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
-    ctx = _ctx(authorization, x_flotilla_access, token)
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     invoices = (_base_query(ctx, "gas_lp_expense_invoices")
                 .in_("status", ["accepted", "sent_to_accountant"])
                 .order("invoice_date", desc=True).execute().data or [])
@@ -1117,8 +1147,9 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
 @router.post("/gastos/invoices/{invoice_id}/transition")
 def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str = Query(default=""),
                        authorization: str = Header(default=""),
-                       x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo la asistente de gastos administra la factura.")
     rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
@@ -1168,8 +1199,9 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
 @router.delete("/gastos/invoices/{invoice_id}")
 def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
                           authorization: str = Header(default=""),
-                          x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo la asistente de gastos puede eliminar una captura.")
     rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
@@ -1197,8 +1229,9 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
 
 @router.post("/gastos/invoices/{invoice_id}/payment-email")
 def resend_payment_email(invoice_id: int, token: str = Query(default=""), authorization: str = Header(default=""),
-                         x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede enviar esta notificación.")
     rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
@@ -1214,8 +1247,9 @@ def resend_payment_email(invoice_id: int, token: str = Query(default=""), author
 @router.put("/gastos/invoices/{invoice_id}/correct")
 def correct_observed_invoice(invoice_id: int, payload: InvoiceCorrection, token: str = Query(default=""),
                              authorization: str = Header(default=""),
-                             x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_manager"]:
         raise HTTPException(403, "La corrección corresponde al gerente.")
     rows = (_base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id)
@@ -1247,8 +1281,9 @@ def correct_observed_invoice(invoice_id: int, payload: InvoiceCorrection, token:
 
 @router.get("/gastos/analytics")
 def analytics(token: str = Query(default=""), authorization: str = Header(default=""),
-              x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access")):
-    ctx = _ctx(authorization, x_flotilla_access, token)
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     invoices = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
     active_invoices = [
         row for row in invoices if row.get("status") not in {"rejected", "cancelled"}
