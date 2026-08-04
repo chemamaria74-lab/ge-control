@@ -159,6 +159,18 @@ def behavior_label(value: Any) -> str:
     return BEHAVIOR_LABELS.get(key, raw.replace("_", " ").strip().capitalize() or "Sin clasificar")
 
 
+_CLOSED_STATUSES = {"closed", "cleared", "resolved", "inactive", "dismissed", "rejected"}
+_OPEN_DEFECT_STATUSES = {"open", "pending", "unresolved", "with_defects"}
+
+
+def _is_open_fault(row: dict[str, Any]) -> bool:
+    return not row.get("cleared_at") and _text(row.get("status")).casefold() not in _CLOSED_STATUSES
+
+
+def _is_open_defect(row: dict[str, Any]) -> bool:
+    return not row.get("resolved_at") and _text(row.get("status")).casefold() in _OPEN_DEFECT_STATUSES
+
+
 def training_recommendation(behavior: str) -> str:
     normalized = _text(behavior).casefold()
     recommendations = {
@@ -204,6 +216,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             "active_days": set(), "inspections": 0, "open_defects": 0,
             "overdue_defects": 0, "score": None, "attention_index": 0,
             "utilization_pct": None, "engine_hours_available": False,
+            "telemetry_observed": False,
             "telemetry_available": False, "coverage_status": "Sin datos GPS / revisión manual",
         })
 
@@ -226,6 +239,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     # event feed omits driver_name. Resolve it before attributing safety events.
     for row in data.get("activity", []):
         item = unit(row.get("vehicle_number"))
+        item["telemetry_observed"] = True
         item["driver_name"] = item["driver_name"] or _text(row.get("driver_name"))
 
     for row in data.get("driver_events", []):
@@ -267,7 +281,8 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         if day:
             daily[day] += 1
     for row in data.get("faults", []):
-        unit(row.get("vehicle_number"))["faults"] += int(row.get("occurrence_count") or 1)
+        if _is_open_fault(row):
+            unit(row.get("vehicle_number"))["faults"] += int(row.get("occurrence_count") or 1)
     for row in data.get("expenses", []):
         item = unit(row.get("vehicle_number"))
         item["expense_mxn"] += float(row.get("amount_mxn") or 0)
@@ -296,12 +311,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             item["active_days"].add(day)
     for row in data.get("metrics", []):
         item = unit(row.get("vehicle_number"))
+        # Una muestra diaria válida prueba cobertura aunque el vehículo haya
+        # permanecido detenido y sus contadores sean cero.
+        item["telemetry_observed"] = True
         if not has_mileage_rollup:
             item["distance_km"] += float(row.get("distance_km") or 0)
         if not has_mileage_rollup and float(row.get("distance_km") or 0) > 0:
             item["active_days"].add(_text(row.get("metric_date")))
     for row in data.get("utilization", []):
         item = unit(row.get("vehicle_number"))
+        item["telemetry_observed"] = True
         item["engine_hours"] += float(row.get("engine_hours") or 0)
         item["engine_hours_available"] = True
         item["liters"] += float(row.get("fuel_consumed_liters") or 0)
@@ -321,7 +340,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         driver(driver_name, item["vehicle_number"])["inspections"] += 1
     for row in data.get("defects", []):
         item = unit(row.get("vehicle_number"))
-        if _text(row.get("status")).casefold() in {"open", "pending", "unresolved", "with_defects"}:
+        if _is_open_defect(row):
             item["open_defects"] += 1
             if bool(row.get("is_overdue")):
                 item["overdue_defects"] += 1
@@ -337,7 +356,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         if item["utilization_pct"] is None:
             item["utilization_pct"] = min(item["active_days"] / period_days, 1.0)
         item["telemetry_available"] = bool(
-            item["security"] or item["speeding"] or item["distance_km"] > 0
+            item["telemetry_observed"] or item["security"] or item["speeding"] or item["distance_km"] > 0
             or item["engine_hours_available"] or item["active_days"]
         )
         item["coverage_status"] = "Con datos GPS" if item["telemetry_available"] else "Sin datos GPS / revisión manual"
@@ -510,7 +529,7 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("EVENTOS TOTALES", event_total, False),
         ("CRÍTICOS / ALTOS", analytics["critical_high"], False),
         ("INSPECCIONES", analytics["totals"]["inspections"], False),
-        ("INCIDENCIAS MECÁNICAS", sum(row["faults"] + row["open_defects"] for row in analytics["units"]), False),
+        ("UNIDADES SIN DATOS GPS", analytics["totals"]["vehicles_without_gps"], False),
     ]
     kpi_backgrounds = ["#E6F4EC", "#FCE8E8", "#F7F3EE", "#FCE8E8", "#E6F4EC", "#FFF3D6"]
     kpi_accents = ["#2E7D5B", "#C43B3B", "#7C1028", "#C43B3B", "#2E7D5B", "#D7A43A"]
@@ -532,14 +551,11 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
     behavior_rows = analytics["behaviors"][:10]
     top_driver = ranking[0] if ranking else None
     top_behavior = behavior_rows[0] if behavior_rows else None
-    mechanical_rows = sorted(
-        (row for row in analytics["units"] if row["faults"] or row["open_defects"]),
-        key=lambda row: (-(row["faults"] + row["open_defects"]), row["vehicle_number"]),
-    )
+    no_gps_rows = analytics["units_without_gps"]
     inspection_rows = analytics["inspection_credits"]
 
     dashboard.merge_range("B10:G10", "Choferes que requieren capacitación", section)
-    dashboard.write_row("B11", ["#", "Chofer", "Unidad(es)", "Eventos", "Conducta principal", "Prioridad"], header)
+    dashboard.write_row("B11", ["#", "Chofer", "Eventos", "Conducta principal", "Prioridad", "Capacitación"], header)
     priority_high = workbook.add_format({"font_color": "#C43B3B", "bg_color": "#FCE8E8", "border": 1})
     priority_medium = workbook.add_format({"font_color": "#8A6200", "bg_color": "#FFF3D6", "border": 1})
     priority_low = workbook.add_format({"font_color": "#2E7D5B", "bg_color": "#E6F4EC", "border": 1})
@@ -547,54 +563,56 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         events = item["security"] + item["speeding"]
         dashboard.write(row_index, 1, row_index - 10, cell)
         dashboard.write(row_index, 2, item["driver_name"], cell)
-        dashboard.write(row_index, 3, item["vehicles"] or "Sin unidad identificada", cell)
-        dashboard.write(row_index, 4, events, number)
-        dashboard.write(row_index, 5, item["top_behavior"], cell)
+        dashboard.write(row_index, 3, events, number)
+        dashboard.write(row_index, 4, item["top_behavior"], cell)
         priority_format = priority_high if item["priority"].startswith("ALTA") else priority_medium if item["priority"].startswith("MEDIA") else priority_low
-        dashboard.write(row_index, 6, item["priority"], priority_format)
+        dashboard.write(row_index, 5, item["priority"], priority_format)
+        dashboard.write(row_index, 6, item["training"], cell)
     if ranking:
-        dashboard.conditional_format(11, 4, 10 + len(ranking), 4, {"type": "data_bar", "bar_color": "#98243D"})
+        dashboard.conditional_format(11, 3, 10 + len(ranking), 3, {"type": "data_bar", "bar_color": "#98243D"})
     else:
         dashboard.merge_range("B12:G14", "No se detectaron choferes con eventos de conducción en el periodo.", light_section)
 
-    dashboard.merge_range("I10:M10", "Unidades con alerta mecánica", section)
-    dashboard.write_row("I11", ["#", "Unidad", "PID / fallas", "Defectos", "Acción"], header)
+    dashboard.merge_range("I10:M10", "Unidades sin datos GPS", section)
+    dashboard.write_row("I11", ["#", "Unidad", "Chofer asignado", "Cobertura", "Acción"], header)
     alert_cell = workbook.add_format({"bold": True, "font_color": "#202020", "bg_color": "#FCE8E8", "border": 1, "border_color": "#C43B3B", "text_wrap": True})
-    for row_index, item in enumerate(mechanical_rows, 11):
-        dashboard.write_row(row_index, 8, [row_index - 10, item["vehicle_number"], item["faults"], item["open_defects"], "Diagnosticar y documentar cierre"], alert_cell)
-    if not mechanical_rows:
-        dashboard.merge_range("I12:M14", "No se detectaron fallas mecánicas ni defectos abiertos en el periodo.", light_section)
+    for row_index, item in enumerate(no_gps_rows, 11):
+        dashboard.write_row(row_index, 8, [row_index - 10, item["vehicle_number"], item["driver_name"] or "Sin chofer asignado", "Sin datos GPS", "Revisar dispositivo / asignación"], alert_cell)
+    if not no_gps_rows:
+        dashboard.merge_range("I12:M14", "Todas las unidades cuentan con datos GPS en el periodo.", light_section)
 
-    detail_end = max(14, 10 + len(ranking), 10 + len(mechanical_rows))
+    detail_end = max(14, 10 + len(ranking), 10 + len(no_gps_rows))
     analysis_row = detail_end + 3
     chart_end_row = analysis_row + 18
 
-    dashboard.merge_range(analysis_row, 8, analysis_row, 12, "Inspecciones realizadas por chofer", section)
-    dashboard.write_row(analysis_row + 1, 8, ["#", "Unidad", "Chofer", "Tipo", "Inspecciones"], header)
+    dashboard.merge_range(analysis_row, 8, analysis_row, 12, "Choferes que realizaron inspecciones", section)
+    dashboard.write_row(analysis_row + 1, 8, ["#", "Chofer que inspeccionó", "Unidad inspeccionada", "Tipo", "Inspecciones"], header)
     if inspection_rows:
         for row_index, item in enumerate(inspection_rows, analysis_row + 2):
-            dashboard.write_row(row_index, 8, [row_index - analysis_row - 1, item["vehicle_number"], item["driver_name"], "Registrada", item["inspections"]], cell)
+            dashboard.write_row(row_index, 8, [row_index - analysis_row - 1, item["driver_name"], item["vehicle_number"], "Registrada", item["inspections"]], cell)
     else:
         empty_inspections = workbook.add_format({"italic": True, "font_color": "#6F665E", "bg_color": "#F7F3EE", "border": 1, "align": "center", "valign": "vcenter"})
         dashboard.merge_range(analysis_row + 2, 8, analysis_row + 4, 12, "No se registraron inspecciones en el periodo.", empty_inspections)
 
+    open_faults = [row for row in data.get("faults", []) if _is_open_fault(row)]
     pid_counts: Counter[str] = Counter()
-    for fault in data.get("faults", []):
+    for fault in open_faults:
         pid = _text(fault.get("code") or fault.get("code_label")) or "Sin código"
         pid_counts[pid] += int(_amount(fault.get("occurrence_count")) or 1)
     pid_rows = pid_counts.most_common()
-    dashboard.write_row("O1", ["PID", "Incidencias"], header)
-    for row_index, (pid, count) in enumerate(pid_rows, 1):
-        dashboard.write_row(row_index, 14, [pid, count], cell)
-    if pid_rows:
+    behavior_chart_rows = analytics["behaviors"][:10]
+    dashboard.write_row("O1", ["Conducta", "Eventos"], header)
+    for row_index, behavior in enumerate(behavior_chart_rows, 1):
+        dashboard.write_row(row_index, 14, [behavior["label"], behavior["count"]], cell)
+    if behavior_chart_rows:
         chart = workbook.add_chart({"type": "doughnut"})
         chart.add_series({
-            "name": "Incidencias",
-            "categories": ["Dashboard", 1, 14, len(pid_rows), 14],
-            "values": ["Dashboard", 1, 15, len(pid_rows), 15],
+            "name": "Eventos por conducta",
+            "categories": ["Dashboard", 1, 14, len(behavior_chart_rows), 14],
+            "values": ["Dashboard", 1, 15, len(behavior_chart_rows), 15],
             "data_labels": {"percentage": True, "leader_lines": True},
         })
-        chart.set_title({"name": "Incidencias por código PID"})
+        chart.set_title({"name": "Conductas de manejo registradas"})
         chart.set_legend({"position": "right"})
         chart.set_hole_size(58)
         chart.set_style(10)
@@ -603,7 +621,7 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         dashboard.insert_chart(analysis_row, 1, chart, {"x_offset": 4, "y_offset": 4})
     else:
         empty_pid = workbook.add_format({"italic": True, "font_color": "#6F665E", "bg_color": "#F7F3EE", "border": 1, "align": "center", "valign": "vcenter"})
-        dashboard.merge_range(analysis_row, 1, analysis_row + 5, 6, "Sin incidencias PID registradas en el periodo.", empty_pid)
+        dashboard.merge_range(analysis_row, 1, analysis_row + 5, 6, "Sin conductas de manejo registradas en el periodo.", empty_pid)
 
     decisions_row = chart_end_row + 2
     dashboard.merge_range(decisions_row, 1, decisions_row, 12, "DECISIONES RECOMENDADAS PARA EL GERENTE", manager_section)
@@ -616,9 +634,9 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
             f"Aplicar retroalimentación sobre {top_behavior['label']}, con {top_behavior['count']:,} eventos."
             if top_behavior else "No se detectaron conductas de seguridad en el periodo."
         )),
-        (9, 12, "3 · SEPARAR CONDUCCIÓN DE MECÁNICA", (
-            f"Revisar {pid_rows[0][0]}, que concentra {pid_rows[0][1]:,} incidencias mecánicas, sin atribuirlas al chofer."
-            if pid_rows else "No se registraron incidencias PID en el periodo."
+        (9, 12, "3 · SEPARAR CONDUCCIÓN DE DIAGNÓSTICO", (
+            f"Validar {pid_rows[0][0]}, con {pid_rows[0][1]:,} ocurrencias de diagnóstico, sin presentarlas como fallas mecánicas confirmadas ni atribuirlas al chofer."
+            if pid_rows else "No se registraron códigos PID en el periodo."
         )),
     ]
     for first_col, last_col, heading, body in decision_specs:
@@ -626,77 +644,34 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         dashboard.merge_range(decisions_row + 2, first_col, decisions_row + 4, last_col, body, action_body)
     dashboard.print_area(1, 1, decisions_row + 4, 12)
 
-    supervisor = workbook.add_worksheet("Seguimiento supervisor")
-    supervisor.hide_gridlines(2); supervisor.set_tab_color("#D7A43A")
-    supervisor.set_landscape(); supervisor.fit_to_pages(1, 0); supervisor.freeze_panes(7, 0)
-    supervisor.set_column("A:A", 4); supervisor.set_column("B:B", 26); supervisor.set_column("C:C", 24)
-    supervisor.set_column("D:G", 12); supervisor.set_column("H:H", 42); supervisor.set_column("I:I", 22)
-    supervisor.set_column("E:E", 20)
-    supervisor.set_column("J:J", 18); supervisor.set_column("K:K", 15); supervisor.set_column("L:L", 14); supervisor.set_column("M:M", 28)
-    supervisor.merge_range("B2:I3", "SEGUIMIENTO DE CHOFERES", white_title)
-    supervisor.merge_range("J2:M3", "USO: filtra PRIORIDAD, programa capacitación y registra evidencia.", quick_guide)
-    supervisor.merge_range("B5:M5", "Este seguimiento evalúa conductas del chofer. Las fallas mecánicas permanecen separadas por unidad.", light_section)
-    follow_headers = ["#", "CHOFER", "UNIDAD(ES)", "EVENTOS", "CONDUCTA PRINCIPAL", "CRÍTICOS", "INSPECCIONES", "CAPACITACIÓN / ACCIÓN", "PRIORIDAD", "RESPONSABLE", "FECHA LÍMITE", "ESTADO", "EVIDENCIA / NOTA"]
-    supervisor.write_row(6, 0, follow_headers, header)
-    supervisor.set_row(6, 38)
-    status_format = workbook.add_format({"font_color": "#C43B3B", "bg_color": "#FCE8E8", "border": 1})
-    for row_index, item in enumerate(analytics["drivers"], 7):
-        events = item["security"] + item["speeding"]
-        if item["priority"].startswith("ALTA"):
-            priority, priority_format = "ROJO · CAPACITAR YA", priority_high
-        elif item["priority"].startswith("MEDIA"):
-            priority, priority_format = "AMARILLO · SEMANA", priority_medium
-        elif events:
-            priority, priority_format = "VERDE · RETROALIMENTAR", priority_low
-        else:
-            priority, priority_format = "VERDE · SIN EVENTOS", priority_low
-        action = item["training"] if events else (
-            "Reconocer cumplimiento de inspección" if item["inspections"] else "Mantener monitoreo"
-        )
-        supervisor.write_row(row_index, 0, [
-            row_index - 6, item["driver_name"], item["vehicles"] or "Sin unidad identificada",
-            events, item["top_behavior"], item["critical_high"], item["inspections"], action,
-        ], cell)
-        supervisor.write(row_index, 8, priority, priority_format)
-        supervisor.write_blank(row_index, 9, None, cell); supervisor.write_blank(row_index, 10, None, date_fmt)
-        supervisor.write(row_index, 11, "PENDIENTE", status_format); supervisor.write_blank(row_index, 12, None, cell)
-        supervisor.set_row(row_index, 32)
-    last_supervisor_row = max(7, 6 + len(analytics["drivers"]))
-    supervisor.autofilter(6, 0, last_supervisor_row, 12)
-    if analytics["drivers"]:
-        supervisor.data_validation(7, 11, last_supervisor_row, 11, {"validate": "list", "source": ["PENDIENTE", "EN PROCESO", "CERRADO"]})
-        supervisor.conditional_format(7, 11, last_supervisor_row, 11, {"type": "text", "criteria": "containing", "value": "EN PROCESO", "format": priority_medium})
-        supervisor.conditional_format(7, 11, last_supervisor_row, 11, {"type": "text", "criteria": "containing", "value": "CERRADO", "format": priority_low})
-    supervisor.print_area(0, 0, last_supervisor_row, 12)
-
     driver_summary = workbook.add_worksheet("Resumen por chofer")
     driver_summary.hide_gridlines(2); driver_summary.set_landscape(); driver_summary.fit_to_pages(1, 0)
     driver_summary.freeze_panes(2, 2)
     driver_group_header = workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#3E0A16", "align": "center", "border": 1})
-    driver_summary.merge_range("A1:B1", "IDENTIFICACIÓN", driver_group_header)
-    driver_summary.merge_range("C1:G1", "CONDUCTA Y RIESGO", driver_group_header)
-    driver_summary.merge_range("H1:J1", "CUMPLIMIENTO Y ACCIÓN", driver_group_header)
+    driver_summary.write("A1", "IDENTIFICACIÓN", driver_group_header)
+    driver_summary.merge_range("B1:F1", "CONDUCTA Y RIESGO", driver_group_header)
+    driver_summary.merge_range("G1:I1", "CUMPLIMIENTO Y ACCIÓN", driver_group_header)
     driver_summary.write_row(1, 0, [
-        "Chofer", "Unidad(es)", "Eventos de seguridad", "Excesos de velocidad", "Eventos totales",
+        "Chofer", "Eventos de seguridad", "Excesos de velocidad", "Eventos totales",
         "Conducta principal", "Críticos / altos", "Inspecciones", "Capacitación recomendada", "Prioridad",
     ], header)
-    driver_summary.set_column("A:A", 28); driver_summary.set_column("B:B", 30)
-    driver_summary.set_column("C:E", 18); driver_summary.set_column("F:F", 24)
-    driver_summary.set_column("G:H", 16); driver_summary.set_column("I:I", 46); driver_summary.set_column("J:J", 24)
-    for row_index, item in enumerate(analytics["drivers"], 2):
+    driver_summary.set_column("A:A", 28); driver_summary.set_column("B:D", 18)
+    driver_summary.set_column("E:E", 24); driver_summary.set_column("F:G", 16)
+    driver_summary.set_column("H:H", 46); driver_summary.set_column("I:I", 24)
+    for row_index, item in enumerate(analytics["training_drivers"], 2):
         events = item["security"] + item["speeding"]
         driver_summary.write_row(row_index, 0, [
-            item["driver_name"], item["vehicles"] or "Sin unidad identificada", item["security"], item["speeding"], events,
+            item["driver_name"], item["security"], item["speeding"], events,
             item["top_behavior"], item["critical_high"], item["inspections"], item["training"], item["priority"],
         ], cell)
-    if analytics["drivers"]:
-        last_driver_row = len(analytics["drivers"]) + 1
-        driver_summary.autofilter(1, 0, last_driver_row, 9)
-        driver_summary.conditional_format(2, 4, last_driver_row, 4, {"type": "data_bar", "bar_color": "#98243D"})
-        driver_summary.conditional_format(2, 9, last_driver_row, 9, {"type": "text", "criteria": "containing", "value": "ALTA", "format": priority_high})
-        driver_summary.conditional_format(2, 9, last_driver_row, 9, {"type": "text", "criteria": "containing", "value": "MEDIA", "format": priority_medium})
+    if analytics["training_drivers"]:
+        last_driver_row = len(analytics["training_drivers"]) + 1
+        driver_summary.autofilter(1, 0, last_driver_row, 8)
+        driver_summary.conditional_format(2, 3, last_driver_row, 3, {"type": "data_bar", "bar_color": "#98243D"})
+        driver_summary.conditional_format(2, 8, last_driver_row, 8, {"type": "text", "criteria": "containing", "value": "ALTA", "format": priority_high})
+        driver_summary.conditional_format(2, 8, last_driver_row, 8, {"type": "text", "criteria": "containing", "value": "MEDIA", "format": priority_medium})
 
-    summary = workbook.add_worksheet("Resumen por unidad")
+    summary = workbook.add_worksheet("Unidades y diagnóstico")
     summary.hide_gridlines(2); summary.set_landscape(); summary.fit_to_pages(1, 0)
     summary.freeze_panes(2, 2)
     unit_headers = [
@@ -741,23 +716,15 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
         ("Fecha", "purchased_at"), ("Unidad", "vehicle_number"), ("Combustible", "fuel_type"),
         ("Litros", "quantity_liters"), ("Importe", "total_cost"), ("Moneda", "currency"),
         ("Proveedor", "vendor"), ("Odómetro km", "odometer_km")], header, cell, date_fmt, money)
-    _sheet_if_rows(workbook, "Seguridad", data.get("driver_events", []), [
-        ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Evento", "event_type"),
-        ("Conducta", "primary_behavior"), ("Gravedad", "severity"), ("Duración s", "duration_seconds")], header, cell, date_fmt, money)
-    _sheet_if_rows(workbook, "Exceso velocidad", data.get("speeding", []), [
-        ("Fecha", "started_at"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"), ("Gravedad", "severity"),
-        ("Límite km/h", "posted_limit_kph"), ("Máx. superada km/h", "max_over_kph"), ("Promedio km/h", "avg_speed_kph"),
-        ("Duración s", "duration_seconds")], header, cell, date_fmt, money)
-    _sheet_if_rows(workbook, "Códigos de falla", data.get("faults", []), [
+    _sheet_if_rows(workbook, "Diagnóstico PID", open_faults, [
         ("Primera detección", "occurred_at"), ("Unidad", "vehicle_number"), ("Código", "code"), ("Etiqueta", "code_label"),
         ("Descripción", "description"), ("Estado", "status"), ("Ocurrencias", "occurrence_count")], header, cell, date_fmt, money)
     _sheet_if_rows(workbook, "Inspecciones", data.get("inspections", []), [
-        ("Fecha", "inspected_at"), ("Unidad", "vehicle_number"), ("Chofer que inspeccionó", "driver_name"), ("Tipo", "inspection_type"),
+        ("Fecha", "inspected_at"), ("Chofer que inspeccionó", "driver_name"), ("Unidad inspeccionada", "vehicle_number"), ("Tipo", "inspection_type"),
         ("Estado", "status"), ("Rechazada", "is_rejected"), ("Odómetro km", "odometer_km")], header, cell, date_fmt, money)
     actionable_defects = [
         row for row in data.get("defects", [])
-        if _text(row.get("status")).casefold() in {"open", "pending", "unresolved", "with_defects"}
-        or _text(row.get("severity")).casefold() in {"major", "critical", "high", "severe"}
+        if _is_open_defect(row)
     ]
     _sheet_if_rows(workbook, "Defectos accionables", actionable_defects, [
         ("Unidad", "vehicle_number"), ("Categoría", "category"), ("Defecto", "title"),
@@ -778,15 +745,8 @@ def build_fleet_report(data: dict[str, list[dict[str, Any]]], start: date, end: 
             "detail": f"Exceso máximo {float(row.get('max_over_kph') or 0):g} km/h",
             "severity": row.get("severity"),
         })
-    for row in data.get("faults", []):
-        chronology.append({
-            "date": row.get("occurred_at"), "vehicle_number": row.get("vehicle_number"),
-            "driver_name": "", "kind": "Falla",
-            "detail": row.get("code_label") or row.get("code") or "Código de falla",
-            "severity": row.get("severity"),
-        })
     chronology.sort(key=lambda row: str(row.get("date") or ""), reverse=True)
-    _sheet_if_rows(workbook, "Cronología ejecutiva", chronology, [
+    _sheet_if_rows(workbook, "Eventos de chofer", chronology, [
         ("Fecha", "date"), ("Unidad", "vehicle_number"), ("Conductor", "driver_name"),
         ("Tipo", "kind"), ("Detalle", "detail"), ("Gravedad", "severity"),
     ], header, cell, date_fmt, money)
