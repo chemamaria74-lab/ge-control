@@ -544,7 +544,7 @@ async def login_view(modulo: str, request: Request):
     """Pantalla de login parametrizada por módulo."""
     modulo = modulo.replace("-", "_")
     intent = (request.query_params.get("intent") or "").lower()
-    if modulo not in {"gas_lp", "transporte"}:
+    if modulo not in {"gas_lp", "transporte", "control_administrativo"}:
         raise HTTPException(404, "Módulo no disponible.")
 
     if modulo == "gas_lp" and "asistente" in intent:
@@ -571,6 +571,12 @@ async def login_view(modulo: str, request: Request):
         color_secundario  = "#5B0F1D"
         icon_module       = "fa-truck"
         nombre_modulo     = "Transporte"
+    elif modulo == "control_administrativo":
+        color_primario    = "#7A1E2C"
+        color_secundario  = "#5B0F1D"
+        icon_module       = "fa-briefcase"
+        nombre_modulo     = "Control administrativo"
+        login_next        = "/control-administrativo"
     else:
         color_primario    = "#7A1E2C"
         color_secundario  = "#5B0F1D"
@@ -713,6 +719,30 @@ async def frontend_gerentes_gastos():
 async def frontend_gastos_administracion():
     """Espacio multiempresa de Gastos y pagos."""
     return _render_html_file("gastos_gas_lp.html")
+
+
+@app.get("/control-administrativo", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_control_administrativo():
+    """Portal de gastos para empresas administrativas ajenas a los módulos operativos."""
+    response = _render_html_file("gastos_gas_lp.html")
+    html = response.body.decode("utf-8")
+    html = html.replace("<body>", '<body data-expense-module="control_administrativo">', 1)
+    html = html.replace('href="/conciliacion/gas-lp"', 'href="/choice"')
+    html = html.replace("Conciliación fiscal", "Control administrativo")
+    html = html.replace('href="/gas-lp/gastos"', 'href="/control-administrativo"')
+    return HTMLResponse(content=html)
+
+
+@app.get("/transporte-v2/gastos", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_transporte_gastos():
+    """Optional Gastos y pagos add-on for Transport companies."""
+    response = _render_html_file("gastos_gas_lp.html")
+    html = response.body.decode("utf-8")
+    html = html.replace("<body>", '<body data-expense-module="transporte">', 1)
+    html = html.replace('href="/conciliacion/gas-lp"', 'href="/transporte-v2/admin"')
+    html = html.replace("Conciliación fiscal", "Transporte")
+    html = html.replace('href="/gas-lp/gastos"', 'href="/transporte-v2/gastos"')
+    return HTMLResponse(content=html)
 
 
 @app.get("/gas-lp/conciliacion/inicio", response_class=HTMLResponse, include_in_schema=False)
