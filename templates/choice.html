@@ -182,6 +182,12 @@
           <div class="choice-desc" id="descGasLp">Controles Volumétricos<br>Cumplimiento Anexo 30</div>
           <span class="choice-badge"><i class="fa-solid fa-fire-flame-curved"></i> <span id="badgeGasLp">Módulo Gas LP</span></span>
         </a>
+        <a id="cardControl" class="choice-card">
+          <i class="fa-solid fa-briefcase choice-icon"></i>
+          <div class="choice-title" id="titleControl">Control administrativo</div>
+          <div class="choice-desc" id="descControl">Empresas, gastos, pagos y control contable</div>
+          <span class="choice-badge"><i class="fa-solid fa-receipt"></i> <span id="badgeControl">Módulo administrativo</span></span>
+        </a>
       </div>
     </div>
   </div>
@@ -199,6 +205,7 @@
         badgeGasLp:      'Módulo Gas LP',
         hrefTransporte:  '/transporte-v2/roles',
         hrefGasLp:       '/modulo/gas-lp/roles',
+        titleControl: 'Control administrativo', descControl: 'Empresas, gastos, pagos y control contable', badgeControl: 'Módulo administrativo', hrefControl: '/login/control-administrativo',
       },
       en: {
         title:           'GE CONTROL - Select Module',
@@ -211,6 +218,7 @@
         badgeGasLp:      'LPG Module',
         hrefTransporte:  '/transporte-v2/roles?lang=en',
         hrefGasLp:       '/modulo/gas-lp/roles?lang=en',
+        titleControl: 'Administrative control', descControl: 'Companies, expenses, payments and accounting control', badgeControl: 'Administrative module', hrefControl: '/login/control-administrativo',
       },
     };
 
@@ -229,6 +237,10 @@
       document.getElementById('descGasLp').innerHTML          = t.descGasLp;
       document.getElementById('badgeGasLp').textContent       = t.badgeGasLp;
       document.getElementById('cardGasLp').href               = t.hrefGasLp;
+      document.getElementById('titleControl').textContent = t.titleControl;
+      document.getElementById('descControl').textContent = t.descControl;
+      document.getElementById('badgeControl').textContent = t.badgeControl;
+      document.getElementById('cardControl').href = t.hrefControl;
       document.getElementById('btnEs').classList.toggle('active', lang === 'es');
       document.getElementById('btnEn').classList.toggle('active', lang === 'en');
     }
