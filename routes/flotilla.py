@@ -818,6 +818,28 @@ def report_catalog(
         for row in data.get(key, [])
         if str(row.get("driver_name") or row.get("current_driver_name") or "").strip()
     })
+    defects_by_inspection: dict[int, list[dict[str, Any]]] = {}
+    for defect in data.get("defects", []):
+        if defect.get("inspection_id") is not None:
+            defects_by_inspection.setdefault(int(defect["inspection_id"]), []).append(defect)
+    inspection_details = []
+    for inspection in data.get("inspections", []):
+        inspection_id = int(inspection["id"])
+        inspection_details.append({
+            "id": inspection_id,
+            "date": inspection.get("inspected_at"),
+            "driver_name": inspection.get("driver_name") or "Sin chofer identificado",
+            "vehicle_number": inspection.get("vehicle_number") or "Unidad no identificada",
+            "type": inspection.get("inspection_type") or "Inspección",
+            "status": inspection.get("status") or "Sin estado",
+            "rejected": bool(inspection.get("is_rejected")),
+            "defects": [{
+                "category": defect.get("category"), "title": defect.get("title"),
+                "notes": defect.get("notes"), "severity": defect.get("severity"),
+                "status": defect.get("status"), "resolved_at": defect.get("resolved_at"),
+                "open": not defect.get("resolved_at") and str(defect.get("status") or "").casefold() in {"open", "pending", "unresolved", "with_defects"},
+            } for defect in defects_by_inspection.get(inspection_id, [])],
+        })
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
         .eq("tenant_id", ctx["tenant_id"]).in_("status", ["open", "acknowledged"]).execute()
@@ -846,6 +868,7 @@ def report_catalog(
                 "training_drivers": analytics["training_drivers"],
                 "units_without_gps": analytics["units_without_gps"],
                 "inspection_credits": analytics["inspection_credits"],
+                "inspection_details": inspection_details,
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
                 "severity": analytics["severity"],
