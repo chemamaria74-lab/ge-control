@@ -466,7 +466,11 @@ def company_fiscal_information(
 ):
     """Fiscal record for the selected Control administrativo company."""
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
-    if ctx.get("expense_module") != "control_administrativo":
+    membership = (ctx["sb"].table("company_module_memberships").select("profile_id")
+                  .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
+                  .eq("module", "control_administrativo").eq("status", "active")
+                  .limit(1).execute().data or [])
+    if not membership:
         raise HTTPException(403, "La información fiscal está disponible en Control administrativo.")
     profile = _profile(ctx)
     details = (ctx["sb"].table("company_fiscal_details").select("*")
