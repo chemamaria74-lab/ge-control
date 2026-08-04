@@ -39,6 +39,7 @@ def _clean_email(value: str | None) -> str:
 def send_gas_lp_expense_payment_email(
     *, to_email: str | None, supplier_name: str, company_name: str,
     invoice_number: str, paid_on: str, amount: float | int | str,
+    invoices: list[dict[str, Any]] | None = None,
     idempotency_key: str = "",
 ) -> EmailDeliveryResult:
     """Aviso simple de pago; no adjunta ni modifica documentos fiscales."""
@@ -55,13 +56,38 @@ def send_gas_lp_expense_payment_email(
     safe_invoice = html.escape(invoice_number or "")
     safe_date = html.escape(paid_on or "")
     safe_amount = html.escape(str(amount or "0"))
+    invoice_rows = invoices or [{
+        "invoice_number": invoice_number, "invoice_date": "",
+        "total_mxn": amount, "amount_paid_mxn": amount,
+    }]
+
+    def currency(value: Any) -> str:
+        try:
+            return f"${float(value or 0):,.2f}"
+        except (TypeError, ValueError):
+            return f"${html.escape(str(value or '0'))}"
+
+    relation_rows = "".join(
+        "<tr>"
+        f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_number') or ''))}</td>"
+        f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_date') or ''))}</td>"
+        f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right'>{currency(row.get('total_mxn'))}</td>"
+        f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right;font-weight:700'>{currency(row.get('amount_paid_mxn'))}</td>"
+        "</tr>"
+        for row in invoice_rows
+    )
     payload: dict[str, Any] = {
         "from": from_email, "to": [recipient],
         "subject": f"Pago registrado · Factura {safe_invoice}",
         "html": (
             f"<p>Hola {safe_supplier},</p>"
-            f"<p>{safe_company} registró el pago de la factura <b>{safe_invoice}</b>.</p>"
-            f"<p><b>Fecha de pago:</b> {safe_date}<br><b>Monto:</b> ${safe_amount} MXN</p>"
+            f"<p>{safe_company} registró el siguiente pago:</p>"
+            "<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;border:1px solid #eadfe1;border-radius:8px'>"
+            "<thead><tr style='background:#6b1020;color:#fff'>"
+            "<th style='padding:9px;text-align:left'>Factura</th><th style='padding:9px;text-align:left'>Fecha de factura</th>"
+            "<th style='padding:9px;text-align:right'>Total factura</th><th style='padding:9px;text-align:right'>Monto pagado</th>"
+            f"</tr></thead><tbody>{relation_rows}</tbody></table></div>"
+            f"<p><b>Fecha de pago:</b> {safe_date}<br><b>Monto total pagado:</b> {currency(amount)} MXN</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
         ),
     }
