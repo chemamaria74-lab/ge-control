@@ -575,7 +575,7 @@ async def login_view(modulo: str, request: Request):
         color_primario    = "#7A1E2C"
         color_secundario  = "#5B0F1D"
         icon_module       = "fa-briefcase"
-        nombre_modulo     = "Control administrativo"
+        nombre_modulo     = "Empresas y personas"
         login_next        = "/control-administrativo"
     else:
         color_primario    = "#7A1E2C"
@@ -730,7 +730,7 @@ async def frontend_control_administrativo():
     html = response.body.decode("utf-8")
     html = html.replace("<body>", '<body data-expense-module="control_administrativo">', 1)
     html = html.replace('href="/conciliacion/gas-lp"', 'href="/choice"')
-    html = html.replace("Conciliación fiscal", "Control administrativo")
+    html = html.replace("Conciliación fiscal", "Empresas y personas")
     html = html.replace('href="/gas-lp/gastos"', 'href="/control-administrativo"')
     return HTMLResponse(content=html)
 
@@ -778,8 +778,8 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <style>
     *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);padding:24px}}
-    main{{width:min(760px,100%)}}img{{width:300px;max-width:82vw;display:block;margin:0 auto 18px}}.title{{margin:0 0 8px;text-align:center;color:#5B0F1D;font-size:30px;font-weight:900}}.subtitle{{margin:0 0 26px;text-align:center;color:#6f6a64;font-size:17px}}
-    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}.card{{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:24px;text-decoration:none;color:#111;box-shadow:0 14px 36px rgba(17,17,17,.08);min-height:170px}}
+    main{{width:min(1120px,100%)}}img{{width:300px;max-width:82vw;display:block;margin:0 auto 18px}}.title{{margin:0 0 8px;text-align:center;color:#5B0F1D;font-size:30px;font-weight:900}}.subtitle{{margin:0 0 26px;text-align:center;color:#6f6a64;font-size:17px}}
+    .grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}}.card{{background:#fff;border:1px solid #e7e3dc;border-radius:8px;padding:24px;text-decoration:none;color:#111;box-shadow:0 14px 36px rgba(17,17,17,.08);min-height:170px}}
     .card:hover{{border-color:#c8a96b}}.card h1{{font-size:22px;margin:0 0 8px}}.card p{{margin:0;color:#6f6a64;line-height:1.45}}
     .back{{display:inline-block;margin-top:18px;color:#5b0f1d;text-decoration:none;font-weight:700}}@media(max-width:680px){{.grid{{grid-template-columns:1fr}}}}
   </style>
@@ -797,6 +797,10 @@ async def frontend_transporte_v2_roles(lang: str = "es"):
       <a class="card" href="/transporte-v2/login-operador?next=/transporte-v2/operador">
         <h1>Operador</h1>
         <p>Consulta viajes asignados, evidencias, documentos y Carta Porte.</p>
+      </a>
+      <a class="card" href="/transporte-v2/login-admin?next=/transporte-v2/gastos">
+        <h1>Gastos y pagos</h1>
+        <p>Captura gastos, administra catálogos, prepara pagos y consulta el análisis de la empresa.</p>
       </a>
     </div>
     <a class="back" href="/choice">Cambiar módulo</a>
