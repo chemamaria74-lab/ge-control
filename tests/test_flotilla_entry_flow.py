@@ -105,7 +105,7 @@ def test_fleet_restores_the_last_complete_analysis_for_twelve_hours():
     assert "data," in script
     assert "renderReportCatalog(cached.data)" in script
     assert "Se conservará durante 12 horas" in script
-    assert "flotilla.js?v=20260802a" in template
+    assert "flotilla.js?v=20260804-driver-focus" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -115,8 +115,17 @@ def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervisio
     assert "restoreZoneAnalysis($('reportGroup').value)" in script
     assert "Esta zona no tiene un análisis guardado" in script
     assert "'/gas-lp/conciliacion?area=flotilla'" in script
-    assert "state.explorerUnits.find" in script
+    assert "data-driver-search" in script
     assert "runExplorer();" in script
+
+
+def test_fleet_expiry_returns_supervision_to_supervision_login():
+    timeout = (ROOT / "static/js/session_timeout.js").read_text(encoding="utf-8")
+    fleet = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert "localStorage.getItem('ge_gaslp_conciliacion_token')" in timeout
+    assert "'/gas-lp/conciliacion?area=flotilla'" in timeout
+    assert "const destination=loginUrl()" in fleet
 
 
 def test_fleet_reports_exclude_discarded_events_and_closed_faults():

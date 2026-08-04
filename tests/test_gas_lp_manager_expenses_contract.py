@@ -218,8 +218,9 @@ def test_expense_admin_starts_with_invoice_entry_and_shared_catalog_configuratio
     assert 'data-content="catalogs"' in admin_html
     assert 'data-subpanel="capture"' in admin_html and "Agregar gasto" in admin_html
     assert 'data-subpanel="vouchers"' in admin_html and "Complemento de vales" in admin_html
-    assert 'id="directSeries"' in admin_html
+    assert 'id="directSeries"' not in admin_html
     assert 'id="directFolio"' in admin_html
+    assert "Folio alfanumérico" in admin_html
     assert 'id="directPeriod"' not in admin_html
 
 
@@ -289,7 +290,8 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert ".capture-layout>aside{flex:7 1 0" in css
     assert "data-payment-check" in script
     assert 'id="supplierMsg"' in html
-    assert "Captura un RFC válido de 12 o 13 caracteres" in script
+    assert 'id="supplierBank"' in html and 'id="supplierAccount"' in html
+    assert "Captura un RFC válido de 12 o 13 caracteres" not in script
     assert "function apiError(detail)" in script
 
 
@@ -303,7 +305,8 @@ def test_expenses_support_custom_zones_without_phone_fields():
     assert 'id="expenseZoneForm"' in admin_html and 'id="expenseZoneName"' in admin_html
     assert '@router.post("/gastos/expense-zones"' in route
     assert 'expense_zone_id' in route and 'expense_zone_id' in migration
-    assert 'Zonas exclusivas de Gastos' in script and 'Solo Gastos' in script
+    assert 'Zonas internas creadas exclusivamente para Gastos' in script
+    assert "state.bootstrap.groups" not in script.split("function renderDirect()", 1)[1].split("const pill", 1)[0]
     assert 'drop column if exists phone' in migration
     assert "Teléfono" not in admin_html
     assert "Teléfono" not in manager_html
@@ -337,15 +340,17 @@ def test_admin_can_delete_only_early_direct_capture_errors():
     assert '"status": "cancelled"' in route
 
 
-def test_expense_capture_uses_motive_zones_not_facilities():
+def test_expense_capture_uses_manual_expense_zones_not_motive():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     assert 'row.get("scope_type") == "zone"' in route
     assert '"group_id": payload.group_id' in route
-    assert "group_id:zone.startsWith('group:')" in script
-    assert 'const groups=state.bootstrap.groups||[]' in script
-    assert 'const synced=(state.bootstrap.groups||[])' in script
+    assert "group_id:null" in script and "facility_id:null" in script
+    direct_render = script.split("function renderDirect()", 1)[1].split("const pill", 1)[0]
+    assert "state.bootstrap.groups" not in direct_render
+    assert "state.bootstrap.facilities" not in direct_render
+    assert "state.bootstrap.expense_zones" in direct_render
     assert 'Instalaciones sincronizadas' not in script
     assert 'group_names.get(int(invoice.get("group_id") or 0))' in route
 
@@ -406,16 +411,16 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "> Por pagar</button>" not in html
     assert "['accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
-    assert "Revisar y proceder al pago" in script
+    assert "Pagar estas facturas" in script
     assert 'id="paymentMethod" value="Transferencia" readonly' in html
-    assert 'id="paymentNotes"' not in html
-    assert "method:'Transferencia'" in script and "notes:''" in script
+    assert 'id="paymentNotes"' in html
+    assert "method:'Transferencia'" in script and "notes:$('paymentNotes').value" in script
     assert '@router.get("/gastos/payments")' in route
     assert "function paidPaymentsHtml()" in script and "loadPayments()" in script
     assert 'data-pay-invoice' in script and "function startPayment" in script
     assert "Se enviará la notificación de pago" in script
     assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
-    assert "state.reviewStatus==='paid'?loadPayments():loadInvoices()" in script
+    assert "state.reviewStatus==='paid'?loadPayments():loadInvoices('',false)" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
 
 
@@ -444,7 +449,7 @@ def test_company_scoped_zones_money_format_and_stale_delete_recovery():
     assert "const parseMoney=" in script and "formatMoneyInput" in script
     assert "Ejemplo: 5,020.68" in script
     assert "GLU760309457" not in script and "withVerifiedZones" not in script
-    assert "state.bootstrap.facilities" in script and "facility_id:zone.startsWith" in script
+    assert "state.bootstrap.expense_zones" in script and "facility_id:null" in script
     assert "Captura eliminada por error." in script
     assert "x.status!=='cancelled'" in script
 
