@@ -18,6 +18,11 @@
 
   function portal() {
     const path = location.pathname;
+    if (path.startsWith('/control-administrativo')) return {
+      tokenKeys: ['sat_token', 'zc_token'],
+      login: '/login/control-administrativo',
+      renewable: true,
+    };
     if (path.startsWith('/transporte-v2/operador')) return {
       tokenKeys: ['trv2_operator_token'],
       login: '/transporte-v2/login-operador?next=/transporte-v2/operador',
@@ -44,7 +49,12 @@
       renewable: true,
     };
     if (path.startsWith('/gas-lp/flotilla') || path.startsWith('/gas-lp/gerentes')) return {
-      tokenKeys: ['sat_token', 'zc_token'], login: '/gas-lp/flotilla/acceso',
+      tokenKeys: ['sat_token', 'zc_token'],
+      // Supervisión oficial entra desde Conciliación; los gerentes con acceso
+      // limitado usan el portal dedicado. Se decide antes de limpiar la sesión.
+      login: localStorage.getItem('ge_gaslp_conciliacion_token')
+        ? '/gas-lp/conciliacion?area=flotilla'
+        : '/gas-lp/flotilla/acceso',
       sessionTokenKey: 'ge_flotilla_access',
       renewable: true,
     };
