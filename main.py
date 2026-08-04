@@ -588,7 +588,9 @@ async def login_view(modulo: str, request: Request):
         loader=FileSystemLoader(os.path.join(BASE_DIR, "templates")),
         autoescape=select_autoescape(["html"]),
     )
-    tmpl = env.get_template("login.html")
+    tmpl = env.get_template(
+        "control_administrativo_login.html" if modulo == "control_administrativo" else "login.html"
+    )
     html = tmpl.render(
         modulo=modulo,
         nombre_modulo=nombre_modulo,
