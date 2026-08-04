@@ -28,9 +28,9 @@ router = APIRouter()
 REFRESH_COOKIE = "ge_refresh_token"
 REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60
 
-Section = Literal["gas_lp", "transporte"]
-SECCIONES_VALIDAS = {"gas_lp", "transporte"}
-SECCIONES_OPERATIVAS = {"gas_lp", "transporte"}
+Section = Literal["gas_lp", "transporte", "control_administrativo"]
+SECCIONES_VALIDAS = {"gas_lp", "transporte", "control_administrativo"}
+SECCIONES_OPERATIVAS = {"gas_lp", "transporte", "control_administrativo"}
 ROLES_VALIDOS = {
     "admin",
     "user",

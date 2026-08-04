@@ -35,7 +35,7 @@ from supabase_config import get_supabase, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-MODULES_VALIDOS = {"gas_lp", "transporte"}
+MODULES_VALIDOS = {"gas_lp", "transporte", "control_administrativo"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -79,6 +79,19 @@ def _module_requires_owner_scope(module: str) -> bool:
     return module == "gas_lp"
 
 
+def _explicit_module_profile_ids(sb, tenant_id: str, module: str) -> list[int]:
+    if not tenant_id or not module:
+        return []
+    try:
+        rows = (sb.table("company_module_memberships").select("profile_id")
+                .eq("tenant_id", tenant_id).eq("module", module).eq("status", "active")
+                .execute().data or [])
+        return [int(row["profile_id"]) for row in rows if row.get("profile_id")]
+    except Exception as error:
+        logger.info("Membresías explícitas no disponibles; se usarán marcas legacy: %s", error)
+        return []
+
+
 def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | None = None) -> list:
     """
     Devuelve todos los perfiles activos visibles para el usuario.
@@ -109,6 +122,13 @@ def get_perfiles_for_user(user_id: str, access_token: str = "", module: str | No
         if module:
             tenant_id = _tenant_id_for_user(user_id, access_token=access_token)
             owner_scope = _module_requires_owner_scope(module)
+            explicit_ids = _explicit_module_profile_ids(sb, tenant_id, module)
+            if explicit_ids:
+                explicit_q = sb.table("perfiles_empresa").select(fields).in_("id", explicit_ids).eq("activo", True)
+                if owner_scope:
+                    explicit_q = explicit_q.eq("user_id", user_id)
+                add_rows(explicit_q.order("nombre").execute().data or [])
+                return sorted(rows_by_id.values(), key=lambda r: (r.get("nombre") or "").lower())
             if assigned_ids:
                 assigned_q = (
                     sb.table("perfiles_empresa")
@@ -509,6 +529,15 @@ async def create_perfil(payload: PerfilPayload,
         perfil = result.data[0] if result.data else {}
         if perfil:
             _insert_company_compat(user_id, tenant_id, perfil)
+            if module:
+                try:
+                    get_supabase().table("company_module_memberships").upsert({
+                        "tenant_id": tenant_id, "profile_id": perfil.get("id"), "module": module,
+                        "expense_enabled": module in {"gas_lp", "control_administrativo"},
+                        "status": "active", "updated_at": _now(),
+                    }, on_conflict="profile_id,module").execute()
+                except Exception as membership_error:
+                    logger.warning("No se pudo guardar membresía explícita: %s", membership_error)
         logger.info("Perfil creado: id=%s user=%s nombre=%s", perfil.get("id"), user_id, nombre)
         return JSONResponse(content={
             "ok": True,

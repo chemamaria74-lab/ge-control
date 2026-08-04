@@ -48,7 +48,9 @@ class DriverCreate(BaseModel):
 class SupplierCreate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
     legal_name: str = Field(min_length=2, max_length=220)
-    rfc: str = Field(min_length=12, max_length=20)
+    rfc: str = Field(default="", max_length=20)
+    bank_name: str = Field(default="", max_length=120)
+    account_number: str = Field(default="", max_length=34)
     payment_email: str = Field(default="", max_length=180)
 
 
@@ -60,13 +62,16 @@ class SupplierReview(BaseModel):
 class SupplierUpdate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
     legal_name: str = Field(min_length=2, max_length=220)
-    rfc: str = Field(min_length=12, max_length=20)
+    rfc: str = Field(default="", max_length=20)
+    bank_name: str = Field(default="", max_length=120)
+    account_number: str = Field(default="", max_length=34)
     payment_email: str = Field(default="", max_length=180)
     status: Literal["active", "inactive"] = "active"
 
 
 class VoucherCreate(BaseModel):
     group_id: int
+    expense_zone_id: int
     vehicle_id: int
     supplier_id: int
     concept_id: int
@@ -103,15 +108,21 @@ class DirectInvoiceCreate(BaseModel):
     expense_zone_id: int | None = None
     payment_target: Literal["supplier", "reimbursement"] = "supplier"
     reimbursement_recipient_id: int | None = None
+    reimbursement_account_id: int | None = None
+
+
+class ReimbursementAccountInput(BaseModel):
+    account_type: Literal["payroll", "credit_card"]
+    label: str = Field(default="", max_length=80)
+    bank_name: str = Field(default="", max_length=120)
+    account_number: str = Field(default="", max_length=34)
+    card_last_four: str = Field(default="", max_length=4)
 
 
 class ReimbursementRecipientCreate(BaseModel):
     name: str = Field(min_length=2, max_length=180)
     email: str = Field(min_length=5, max_length=180)
-    bank_name: str = Field(default="", max_length=120)
-    account_holder: str = Field(default="", max_length=180)
-    clabe: str = Field(default="", max_length=18)
-    card_last_four: str = Field(default="", max_length=4)
+    accounts: list[ReimbursementAccountInput] = Field(default_factory=list, max_length=8)
 
 
 class ReimbursementRecipientUpdate(ReimbursementRecipientCreate):
@@ -134,6 +145,10 @@ class ExpensePaymentCreate(BaseModel):
 
 class ExpenseZoneCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+
+
+class ExpenseZoneUpdate(ExpenseZoneCreate):
+    status: Literal["active", "inactive"] = "active"
 
 
 class InvoiceTransition(BaseModel):
@@ -173,8 +188,35 @@ def _validate_supplier_fields(rfc: str, email: str) -> tuple[str, str]:
     return clean_rfc, clean_email
 
 
+def _clean_account_number(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(value or "").strip()).upper()
+
+
+def _recipient_account_rows(ctx: dict[str, Any], recipient_id: int,
+                            accounts: list[ReimbursementAccountInput]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for account in accounts:
+        account_number = _clean_account_number(account.account_number)
+        last_four = re.sub(r"\D", "", account.card_last_four)
+        if account.account_type == "payroll" and not account_number:
+            raise HTTPException(400, "Captura la cuenta o CLABE para el destino de nómina.")
+        if account.account_type == "credit_card" and len(last_four) != 4:
+            raise HTTPException(400, "Captura los últimos 4 dígitos de la tarjeta de crédito.")
+        rows.append({
+            "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
+            "recipient_id": recipient_id, "account_type": account.account_type,
+            "label": account.label.strip() or ("Nómina" if account.account_type == "payroll" else "Tarjeta de crédito"),
+            "bank_name": account.bank_name.strip(), "account_number": account_number,
+            "card_last_four": last_four, "status": "active", "updated_at": _now(),
+        })
+    return rows
+
+
 def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str = "") -> dict[str, Any]:
     sb = get_supabase_admin()
+    if token and token.count(".") == 2:
+        authorization = f"Bearer {token}"
+        token = ""
     if fleet_access:
         ctx = _internal_fleet_context(fleet_access)
         ctx["is_manager"] = ctx.get("fleet_access_level") == "zone_manager"
@@ -203,13 +245,29 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
     if authorization.startswith("Bearer "):
         access_token = authorization[7:].strip()
         uid = verify_token(access_token)
-        access = obtener_acceso_modulo(uid, "gas_lp", access_token=access_token) if uid else {}
+        requested_profile_id = int(profile_header) if str(profile_header).isdigit() else 0
+        module = "gas_lp"
+        if requested_profile_id:
+            memberships = (sb.table("company_module_memberships").select("module")
+                           .eq("profile_id", requested_profile_id).eq("status", "active")
+                           .eq("expense_enabled", True).execute().data or [])
+            modules = [str(row.get("module") or "") for row in memberships]
+            if "control_administrativo" in modules and "gas_lp" not in modules:
+                module = "control_administrativo"
+            elif "transporte" in modules and "gas_lp" not in modules:
+                module = "transporte"
+        access = obtener_acceso_modulo(uid, module, access_token=access_token) if uid else {}
         if str(access.get("role") or "").lower() != "admin":
-            raise HTTPException(403, "Se requiere administración de Gas LP.")
+            raise HTTPException(403, "Se requiere administración del módulo de gastos.")
+        perfil_id = requested_profile_id or int(access.get("perfil_id") or 0)
+        if not perfil_id:
+            raise HTTPException(400, "Selecciona una empresa activa.")
+        from routes.auth import require_profile_access
+        require_profile_access(str(uid), module, perfil_id, access_token=access_token)
         return {
-            "sb": sb, "tenant_id": str(access["tenant_id"]), "perfil_id": int(access["perfil_id"]),
+            "sb": sb, "tenant_id": str(access["tenant_id"]), "perfil_id": perfil_id,
             "allowed_group_ids": None, "is_manager": False, "is_admin": True,
-            "actor_id": str(uid), "actor_name": "Administración",
+            "actor_id": str(uid), "actor_name": "Administración", "expense_module": module,
         }
     raise HTTPException(401, "Sesión requerida.")
 
@@ -307,6 +365,12 @@ def _send_payment_notification(ctx: dict[str, Any], invoice: dict[str, Any]) -> 
         to_email=supplier.get("payment_email"), supplier_name=supplier.get("commercial_name") or "",
         company_name=profile.get("nombre") or "", invoice_number=invoice.get("invoice_number") or "",
         paid_on=paid_on, amount=invoice.get("paid_amount_mxn") or invoice.get("total_mxn") or 0,
+        invoices=[{
+            "invoice_number": invoice.get("invoice_number") or "",
+            "invoice_date": invoice.get("invoice_date") or "",
+            "total_mxn": invoice.get("total_mxn") or 0,
+            "amount_paid_mxn": invoice.get("paid_amount_mxn") or invoice.get("total_mxn") or 0,
+        }],
         idempotency_key=f"gas-lp-expense-{ctx['tenant_id']}-{invoice['id']}-{paid_on}",
     )
     return {
@@ -392,6 +456,23 @@ def bootstrap(
         "expense_zones": _expense_zones(ctx), "vehicles": vehicles,
         "mobile_drivers": mobile_drivers,
     }
+
+
+@router.get("/gastos/company")
+def company_fiscal_information(
+    token: str = Query(default=""), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+    x_perfil_id: str = Header(default="", alias="X-Perfil-ID"),
+):
+    """Fiscal record for the selected Control administrativo company."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if ctx.get("expense_module") != "control_administrativo":
+        raise HTTPException(403, "La información fiscal está disponible en Control administrativo.")
+    profile = _profile(ctx)
+    details = (ctx["sb"].table("company_fiscal_details").select("*")
+               .eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
+               .limit(1).execute().data or [])
+    return {"company": profile, "fiscal": details[0] if details else None}
 
 
 @router.get("/gastos/concepts")
@@ -494,7 +575,8 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
         "commercial_name": payload.commercial_name.strip(), "normalized_name": _normalize(payload.commercial_name),
         "legal_name": payload.legal_name.strip(),
-        "rfc": clean_rfc, "payment_email": clean_email,
+        "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
+        "account_number": _clean_account_number(payload.account_number), "payment_email": clean_email,
         "validation_status": "pending" if ctx["is_manager"] else "validated",
         "created_by_type": "manager" if ctx["is_manager"] else "admin", "created_by": ctx["actor_id"],
         "validated_by": None if ctx["is_manager"] else ctx["actor_id"],
@@ -546,7 +628,8 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
     update = {
         "commercial_name": payload.commercial_name.strip(),
         "normalized_name": _normalize(payload.commercial_name), "legal_name": payload.legal_name.strip(),
-        "rfc": clean_rfc,
+        "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
+        "account_number": _clean_account_number(payload.account_number),
         "payment_email": clean_email, "status": payload.status,
         "updated_at": _now(),
     }
@@ -563,7 +646,16 @@ def list_reimbursement_recipients(limit: int = Query(default=300, ge=1, le=500),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
-    return {"items": _base_query(ctx, "gas_lp_expense_recipients").order("name").limit(limit).execute().data or []}
+    items = _base_query(ctx, "gas_lp_expense_recipients").order("name").limit(limit).execute().data or []
+    recipient_ids = [int(row["id"]) for row in items]
+    accounts = (_base_query(ctx, "gas_lp_expense_recipient_accounts")
+                .in_("recipient_id", recipient_ids).order("account_type").execute().data or []) if recipient_ids else []
+    by_recipient: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
+    for account in accounts:
+        by_recipient[int(account["recipient_id"])].append(account)
+    for item in items:
+        item["accounts"] = by_recipient.get(int(item["id"]), [])
+    return {"items": items}
 
 
 @router.post("/gastos/reimbursement-recipients", status_code=201)
@@ -573,20 +665,15 @@ def create_reimbursement_recipient(payload: ReimbursementRecipientCreate, token:
                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     _, clean_email = _validate_supplier_fields("", payload.email)
-    clabe = re.sub(r"\D", "", payload.clabe)
-    if clabe and len(clabe) != 18:
-        raise HTTPException(400, "La CLABE debe tener 18 dígitos.")
-    last_four = re.sub(r"\D", "", payload.card_last_four)
-    if last_four and len(last_four) != 4:
-        raise HTTPException(400, "Captura únicamente los últimos 4 dígitos de la tarjeta.")
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
         "name": payload.name.strip(), "normalized_name": _normalize(payload.name),
-        "email": clean_email,
-        "bank_name": payload.bank_name.strip(), "account_holder": payload.account_holder.strip(),
-        "clabe": clabe, "card_last_four": last_four, "created_by": ctx["actor_id"],
+        "email": clean_email, "created_by": ctx["actor_id"],
     }
     created = ctx["sb"].table("gas_lp_expense_recipients").insert(row).execute().data[0]
+    account_rows = _recipient_account_rows(ctx, int(created["id"]), payload.accounts)
+    if account_rows:
+        created["accounts"] = ctx["sb"].table("gas_lp_expense_recipient_accounts").insert(account_rows).execute().data or []
     _audit(ctx, "reimbursement_recipient", int(created["id"]), "created", after=created)
     return {"item": created}
 
@@ -603,20 +690,21 @@ def update_reimbursement_recipient(recipient_id: int, payload: ReimbursementReci
     if not rows:
         raise HTTPException(404, "Persona no encontrada.")
     _, clean_email = _validate_supplier_fields("", payload.email)
-    clabe = re.sub(r"\D", "", payload.clabe)
-    if clabe and len(clabe) != 18:
-        raise HTTPException(400, "La CLABE debe tener 18 dígitos.")
-    last_four = re.sub(r"\D", "", payload.card_last_four)
-    if last_four and len(last_four) != 4:
-        raise HTTPException(400, "Captura únicamente los últimos 4 dígitos de la tarjeta.")
     update = {
         "name": payload.name.strip(), "normalized_name": _normalize(payload.name), "email": clean_email,
-        "bank_name": payload.bank_name.strip(), "account_holder": payload.account_holder.strip(),
-        "clabe": clabe, "card_last_four": last_four, "status": payload.status, "updated_at": _now(),
+        "account_holder": payload.name.strip(), "status": payload.status, "updated_at": _now(),
     }
     ctx["sb"].table("gas_lp_expense_recipients").update(update).eq("tenant_id", ctx["tenant_id"]).eq(
         "profile_id", ctx["perfil_id"]
     ).eq("id", recipient_id).execute()
+    ctx["sb"].table("gas_lp_expense_recipient_accounts").update({"status": "inactive", "updated_at": _now()}).eq(
+        "tenant_id", ctx["tenant_id"]
+    ).eq("profile_id", ctx["perfil_id"]).eq("recipient_id", recipient_id).execute()
+    account_rows = _recipient_account_rows(ctx, recipient_id, payload.accounts)
+    if account_rows:
+        ctx["sb"].table("gas_lp_expense_recipient_accounts").upsert(
+            account_rows, on_conflict="tenant_id,profile_id,recipient_id,account_type,label"
+        ).execute()
     _audit(ctx, "reimbursement_recipient", recipient_id, "updated", before=rows[0], after=update)
     return {"ok": True, "item": {**rows[0], **update}}
 
@@ -649,6 +737,31 @@ def create_expense_zone(payload: ExpenseZoneCreate, token: str = Query(default="
     return {"item": created}
 
 
+@router.put("/gastos/expense-zones/{zone_id}")
+def update_expense_zone(zone_id: int, payload: ExpenseZoneUpdate, token: str = Query(default=""),
+                        authorization: str = Header(default=""),
+                        x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                        x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Supervisión de gastos administra las zonas.")
+    rows = _base_query(ctx, "gas_lp_expense_zones").eq("id", zone_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Zona no encontrada.")
+    normalized = _normalize(payload.name)
+    duplicate = (_base_query(ctx, "gas_lp_expense_zones").eq("normalized_name", normalized)
+                 .neq("id", zone_id).eq("status", "active").limit(1).execute().data or [])
+    if duplicate:
+        raise HTTPException(409, "Esta zona de gastos ya existe.")
+    update = {"name": payload.name.strip(), "normalized_name": normalized,
+              "status": payload.status, "updated_at": _now()}
+    ctx["sb"].table("gas_lp_expense_zones").update(update).eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", zone_id).execute()
+    _audit(ctx, "expense_zone", zone_id, "updated", before=rows[0], after=update)
+    return {"ok": True, "item": {**rows[0], **update}}
+
+
 @router.get("/gastos/vouchers")
 def list_vouchers(status: str = Query(default=""), search: str = Query(default="", max_length=80),
                   limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
@@ -674,6 +787,10 @@ def create_voucher(payload: VoucherCreate, token: str = Query(default=""), autho
     if not ctx["is_manager"]:
         raise HTTPException(403, "Los vales los genera un gerente de zona.")
     _allowed_group(ctx, payload.group_id)
+    expense_zone = (_base_query(ctx, "gas_lp_expense_zones").eq("id", payload.expense_zone_id)
+                    .eq("status", "active").limit(1).execute().data or [])
+    if not expense_zone:
+        raise HTTPException(400, "Selecciona una zona activa de Gastos.")
     supplier = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
                 .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
     concept = (_base_query(ctx, "gas_lp_expense_concepts").eq("id", payload.concept_id)
@@ -703,6 +820,7 @@ def create_voucher(payload: VoucherCreate, token: str = Query(default=""), autho
     folio = str(folio_result)
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "group_id": payload.group_id,
+        "expense_zone_id": payload.expense_zone_id,
         "vehicle_id": payload.vehicle_id, "supplier_id": payload.supplier_id, "concept_id": payload.concept_id,
         "folio": folio, "issued_on": payload.issued_on.isoformat(), "description": payload.description.strip(),
         "driver_name": payload.driver_name.strip() or vehicle[0].get("current_driver_name") or "",
@@ -767,8 +885,8 @@ def print_voucher(voucher_id: int, token: str = Query(default=""), authorization
     concepts = (_base_query(ctx, "gas_lp_expense_concepts").eq("id", row["concept_id"]).limit(1).execute().data or [{}])
     vehicles = (ctx["sb"].table("fleet_vehicles").select("vehicle_number").eq("tenant_id", ctx["tenant_id"])
                 .eq("id", row["vehicle_id"]).limit(1).execute().data or [{}])
-    groups = (ctx["sb"].table("fleet_groups").select("name").eq("tenant_id", ctx["tenant_id"])
-              .eq("id", row["group_id"]).limit(1).execute().data or [{}])
+    expense_zones = (_base_query(ctx, "gas_lp_expense_zones")
+                     .eq("id", row.get("expense_zone_id") or 0).limit(1).execute().data or [{}])
     output = BytesIO()
     width, height = letter[0] / 2, letter[1] / 2
     pdf = canvas.Canvas(output, pagesize=(width, height))
@@ -793,7 +911,7 @@ def print_voucher(voucher_id: int, token: str = Query(default=""), authorization
     pdf.drawString(18, height - 84, f"VALE {row['folio']}")
     pdf.setFont("Helvetica", 9)
     lines = [
-        ("Fecha", str(row["issued_on"])), ("Zona", groups[0].get("name") or "—"),
+        ("Fecha", str(row["issued_on"])), ("Zona", expense_zones[0].get("name") or "General de la empresa"),
         ("Proveedor", suppliers[0].get("commercial_name") or "—"),
         ("Concepto", concepts[0].get("name") or "—"), ("Unidad", vehicles[0].get("vehicle_number") or "—"),
         ("Chofer", row.get("driver_name") or "—"), ("Gerente", row.get("created_by_name") or "—"),
@@ -866,7 +984,9 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         raise HTTPException(403, "Solo Gastos y pagos puede registrar gastos directos.")
     if payload.payment_target == "reimbursement" and not payload.reimbursement_recipient_id:
         raise HTTPException(400, "Selecciona a la persona que recibirá el reembolso.")
-    if payload.payment_target == "supplier" and payload.reimbursement_recipient_id:
+    if payload.payment_target == "reimbursement" and not payload.reimbursement_account_id:
+        raise HTTPException(400, "Selecciona si el reembolso será a nómina o tarjeta de crédito.")
+    if payload.payment_target == "supplier" and (payload.reimbursement_recipient_id or payload.reimbursement_account_id):
         raise HTTPException(400, "Un pago al proveedor no debe incluir una persona a reembolsar.")
     selected_zone_count = sum(value is not None for value in (payload.group_id, payload.facility_id, payload.expense_zone_id))
     if selected_zone_count > 1:
@@ -882,6 +1002,11 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
                       .eq("id", payload.reimbursement_recipient_id).eq("status", "active").limit(1).execute().data or [])
         if not recipients:
             raise HTTPException(400, "La persona a reembolsar no está disponible.")
+        accounts = (_base_query(ctx, "gas_lp_expense_recipient_accounts")
+                    .eq("id", payload.reimbursement_account_id).eq("recipient_id", payload.reimbursement_recipient_id)
+                    .eq("status", "active").limit(1).execute().data or [])
+        if not accounts:
+            raise HTTPException(400, "El destino de reembolso no pertenece a esta persona.")
     supplier = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
                 .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
     if not supplier:
@@ -903,6 +1028,7 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         "expense_zone_id": payload.expense_zone_id,
         "payment_target": payload.payment_target,
         "reimbursement_recipient_id": payload.reimbursement_recipient_id,
+        "reimbursement_account_id": payload.reimbursement_account_id,
         "created_by_type": "admin", "created_by": ctx["actor_id"],
         "observation": "Alerta: " + " ".join(alerts) if alerts else "",
     }
@@ -915,6 +1041,8 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
 def list_invoices(status: str = Query(default=""), search: str = Query(default="", max_length=100),
                   invoice_date_from: date | None = Query(default=None),
                   invoice_date_to: date | None = Query(default=None),
+                  capture_date_from: date | None = Query(default=None),
+                  capture_date_to: date | None = Query(default=None),
                   limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
                   authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
@@ -929,6 +1057,10 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
         query = query.gte("invoice_date", invoice_date_from.isoformat())
     if invoice_date_to:
         query = query.lte("invoice_date", invoice_date_to.isoformat())
+    if capture_date_from:
+        query = query.gte("created_at", capture_date_from.isoformat())
+    if capture_date_to:
+        query = query.lt("created_at", (capture_date_to + timedelta(days=1)).isoformat())
     if search.strip():
         query = query.ilike("invoice_number", f"%{search.strip()}%")
     items = query.order("created_at", desc=True).limit(limit).execute().data or []
@@ -989,7 +1121,8 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
         raise HTTPException(409, "Todas las facturas deben estar aceptadas o en contabilidad.")
     target_keys = {
         (row.get("payment_target") or "supplier",
-         int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0))
+         int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0),
+         int(row.get("reimbursement_account_id") or 0))
         for row in invoices
     }
     if len(target_keys) != 1:
@@ -1005,11 +1138,12 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
         outstanding = round(float(invoice["total_mxn"]) - already_paid[invoice_id], 2)
         if allocation_map[invoice_id] > outstanding + MONEY_TOLERANCE:
             raise HTTPException(400, f"La aplicación a {invoice['invoice_number']} supera su saldo de ${outstanding:,.2f}.")
-    target, target_id = next(iter(target_keys))
+    target, target_id, target_account_id = next(iter(target_keys))
     payment_row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "payment_target": target,
         "supplier_id": target_id if target == "supplier" else None,
         "reimbursement_recipient_id": target_id if target == "reimbursement" else None,
+        "reimbursement_account_id": target_account_id if target == "reimbursement" else None,
         "paid_on": payload.paid_on.isoformat(), "amount_mxn": round(payload.amount_mxn, 2),
         "method": payload.method.strip(), "reference": payload.reference.strip(),
         "notes": payload.notes.strip(), "created_by": ctx["actor_id"],
@@ -1038,6 +1172,12 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
         to_email=party_email, supplier_name=party_name, company_name=_profile(ctx).get("nombre") or "",
         invoice_number=", ".join(str(row.get("invoice_number") or "") for row in invoices),
         paid_on=payload.paid_on.isoformat(), amount=payload.amount_mxn,
+        invoices=[{
+            "invoice_number": row.get("invoice_number") or "",
+            "invoice_date": row.get("invoice_date") or "",
+            "total_mxn": row.get("total_mxn") or 0,
+            "amount_paid_mxn": allocation_map[int(row["id"])],
+        } for row in invoices],
         idempotency_key=f"gas-lp-expense-payment-{ctx['tenant_id']}-{payment['id']}",
     )
     email_update = {"email_status": "sent" if delivery.ok else ("skipped" if delivery.skipped else "failed"),
@@ -1068,13 +1208,21 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
     invoices = (_base_query(ctx, "gas_lp_expense_invoices")
                 .in_("id", invoice_ids).execute().data or []) if invoice_ids else []
     invoices_by_id = {int(row["id"]): row for row in invoices}
+    all_invoice_allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                               .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids)
+                               .execute().data or []) if invoice_ids else []
+    total_applied_by_invoice: defaultdict[int, float] = defaultdict(float)
+    for row in all_invoice_allocations:
+        total_applied_by_invoice[int(row["invoice_id"])] += float(row.get("amount_mxn") or 0)
     allocations_by_payment: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
     for allocation in allocations:
         invoice = invoices_by_id.get(int(allocation["invoice_id"]))
         if invoice:
+            total_applied = round(total_applied_by_invoice[int(invoice["id"])], 2)
             allocations_by_payment[int(allocation["payment_id"])].append({
                 "amount_mxn": float(allocation.get("amount_mxn") or 0),
-                "invoice": invoice,
+                "invoice": {**invoice, "applied_amount_mxn": total_applied,
+                            "balance_mxn": round(max(0, float(invoice.get("total_mxn") or 0) - total_applied), 2)},
             })
     for payment in payments:
         payment["allocations"] = allocations_by_payment.get(int(payment["id"]), [])
@@ -1082,7 +1230,88 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
 
 
 @router.get("/gastos/payments/export.xlsx")
-def export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
+def export_expense_payments(token: str = Query(default=""), month: str = Query(default=""),
+                            authorization: str = Header(default=""),
+                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                            x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Monthly accountant relationship modeled after PARADOR PROVEEDOR.xlsx."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if month and not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(400, "El mes debe tener formato AAAA-MM.")
+    period = month or datetime.now(timezone(timedelta(hours=-6))).strftime("%Y-%m")
+    year, month_number = (int(value) for value in period.split("-"))
+    start = date(year, month_number, 1)
+    end = date(year + (month_number == 12), 1 if month_number == 12 else month_number + 1, 1)
+    payments = (_base_query(ctx, "gas_lp_expense_payments").gte("paid_on", start.isoformat())
+                .lt("paid_on", end.isoformat()).order("paid_on").order("id").execute().data or [])
+    payment_ids = [int(row["id"]) for row in payments]
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("*")
+                   .in_("payment_id", payment_ids).execute().data or []) if payment_ids else []
+    invoice_ids = sorted({int(row["invoice_id"]) for row in allocations})
+    invoices = (_base_query(ctx, "gas_lp_expense_invoices").in_("id", invoice_ids)
+                .execute().data or []) if invoice_ids else []
+    invoices_by_id = {int(row["id"]): row for row in invoices}
+    by_payment: defaultdict[int, list[dict[str, Any]]] = defaultdict(list)
+    for allocation in allocations:
+        by_payment[int(allocation["payment_id"])].append(allocation)
+    suppliers = {int(row["id"]): row for row in (_base_query(ctx, "gas_lp_expense_suppliers").execute().data or [])}
+    recipients = {int(row["id"]): row for row in (_base_query(ctx, "gas_lp_expense_recipients").execute().data or [])}
+
+    wb = Workbook(); provider_ws = wb.active; provider_ws.title = "Pagos proveedores"
+    reimbursement_ws = wb.create_sheet("Reembolsos"); summary_ws = wb.create_sheet("Resumen por destinatario")
+    headers = ["FOLIO", "RAZÓN SOCIAL", "MONTO PAGADO", "FECHA DE PAGO", "OBSERVACIÓN", "TOTAL TRANSFERENCIA"]
+    green, burgundy, thin = "A9D18E", "7A1E2C", Side(style="thin", color="E7E3DC")
+    for worksheet in (provider_ws, reimbursement_ws):
+        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:F1"
+        for cell in worksheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=green)
+            cell.alignment = Alignment(horizontal="center")
+    totals: defaultdict[tuple[str, str], dict[str, Any]] = defaultdict(lambda: {"invoices": 0, "payments": set(), "paid": 0.0})
+    for payment in payments:
+        target = payment.get("payment_target") or "supplier"
+        party = recipients.get(int(payment.get("reimbursement_recipient_id") or 0), {}) if target == "reimbursement" else suppliers.get(int(payment.get("supplier_id") or 0), {})
+        party_name = party.get("name") or party.get("commercial_name") or "Sin destinatario"
+        rows = by_payment.get(int(payment["id"]), [])
+        worksheet = reimbursement_ws if target == "reimbursement" else provider_ws
+        for index, allocation in enumerate(rows):
+            invoice = invoices_by_id.get(int(allocation["invoice_id"]), {})
+            applied = float(allocation.get("amount_mxn") or 0)
+            notes = []
+            if len(rows) > 1 and index == 0: notes.append("UN SOLO PAGO")
+            if payment.get("notes"): notes.append(str(payment["notes"]))
+            elif payment.get("reference"): notes.append(f"REF. {payment['reference']}")
+            if applied + MONEY_TOLERANCE < float(invoice.get("total_mxn") or 0): notes.append("ANTICIPO")
+            worksheet.append([invoice.get("invoice_number") or "S/F", party_name, applied, payment.get("paid_on"),
+                              " · ".join(dict.fromkeys(notes)), float(payment.get("amount_mxn") or 0) if index == len(rows) - 1 else None])
+            bucket = totals[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
+            bucket["invoices"] += 1; bucket["payments"].add(int(payment["id"])); bucket["paid"] += applied
+    for worksheet in (provider_ws, reimbursement_ws):
+        for row in worksheet.iter_rows(min_row=2):
+            for cell in row: cell.border = Border(bottom=thin)
+            row[2].number_format = '$#,##0.00'; row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'
+        for column, width in enumerate((18, 38, 18, 18, 38, 22), 1): worksheet.column_dimensions[get_column_letter(column)].width = width
+    summary_ws.append(["TIPO", "PROVEEDOR O PERSONA", "FACTURAS", "TRANSFERENCIAS", "TOTAL PAGADO"])
+    for cell in summary_ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=burgundy)
+    for (kind, party_name), values in sorted(totals.items()):
+        summary_ws.append([kind, party_name, values["invoices"], len(values["payments"]), values["paid"]])
+    last_detail = summary_ws.max_row
+    summary_ws.append(["", "TOTAL DEL MES", "", "", f"=SUM(E2:E{max(2, last_detail)})"])
+    for cell in summary_ws["E"][1:]: cell.number_format = '$#,##0.00'
+    summary_ws.freeze_panes = "A2"; summary_ws.auto_filter.ref = "A1:E1"
+    for column, width in enumerate((16, 38, 14, 18, 20), 1): summary_ws.column_dimensions[get_column_letter(column)].width = width
+    company = _profile(ctx).get("nombre") or ""
+    for worksheet in wb.worksheets:
+        worksheet.sheet_view.showGridLines = False; worksheet.oddFooter.center.text = f"{company} · {period}"
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="relacion-pagos-{period}.xlsx"'})
+
+
+def _legacy_export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     from openpyxl import Workbook
@@ -1098,6 +1327,7 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
                    .in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
     suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
     recipients = _base_query(ctx, "gas_lp_expense_recipients").execute().data or []
+    recipient_accounts = _base_query(ctx, "gas_lp_expense_recipient_accounts").eq("status", "active").execute().data or []
     supplier_names = {int(row["id"]): row.get("commercial_name") or "" for row in suppliers}
     group_names = {int(row["id"]): row.get("name") or "" for row in _profile_expense_groups(ctx)}
     facility_names = {int(row["id"]): row.get("nombre") or row.get("clave_instalacion") or "" for row in _profile_facilities(ctx)}
@@ -1111,7 +1341,7 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
     summary_ws = wb.create_sheet("Resumen")
     headers = ["Empresa", "Zona", "Tipo de pago", "Destinatario", "Correo", "Banco",
                "Fecha factura", "Proveedor original", "Factura", "Total factura",
-               "Pagado previamente", "Saldo a pagar", "Método sugerido", "Referencia bancaria"]
+               "Pagado previamente", "Saldo a pagar", "Método sugerido", "Cuenta / destino"]
     for worksheet in (supplier_ws, reimbursement_ws):
         worksheet.append(headers)
         for cell in worksheet[1]:
@@ -1121,6 +1351,7 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
     company = _profile(ctx).get("nombre") or ""
     supplier_by_id = {int(row["id"]): row for row in suppliers}
     recipient_by_id = {int(row["id"]): row for row in recipients}
+    recipient_account_by_id = {int(row["id"]): row for row in recipient_accounts}
     totals_by_party: defaultdict[tuple[str, str], dict[str, Any]] = defaultdict(
         lambda: {"invoices": 0, "total": 0.0, "paid": 0.0, "balance": 0.0}
     )
@@ -1129,7 +1360,14 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
         target = invoice.get("payment_target") or "supplier"
         supplier = supplier_by_id.get(int(invoice.get("supplier_id") or 0), {})
         recipient = recipient_by_id.get(int(invoice.get("reimbursement_recipient_id") or 0), {})
+        recipient_account = recipient_account_by_id.get(int(invoice.get("reimbursement_account_id") or 0), {})
         destination = recipient if target == "reimbursement" else supplier
+        destination_account = (
+            (f"Tarjeta •••• {recipient_account.get('card_last_four') or ''}"
+             if recipient_account.get("account_type") == "credit_card"
+             else recipient_account.get("account_number") or "")
+            if target == "reimbursement" else supplier.get("account_number") or ""
+        )
         row = [
             company, (group_names.get(int(invoice.get("group_id") or 0))
                       or facility_names.get(int(invoice.get("facility_id") or 0))
@@ -1138,10 +1376,10 @@ def export_expense_payments(token: str = Query(default=""), authorization: str =
             "Reembolso" if target == "reimbursement" else "Proveedor",
             destination.get("name") or destination.get("commercial_name") or "",
             destination.get("email") or destination.get("payment_email") or "",
-            destination.get("bank_name") or "",
+            (recipient_account.get("bank_name") if target == "reimbursement" else destination.get("bank_name")) or "",
             str(invoice.get("invoice_date") or ""), supplier_names.get(int(invoice.get("supplier_id") or 0), ""),
             invoice.get("invoice_number") or "", float(invoice.get("total_mxn") or 0), total_applied,
-            max(0, float(invoice.get("total_mxn") or 0) - total_applied), "Transferencia", "",
+            max(0, float(invoice.get("total_mxn") or 0) - total_applied), "Transferencia", destination_account,
         ]
         (reimbursement_ws if target == "reimbursement" else supplier_ws).append(row)
         party_name = str(row[3] or "Sin destinatario")
