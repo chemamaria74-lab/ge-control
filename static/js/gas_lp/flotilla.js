@@ -5,7 +5,7 @@
   const REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 3;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null, explorerUnits:[]};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -246,23 +246,18 @@
   }
 
   function renderDashboard(analytics){
-    const units=analytics.top_units||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], behaviors=analytics.behaviors||[];
-    const maxUnit=Math.max(...units.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
-    $('riskRanking').innerHTML=units.length?units.map((row,index)=>{
+    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], behaviors=analytics.behaviors||[];
+    const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
+    $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
-      const coverage=row.coverage_status||'Cobertura no determinada';
-      return `<button class="bar-row unit-risk" type="button" data-unit-search="${esc(row.vehicle_number)}"><span class="bar-label"><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')} · ${fmt(row.critical_high)} críticos/altos · ${esc(coverage)}</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxUnit*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
-    }).join(''):'<div class="empty">No hay unidades con GPS que requieran atención en este periodo.</div>';
+      const behavior=row.top_behavior||row.primary_behavior||'Conducta por revisar';
+      return `<button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
+    }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
-    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor identificado')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
+    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
-    document.querySelectorAll('[data-unit-search]').forEach(button=>button.addEventListener('click',()=>{
-      const unitName=button.dataset.unitSearch||'';
-      const unit=state.explorerUnits.find(row=>String(row.name).trim().toLocaleLowerCase('es-MX')===unitName.trim().toLocaleLowerCase('es-MX'));
-      if(!unit)return notice(`No encontramos el expediente de ${unitName} en esta zona.`,'error');
-      $('explorerType').value='unit';
-      $('explorerUnitLabel').hidden=false;$('explorerDriverLabel').hidden=true;
-      $('explorerUnit').value=String(unit.id);
+    document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
+      $('explorerDriver').value=button.dataset.driverSearch||'';
       $('explorerResults').hidden=true;
       $('runExplorer').scrollIntoView({behavior:'smooth',block:'center'});
       runExplorer();
@@ -318,24 +313,16 @@
   }
 
   function populateExplorer(explorer){
-    state.explorerUnits=explorer.units||[];
-    const currentUnit=$('explorerUnit').value, currentDriver=$('explorerDriver').value;
-    $('explorerUnit').innerHTML='<option value="">Selecciona una unidad</option>'+(explorer.units||[]).map(row=>`<option value="${Number(row.id)}">${esc(row.name)}</option>`).join('');
+    const currentDriver=$('explorerDriver').value;
     $('explorerDriver').innerHTML='<option value="">Selecciona un chofer</option>'+(explorer.drivers||[]).map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
-    if(currentUnit)$('explorerUnit').value=currentUnit;
     if(currentDriver)$('explorerDriver').value=currentDriver;
   }
 
   async function runExplorer(){
-    const type=$('explorerType').value, p=params({entity_type:type});
+    const p=params({entity_type:'driver'});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    if(type==='unit'){
-      if(!$('explorerUnit').value)return notice('Selecciona una unidad para analizar.','error');
-      p.set('vehicle_id',$('explorerUnit').value);
-    }else{
-      if(!$('explorerDriver').value)return notice('Selecciona un chofer para analizar.','error');
-      p.set('driver_name',$('explorerDriver').value);
-    }
+    if(!$('explorerDriver').value)return notice('Selecciona un chofer para analizar.','error');
+    p.set('driver_name',$('explorerDriver').value);
     $('runExplorer').disabled=true;$('runExplorer').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analizando…';
     try{
       const data=await api(`/reports/explore?${p}`);
@@ -350,7 +337,7 @@
     const value=v=>v==null?'No disponible':fmt(v);
     const behaviorHtml=behaviorDonutHtml(behaviors);
     const dailyHtml=trendChartHtml(daily);
-    const timelineHtml=timeline.length?timeline.map(row=>`<div class="timeline-row"><span>${esc(dateText(row.date))}</span><b>${esc(row.vehicle||'—')}</b><span>${esc(row.detail||row.kind)}</span><span class="timeline-pill">${esc(row.kind)}${row.severity?' · '+esc(row.severity):''}</span></div>`).join(''):'<div class="empty">No hay incidencias en este periodo.</div>';
+    const timelineHtml=timeline.length?timeline.map(row=>`<div class="timeline-row"><span>${esc(dateText(row.date))}</span><b>${esc(row.vehicle||'—')}</b><span>${esc(row.detail||row.kind)}</span><span class="timeline-pill">${esc(row.kind)}${row.severity?' · '+esc(row.severity):''}</span></div>`).join(''):'<div class="empty">No hay eventos de conducción en este periodo.</div>';
     const hourlyHtml=hourHeatmapHtml(hours);
     const weekdayHtml=weekdayBubbleHtml(weekdays);
     const worstDate=daily.reduce((best,row)=>!best||Number(row.count||0)>Number(best.count||0)?row:best,null);
@@ -370,10 +357,10 @@
   }
 
   function renderManagerBrief(analytics,counts){
-    const top=(analytics.top_units||[])[0], behavior=(analytics.behaviors||[])[0];
+    const top=(analytics.training_drivers||analytics.drivers||[])[0], behavior=(analytics.behaviors||[])[0];
     const messages=[];
-    if(top) messages.push(`<li><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Primera prioridad:</strong> revisar ${esc(top.vehicle_number)} por ${fmt(top.security+top.speeding)} eventos en el periodo.</span></li>`);
-    if(behavior) messages.push(`<li><i class="fa-solid fa-person-circle-exclamation"></i><span><strong>Conducta dominante:</strong> ${esc(behavior.label)}, con ${fmt(behavior.count)} incidencias. Conviene definir una acción correctiva y responsable.</span></li>`);
+    if(top) messages.push(`<li><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Primera prioridad:</strong> capacitar a ${esc(top.driver_name)} por ${fmt(top.security+top.speeding)} eventos en el periodo.</span></li>`);
+    if(behavior) messages.push(`<li><i class="fa-solid fa-person-circle-exclamation"></i><span><strong>Capacitación principal:</strong> trabajar ${esc(behavior.label)} con los choferes que más repiten esta conducta (${fmt(behavior.count)} eventos).</span></li>`);
     if(Number(counts.speeding||0)>0) messages.push(`<li><i class="fa-solid fa-gauge-high"></i><span><strong>Velocidad:</strong> ${fmt(counts.speeding)} eventos requieren seguimiento con los conductores de mayor recurrencia.</span></li>`);
     $('managerBrief').innerHTML=`<div><span class="eyebrow">Resumen para el gerente</span><h4>Acciones sugeridas para esta zona</h4></div><ul>${messages.join('')||'<li>No se detectaron eventos que requieran acción en el periodo.</li>'}</ul>`;
   }
@@ -388,7 +375,7 @@
     const datasets=sync.datasets||{}, pending=[];
     const unavailable=(key)=>!Object.prototype.hasOwnProperty.call(datasets,key)||(datasets[key]&&typeof datasets[key]==='object'&&datasets[key].status==='unavailable');
     if(unavailable('vehicle_utilization')) pending.push('Utilización y horas motor');
-    if(unavailable('fault_codes')) pending.push('Códigos de falla');
+    if(unavailable('fault_codes')) pending.push('Diagnóstico PID');
     if(unavailable('card_expenses')) pending.push('Motive Card');
     if(sync.status==='failed'){
       $('dataStatus').className='data-status error';
@@ -453,10 +440,6 @@
   $('clearFilters').onclick=()=>{$('vehicleSearch').value='';$('vehicleResults').hidden=true;};
   $('runAnalysis').onclick=()=>loadReportCatalog();
   $('reportGroup').onchange=()=>restoreZoneAnalysis($('reportGroup').value);
-  $('explorerType').onchange=()=>{
-    const unit=$('explorerType').value==='unit';
-    $('explorerUnitLabel').hidden=!unit;$('explorerDriverLabel').hidden=unit;$('explorerResults').hidden=true;
-  };
   $('runExplorer').onclick=runExplorer;
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
