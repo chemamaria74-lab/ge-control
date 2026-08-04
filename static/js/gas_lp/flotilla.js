@@ -1,7 +1,9 @@
 (function(){
   const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
   const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
-  const LOGIN_URL = '/gas-lp/flotilla/acceso';
+  const MANAGER_LOGIN_URL = '/gas-lp/flotilla/acceso';
+  const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
+  const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 3;
   const $ = id => document.getElementById(id);
@@ -23,7 +25,7 @@
   function clearOfficialSession(){
     ['sat_token','zc_token','sat_user_id','sat_email','sat_display_name','sat_role','sat_assigned_perfil_id','sat_modulo'].forEach(key=>localStorage.removeItem(key));
   }
-  function redirectToLogin(){ clearPortalAccess(); clearOfficialSession(); location.replace(LOGIN_URL); }
+  function redirectToLogin(){ const destination=loginUrl(); clearPortalAccess(); clearOfficialSession(); location.replace(destination); }
   function showAuthGate(title,message,{retry=true}={}){
     document.documentElement.classList.add('fleet-auth-pending');
     $('fleetAuthTitle').textContent=title;
@@ -82,7 +84,7 @@
     }
     const destination=state.identity?.identity_type==='official'
       ? '/gas-lp/conciliacion?area=flotilla'
-      : LOGIN_URL;
+      : MANAGER_LOGIN_URL;
     window.GESessionTimeout?.clear(); clearPortalAccess(); clearOfficialSession(); location.replace(destination);
   }
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
