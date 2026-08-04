@@ -248,7 +248,7 @@
   }
 
   function renderDashboard(analytics){
-    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], behaviors=analytics.behaviors||[];
+    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], inspectionDetails=analytics.inspection_details||[], behaviors=analytics.behaviors||[];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
@@ -256,7 +256,11 @@
       return `<button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
-    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
+    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>{
+      const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
+      const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).length?(item.defects||[]).map(defect=>`<p><span class="pill ${defect.open?'error':''}">${defect.open?'Abierto':'Cerrado'}</span> ${esc(defect.title||defect.category||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join(''):'<p><small>Sin defectos ni observaciones reportadas.</small></p>'}</div>`).join('');
+      return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle disponible.</div>'}</div></details>`;
+    }).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
       $('explorerDriver').value=button.dataset.driverSearch||'';
