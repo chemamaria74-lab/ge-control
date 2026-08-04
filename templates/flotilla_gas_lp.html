@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla.css?v=20260725b">
-  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260725b">
+  <link rel="stylesheet" href="/static/css/gas_lp/flotilla_reports.css?v=20260804-inspection-detail">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_explorer.css?v=20260727a">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_downloads.css?v=20260725a">
   <link rel="stylesheet" href="/static/css/gas_lp/flotilla_auth_gate.css?v=20260724b">
@@ -22,6 +22,7 @@
     .download-product>div{display:flex!important;gap:8px;margin-top:3px}
     .download-product button{flex:1;min-width:0;padding:9px 12px;font-size:12px}
     @media(max-width:1200px){.report-heading{grid-template-columns:1fr}.report-downloads{grid-template-columns:1fr 1fr}}
+    .inspection-row{border-bottom:1px solid #eee9e2}.inspection-row>.simple-row{cursor:pointer;list-style:none}.inspection-row>.simple-row::-webkit-details-marker{display:none}.inspection-row>.simple-row strong{white-space:normal}.inspection-details{padding:4px 10px 12px 22px;background:#faf8f5}.inspection-detail{padding:9px 0;border-bottom:1px dashed #e4ddd4;font-size:11px}.inspection-detail:last-child{border-bottom:0}.inspection-detail p{margin:7px 0;line-height:1.45}.inspection-detail small{color:var(--muted)}
     @media(max-width:700px){.report-downloads{grid-template-columns:1fr}}
   </style>
 </head>
@@ -144,6 +145,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=flotilla-supervision-expiry-20260804"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260804-driver-focus"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260804-inspection-detail"></script>
 </body>
 </html>
