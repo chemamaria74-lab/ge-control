@@ -21,7 +21,7 @@ def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_pat
     payload = build_fleet_report({"expenses": [], "driver_events": [], "speeding": [], "activity": [], "faults": []}, date(2026, 7, 1), date(2026, 7, 20))
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
-    assert workbook.sheetnames == ["Dashboard", "Seguimiento supervisor", "Resumen por unidad"]
+    assert workbook.sheetnames == ["Dashboard", "Seguimiento supervisor", "Resumen por chofer", "Resumen por unidad"]
 
 
 def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path):
@@ -50,11 +50,12 @@ def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path)
     dashboard = workbook["Dashboard"]
     dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
     assert "INFORME EJECUTIVO · FLOTILLA 360" in dashboard_values
-    assert "Unidades con GPS" in dashboard_values
-    assert "Unidades sin datos GPS" in dashboard_values
+    assert "Choferes que requieren capacitación" in dashboard_values
+    assert "Unidades con alerta mecánica" in dashboard_values
     assert "Inspecciones realizadas por chofer" in dashboard_values
     assert "DECISIONES RECOMENDADAS PARA EL GERENTE" in dashboard_values
-    assert "U-SIN-GPS" in dashboard_values
+    assert "Ana" in dashboard_values
+    assert any("Capacitación en distancia y frenado preventivo" in str(value) for value in dashboard_values)
     assert dashboard["O2"].value == "P0201"
     assert dashboard["P2"].value == 6
     assert len(dashboard._charts) == 1
@@ -63,13 +64,22 @@ def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path)
     follow_up = workbook["Seguimiento supervisor"]
     headers = [cell.value for cell in follow_up[7]]
     assert headers == [
-        "#", "UNIDAD", "CONDUCTOR", "GPS", "EVENTOS", "CRÍTICOS", "DEFECTOS", "ACCIÓN CLARA",
+        "#", "CHOFER", "UNIDAD(ES)", "EVENTOS", "CONDUCTA PRINCIPAL", "CRÍTICOS", "INSPECCIONES", "CAPACITACIÓN / ACCIÓN",
         "PRIORIDAD", "RESPONSABLE", "FECHA LÍMITE", "ESTADO", "EVIDENCIA / NOTA",
     ]
     follow_up_rows = {follow_up.cell(row, 2).value: row for row in range(8, follow_up.max_row + 1)}
-    assert follow_up.cell(follow_up_rows["U-ROJA"], 9).value == "ROJO · HOY"
-    assert follow_up.cell(follow_up_rows["U-SIN-GPS"], 8).value == "Revisar GPS y confirmar señal"
-    assert follow_up.cell(follow_up_rows["U-SIN-GPS"], 12).value == "PENDIENTE"
+    assert follow_up.cell(follow_up_rows["Ana"], 5).value == "Frenado brusco"
+    assert follow_up.cell(follow_up_rows["Ana"], 8).value == "Capacitación en distancia y frenado preventivo"
+    assert follow_up.cell(follow_up_rows["Ana"], 9).value == "ROJO · CAPACITAR YA"
+    assert follow_up.cell(follow_up_rows["Ana"], 12).value == "PENDIENTE"
+
+    driver_summary = workbook["Resumen por chofer"]
+    assert [cell.value for cell in driver_summary[2]] == [
+        "Chofer", "Unidad(es)", "Eventos de seguridad", "Excesos de velocidad", "Eventos totales",
+        "Conducta principal", "Críticos / altos", "Inspecciones", "Capacitación recomendada", "Prioridad",
+    ]
+    assert driver_summary["A3"].value == "Ana"
+    assert driver_summary["F3"].value == "Frenado brusco"
 
 
 def test_report_adds_executive_chronology_when_events_exist(tmp_path):
@@ -161,6 +171,24 @@ def test_analytics_attributes_inspections_to_reported_driver_with_unit_fallback(
     ]
 
 
+def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_driver():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Chofer asignado"}],
+        "driver_events": [{
+            "vehicle_number": "U-1", "driver_name": "Chofer real",
+            "primary_behavior": "hard_brake", "severity": "high",
+        }],
+        "speeding": [],
+        "inspections": [{"vehicle_number": "U-1", "driver_name": "Chofer real"}],
+    })
+
+    driver = analytics["training_drivers"][0]
+    assert driver["driver_name"] == "Chofer real"
+    assert driver["top_behavior"] == "Frenado brusco"
+    assert driver["training"] == "Capacitación en distancia y frenado preventivo"
+    assert driver["inspections"] == 1
+
+
 def test_excel_dashboard_lists_every_unit_without_proprietary_score_or_activity_sheet(tmp_path):
     vehicles = [{"vehicle_number": f"U-{index:02d}"} for index in range(1, 14)]
     events = [
@@ -179,7 +207,7 @@ def test_excel_dashboard_lists_every_unit_without_proprietary_score_or_activity_
     dashboard = workbook["Dashboard"]
     dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
     summary_headers = [cell.value for cell in workbook["Resumen por unidad"][2]]
-    assert "U-13" in dashboard_values
+    assert any("U-13" in str(value) for value in dashboard_values)
     assert "Índice" not in dashboard_values
     assert "SCORE CONDUCTORES" not in dashboard_values
     assert "Score" not in summary_headers
