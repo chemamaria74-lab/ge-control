@@ -103,24 +103,22 @@
         <div><span>Excesos de velocidad</span><strong id="reportSpeeding">—</strong></div>
         <div><span>Críticos / altos</span><strong id="reportCritical">—</strong></div>
         <div><span>Unidades sin datos GPS</span><strong id="reportActivity">—</strong></div>
-        <div><span>Códigos de falla abiertos</span><strong id="reportFaults">—</strong></div>
+        <div><span>Registros de diagnóstico PID</span><strong id="reportFaults">—</strong></div>
         <div><span>Gasto registrado MXN</span><strong id="reportExpenses">—</strong><small id="reportExpenseSource">Sin consultar</small></div>
       </div>
       <div class="data-status" id="dataStatus">Comprobando las fuentes de información…</div>
       <div class="manager-brief" id="managerBrief"></div>
       <div class="dashboard-grid">
-        <article class="dashboard-panel"><div class="panel-title"><h4>Unidades con GPS que requieren atención</h4><span>Ordenadas por cantidad de eventos</span></div><div id="riskRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel"><div class="panel-title"><h4>Choferes que requieren capacitación</h4><span>Solo choferes con eventos registrados</span></div><div id="riskRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel"><div class="panel-title"><h4>Unidades sin datos GPS</h4><span>Requieren revisión manual</span></div><div id="noGpsUnits" class="simple-list"><div class="empty">Cargando…</div></div></article>
-        <article class="dashboard-panel"><div class="panel-title"><h4>Inspecciones realizadas</h4><span>Unidad y chofer para comisión</span></div><div id="inspectionCredits" class="simple-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel"><div class="panel-title"><h4>Choferes que realizaron inspecciones</h4><span>Chofer y unidad inspeccionada</span></div><div id="inspectionCredits" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel compact-panel"><div class="panel-title"><h4>Seguimiento operativo</h4><span>Datos documentados en Motive</span></div><div id="submitterList">Sin movimientos documentados.</div></article>
       </div>
       <section class="performance-explorer">
-        <div class="panel-title"><div><span class="eyebrow"><i class="fa-solid fa-magnifying-glass-chart"></i> Análisis detallado</span><h4>Explorar una unidad o un chofer</h4></div><span>Consulta Supabase; no vuelve a llamar a Motive</span></div>
+        <div class="panel-title"><div><span class="eyebrow"><i class="fa-solid fa-magnifying-glass-chart"></i> Análisis detallado</span><h4>Explorar por chofer</h4></div><span>Muestra en qué unidad ocurrió cada conducta</span></div>
         <div class="explorer-filters">
-          <label>Analizar por<select id="explorerType"><option value="unit">Unidad</option><option value="driver">Chofer</option></select></label>
-          <label id="explorerUnitLabel">Unidad<select id="explorerUnit"><option value="">Selecciona una unidad</option></select></label>
-          <label id="explorerDriverLabel" hidden>Chofer<select id="explorerDriver"><option value="">Selecciona un chofer</option></select></label>
+          <label id="explorerDriverLabel">Chofer<select id="explorerDriver"><option value="">Selecciona un chofer</option></select></label>
           <button class="btn-primary" id="runExplorer" type="button"><i class="fa-solid fa-chart-simple"></i> Ver desempeño</button>
         </div>
         <div id="explorerResults" class="explorer-results" hidden></div>
@@ -146,6 +144,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=flotilla-internal-20260727"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260802a"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260804-driver-focus"></script>
 </body>
 </html>
