@@ -5,7 +5,7 @@
   <title>GE CONTROL | Gastos y pagos</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=expense-workflow-20260804b">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=expense-compact-isolation-20260804">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
 </head>
 <body>
@@ -39,13 +39,13 @@
             <form id="directForm" class="form-grid">
               <label>Proveedor<span class="expense-combobox" data-expense-combobox="supplier"><span class="expense-combobox-control"><i class="fa-solid fa-magnifying-glass"></i><input id="directSupplierSearch" type="text" placeholder="Busca proveedor" autocomplete="off" role="combobox" aria-controls="directSupplierOptions" aria-expanded="false"><button type="button" aria-label="Mostrar proveedores"><i class="fa-solid fa-chevron-down"></i></button></span><span id="directSupplierOptions" class="expense-combobox-options" role="listbox" hidden></span><select id="directSupplier" hidden><option value="">Selecciona proveedor</option></select></span></label>
               <label>Concepto<span class="expense-combobox" data-expense-combobox="concept"><span class="expense-combobox-control"><i class="fa-solid fa-magnifying-glass"></i><input id="directConceptSearch" type="text" placeholder="Busca concepto" autocomplete="off" role="combobox" aria-controls="directConceptOptions" aria-expanded="false"><button type="button" aria-label="Mostrar conceptos"><i class="fa-solid fa-chevron-down"></i></button></span><span id="directConceptOptions" class="expense-combobox-options" role="listbox" hidden></span><select id="directConcept" hidden><option value="">Selecciona concepto</option></select></span></label>
-              <label class="wide">Folio alfanumérico <input id="directFolio" maxlength="100" placeholder="Puede incluir letras y números" required></label>
-              <label>Fecha <input id="directDate" type="date" required></label>
+              <label>Folio alfanumérico <input id="directFolio" maxlength="100" placeholder="Letras y números" required></label>
+              <label>Fecha de factura <input id="directDate" type="date" required></label>
               <label>Total <input id="directTotal" type="text" inputmode="decimal" placeholder="$0.00" autocomplete="off" required></label>
+              <label>Zona / centro de costo <select id="directFacility"><option value="">Cargando zonas…</option></select><small id="zoneHelp">Zonas internas de Gastos.</small></label>
               <label>¿A quién se pagará?<select id="directPaymentTarget" required><option value="supplier">Al proveedor</option><option value="reimbursement">Reembolso a una persona</option></select></label>
               <label id="directRecipientField" hidden>Persona a reembolsar<span class="expense-combobox" data-expense-combobox="recipient"><span class="expense-combobox-control"><i class="fa-solid fa-magnifying-glass"></i><input id="directRecipientSearch" type="text" placeholder="Busca persona" autocomplete="off" role="combobox" aria-controls="directRecipientOptions" aria-expanded="false"><button type="button" aria-label="Mostrar personas"><i class="fa-solid fa-chevron-down"></i></button></span><span id="directRecipientOptions" class="expense-combobox-options" role="listbox" hidden></span><select id="directRecipient" hidden><option value="">Selecciona una persona</option></select></span><small>La notificación de pago se enviará a esta persona.</small></label>
               <label id="directRecipientAccountField" hidden>Destino del reembolso<select id="directRecipientAccount"><option value="">Selecciona nómina o tarjeta</option></select><small>Elige exactamente dónde debe depositarse este reembolso.</small></label>
-              <label class="wide">Zona / centro de costo <select id="directFacility"><option value="">Cargando zonas…</option></select><small id="zoneHelp">Zonas internas de Gastos, independientes de Motive.</small></label>
               <label class="wide">Descripción (opcional) <textarea id="directDescription" placeholder="Detalle breve del gasto"></textarea></label>
               <div class="actions wide"><button class="btn primary">Guardar gasto</button><span class="status" id="directMsg"></span></div>
             </form>
