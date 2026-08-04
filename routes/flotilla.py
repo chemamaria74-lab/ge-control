@@ -843,6 +843,7 @@ def report_catalog(
             ],
             "analytics": {
                 "top_units": analytics["attention_units"],
+                "training_drivers": analytics["training_drivers"],
                 "units_without_gps": analytics["units_without_gps"],
                 "inspection_credits": analytics["inspection_credits"],
                 "drivers": analytics["drivers"][:10],
