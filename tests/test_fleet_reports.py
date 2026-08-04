@@ -21,10 +21,10 @@ def test_empty_report_has_executive_sheets_without_misleading_empty_tabs(tmp_pat
     payload = build_fleet_report({"expenses": [], "driver_events": [], "speeding": [], "activity": [], "faults": []}, date(2026, 7, 1), date(2026, 7, 20))
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
-    assert workbook.sheetnames == ["Dashboard", "Seguimiento supervisor", "Resumen por chofer", "Resumen por unidad"]
+    assert workbook.sheetnames == ["Dashboard", "Resumen por chofer", "Unidades y diagnóstico"]
 
 
-def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path):
+def test_report_adds_visual_manager_dashboard_and_driver_summary(tmp_path):
     payload = build_fleet_report({
         "vehicles": [
             {"vehicle_number": "U-ROJA", "current_driver_name": "Ana"},
@@ -51,35 +51,24 @@ def test_report_adds_visual_manager_dashboard_and_supervisor_follow_up(tmp_path)
     dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
     assert "INFORME EJECUTIVO · FLOTILLA 360" in dashboard_values
     assert "Choferes que requieren capacitación" in dashboard_values
-    assert "Unidades con alerta mecánica" in dashboard_values
-    assert "Inspecciones realizadas por chofer" in dashboard_values
+    assert "Unidades sin datos GPS" in dashboard_values
+    assert "UNIDADES SIN DATOS GPS" in dashboard_values
+    assert "Choferes que realizaron inspecciones" in dashboard_values
     assert "DECISIONES RECOMENDADAS PARA EL GERENTE" in dashboard_values
     assert "Ana" in dashboard_values
     assert any("Capacitación en distancia y frenado preventivo" in str(value) for value in dashboard_values)
-    assert dashboard["O2"].value == "P0201"
-    assert dashboard["P2"].value == 6
+    assert dashboard["O2"].value == "Frenado brusco"
+    assert dashboard["P2"].value == 3
     assert len(dashboard._charts) == 1
     assert dashboard._charts[0].__class__.__name__ == "DoughnutChart"
 
-    follow_up = workbook["Seguimiento supervisor"]
-    headers = [cell.value for cell in follow_up[7]]
-    assert headers == [
-        "#", "CHOFER", "UNIDAD(ES)", "EVENTOS", "CONDUCTA PRINCIPAL", "CRÍTICOS", "INSPECCIONES", "CAPACITACIÓN / ACCIÓN",
-        "PRIORIDAD", "RESPONSABLE", "FECHA LÍMITE", "ESTADO", "EVIDENCIA / NOTA",
-    ]
-    follow_up_rows = {follow_up.cell(row, 2).value: row for row in range(8, follow_up.max_row + 1)}
-    assert follow_up.cell(follow_up_rows["Ana"], 5).value == "Frenado brusco"
-    assert follow_up.cell(follow_up_rows["Ana"], 8).value == "Capacitación en distancia y frenado preventivo"
-    assert follow_up.cell(follow_up_rows["Ana"], 9).value == "ROJO · CAPACITAR YA"
-    assert follow_up.cell(follow_up_rows["Ana"], 12).value == "PENDIENTE"
-
     driver_summary = workbook["Resumen por chofer"]
     assert [cell.value for cell in driver_summary[2]] == [
-        "Chofer", "Unidad(es)", "Eventos de seguridad", "Excesos de velocidad", "Eventos totales",
+        "Chofer", "Eventos de seguridad", "Excesos de velocidad", "Eventos totales",
         "Conducta principal", "Críticos / altos", "Inspecciones", "Capacitación recomendada", "Prioridad",
     ]
     assert driver_summary["A3"].value == "Ana"
-    assert driver_summary["F3"].value == "Frenado brusco"
+    assert driver_summary["E3"].value == "Frenado brusco"
 
 
 def test_report_adds_executive_chronology_when_events_exist(tmp_path):
@@ -92,8 +81,8 @@ def test_report_adds_executive_chronology_when_events_exist(tmp_path):
     }, date(2026, 7, 1), date(2026, 7, 20))
     target = tmp_path / "report.xlsx"; target.write_bytes(payload)
     workbook = load_workbook(target, read_only=True)
-    assert "Cronología ejecutiva" in workbook.sheetnames
-    sheet = workbook["Cronología ejecutiva"]
+    assert "Eventos de chofer" in workbook.sheetnames
+    sheet = workbook["Eventos de chofer"]
     assert sheet["E2"].value == "Frenado brusco"
 
 
@@ -189,7 +178,7 @@ def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_dr
     assert driver["inspections"] == 1
 
 
-def test_excel_dashboard_lists_every_unit_without_proprietary_score_or_activity_sheet(tmp_path):
+def test_excel_keeps_units_out_of_driver_dashboard_and_in_unit_sheet(tmp_path):
     vehicles = [{"vehicle_number": f"U-{index:02d}"} for index in range(1, 14)]
     events = [
         {"vehicle_number": row["vehicle_number"], "primary_behavior": "hard_brake", "severity": "low"}
@@ -206,8 +195,10 @@ def test_excel_dashboard_lists_every_unit_without_proprietary_score_or_activity_
 
     dashboard = workbook["Dashboard"]
     dashboard_values = [cell.value for row in dashboard.iter_rows() for cell in row]
-    summary_headers = [cell.value for cell in workbook["Resumen por unidad"][2]]
-    assert any("U-13" in str(value) for value in dashboard_values)
+    summary_headers = [cell.value for cell in workbook["Unidades y diagnóstico"][2]]
+    assert not any("U-13" in str(value) for value in dashboard_values)
+    unit_values = [cell.value for row in workbook["Unidades y diagnóstico"].iter_rows() for cell in row]
+    assert "U-13" in unit_values
     assert "Índice" not in dashboard_values
     assert "SCORE CONDUCTORES" not in dashboard_values
     assert "Score" not in summary_headers
@@ -231,3 +222,27 @@ def test_foreign_currency_fuel_is_not_reported_as_mxn_expense():
 
     assert analytics["totals"]["expenses_mxn"] == 0
     assert analytics["totals"]["expense_available"] is False
+
+
+def test_closed_faults_and_resolved_defects_are_excluded_from_excel_alerts(tmp_path):
+    payload = build_fleet_report({
+        "vehicles": [{"vehicle_number": "U-1"}],
+        "faults": [
+            {"vehicle_number": "U-1", "code": "P-OPEN", "occurrence_count": 2, "status": "open"},
+            {"vehicle_number": "U-1", "code": "P-CLOSED", "occurrence_count": 99, "status": "closed"},
+        ],
+        "defects": [
+            {"vehicle_number": "U-1", "title": "Freno abierto", "severity": "major", "status": "open"},
+            {"vehicle_number": "U-1", "title": "Freno reparado", "severity": "critical", "status": "resolved", "resolved_at": "2026-08-01"},
+        ],
+        "driver_events": [], "speeding": [], "expenses": [], "activity": [],
+    }, date(2026, 7, 20), date(2026, 8, 4))
+    target = tmp_path / "open-only.xlsx"
+    target.write_bytes(payload)
+    workbook = load_workbook(target, read_only=True, data_only=True)
+
+    assert [row[2] for row in workbook["Diagnóstico PID"].iter_rows(min_row=2, values_only=True)] == ["P-OPEN"]
+    assert [row[2] for row in workbook["Defectos accionables"].iter_rows(min_row=2, values_only=True)] == ["Freno abierto"]
+    unit_row = next(workbook["Unidades y diagnóstico"].iter_rows(min_row=3, values_only=True))
+    assert unit_row[7] == 2
+    assert unit_row[17] == 1
