@@ -47,7 +47,7 @@ class DriverCreate(BaseModel):
 
 class SupplierCreate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
-    legal_name: str = Field(min_length=2, max_length=220)
+    legal_name: str = Field(default="", max_length=220)
     rfc: str = Field(default="", max_length=20)
     bank_name: str = Field(default="", max_length=120)
     account_number: str = Field(default="", max_length=34)
@@ -61,7 +61,7 @@ class SupplierReview(BaseModel):
 
 class SupplierUpdate(BaseModel):
     commercial_name: str = Field(min_length=2, max_length=180)
-    legal_name: str = Field(min_length=2, max_length=220)
+    legal_name: str = Field(default="", max_length=220)
     rfc: str = Field(default="", max_length=20)
     bank_name: str = Field(default="", max_length=120)
     account_number: str = Field(default="", max_length=34)
@@ -109,6 +109,34 @@ class DirectInvoiceCreate(BaseModel):
     payment_target: Literal["supplier", "reimbursement"] = "supplier"
     reimbursement_recipient_id: int | None = None
     reimbursement_account_id: int | None = None
+
+
+class DirectInvoiceBatchLine(BaseModel):
+    invoice_number: str = Field(min_length=1, max_length=100)
+    invoice_date: date
+    total_mxn: float = Field(gt=0, le=100_000_000)
+
+
+class DirectInvoiceBatchCreate(BaseModel):
+    supplier_id: int
+    concept_id: int
+    invoices: list[DirectInvoiceBatchLine] = Field(min_length=2, max_length=100)
+    period_key: str = Field(default="", pattern=r"^$|^\d{4}-\d{2}$")
+    description: str = Field(default="", max_length=500)
+    group_id: int | None = None
+    facility_id: int | None = None
+    expense_zone_id: int | None = None
+    payment_target: Literal["supplier", "reimbursement"] = "supplier"
+    reimbursement_recipient_id: int | None = None
+    reimbursement_account_id: int | None = None
+
+
+class DirectInvoiceUpdate(BaseModel):
+    invoice_number: str = Field(min_length=1, max_length=100)
+    invoice_date: date
+    total_mxn: float = Field(gt=0, le=100_000_000)
+    description: str = Field(default="", max_length=500)
+    observation: str = Field(default="", max_length=500)
 
 
 class ReimbursementAccountInput(BaseModel):
@@ -214,6 +242,11 @@ def _recipient_account_rows(ctx: dict[str, Any], recipient_id: int,
 
 def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str = "") -> dict[str, Any]:
     sb = get_supabase_admin()
+    raw_profile_header = str(profile_header or "").strip()
+    raw_profile_id, _, requested_expense_module = raw_profile_header.partition("|")
+    requested_expense_module = requested_expense_module.strip().lower()
+    if requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}:
+        raise HTTPException(400, "Módulo de gastos inválido.")
     if token and token.count(".") == 2:
         authorization = f"Bearer {token}"
         token = ""
@@ -225,7 +258,7 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
         ctx["actor_name"] = ctx.get("display_name") or "Gerente"
         return ctx
     if token:
-        requested_profile_id = int(profile_header) if str(profile_header).isdigit() else None
+        requested_profile_id = int(raw_profile_id) if raw_profile_id.isdigit() else None
         if "~" in token:
             token, raw_profile_id = token.rsplit("~", 1)
             # Compatibility for sessions opened by an older portal build. The
@@ -245,14 +278,17 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
     if authorization.startswith("Bearer "):
         access_token = authorization[7:].strip()
         uid = verify_token(access_token)
-        requested_profile_id = int(profile_header) if str(profile_header).isdigit() else 0
-        module = "gas_lp"
+        requested_profile_id = int(raw_profile_id) if raw_profile_id.isdigit() else 0
+        module = requested_expense_module or "gas_lp"
         if requested_profile_id:
             memberships = (sb.table("company_module_memberships").select("module")
                            .eq("profile_id", requested_profile_id).eq("status", "active")
                            .eq("expense_enabled", True).execute().data or [])
             modules = [str(row.get("module") or "") for row in memberships]
-            if "control_administrativo" in modules and "gas_lp" not in modules:
+            if requested_expense_module:
+                if requested_expense_module not in modules:
+                    raise HTTPException(403, "Esta empresa no tiene habilitado Gastos y pagos en este módulo.")
+            elif "control_administrativo" in modules and "gas_lp" not in modules:
                 module = "control_administrativo"
             elif "transporte" in modules and "gas_lp" not in modules:
                 module = "transporte"
@@ -1034,11 +1070,91 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         "reimbursement_recipient_id": payload.reimbursement_recipient_id,
         "reimbursement_account_id": payload.reimbursement_account_id,
         "created_by_type": "admin", "created_by": ctx["actor_id"],
+        "status": "sent_to_accountant", "sent_to_accountant_at": _now(),
         "observation": "Alerta: " + " ".join(alerts) if alerts else "",
     }
     created = ctx["sb"].table("gas_lp_expense_invoices").insert(row).execute().data[0]
     _audit(ctx, "invoice", int(created["id"]), "direct_created", after=created)
     return {"item": created, "alerts": alerts}
+
+
+@router.post("/gastos/invoices/direct/batch", status_code=201)
+def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = Query(default=""),
+                                authorization: str = Header(default=""),
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Create several invoices atomically with one shared supplier and accounting context."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede registrar gastos directos.")
+    if payload.payment_target == "reimbursement" and not payload.reimbursement_recipient_id:
+        raise HTTPException(400, "Selecciona a la persona que recibirá el reembolso.")
+    if payload.payment_target == "reimbursement" and not payload.reimbursement_account_id:
+        raise HTTPException(400, "Selecciona si el reembolso será a nómina o tarjeta de crédito.")
+    if payload.payment_target == "supplier" and (payload.reimbursement_recipient_id or payload.reimbursement_account_id):
+        raise HTTPException(400, "Un pago al proveedor no debe incluir una persona a reembolsar.")
+    selected_zone_count = sum(value is not None for value in (payload.group_id, payload.facility_id, payload.expense_zone_id))
+    if selected_zone_count > 1:
+        raise HTTPException(400, "Selecciona una sola zona o centro de costo.")
+    if payload.group_id and not any(int(row["id"]) == payload.group_id for row in _profile_expense_groups(ctx)):
+        raise HTTPException(400, "La zona seleccionada no pertenece a esta empresa.")
+    if payload.facility_id and not any(int(row.get("id") or 0) == payload.facility_id for row in _profile_facilities(ctx)):
+        raise HTTPException(400, "La zona seleccionada no pertenece a esta empresa.")
+    if payload.expense_zone_id and not any(int(row.get("id") or 0) == payload.expense_zone_id for row in _expense_zones(ctx)):
+        raise HTTPException(400, "La zona interna seleccionada no pertenece a esta empresa.")
+    if payload.reimbursement_recipient_id:
+        recipients = (_base_query(ctx, "gas_lp_expense_recipients")
+                      .eq("id", payload.reimbursement_recipient_id).eq("status", "active").limit(1).execute().data or [])
+        if not recipients:
+            raise HTTPException(400, "La persona a reembolsar no está disponible.")
+        accounts = (_base_query(ctx, "gas_lp_expense_recipient_accounts")
+                    .eq("id", payload.reimbursement_account_id).eq("recipient_id", payload.reimbursement_recipient_id)
+                    .eq("status", "active").limit(1).execute().data or [])
+        if not accounts:
+            raise HTTPException(400, "El destino de reembolso no pertenece a esta persona.")
+    supplier = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
+                .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
+    if not supplier:
+        raise HTTPException(400, "Proveedor no disponible en esta empresa.")
+    concept = (_base_query(ctx, "gas_lp_expense_concepts").eq("id", payload.concept_id)
+               .eq("status", "active").limit(1).execute().data or [])
+    if not concept:
+        raise HTTPException(400, "Concepto no disponible en esta empresa.")
+
+    normalized_numbers = [line.invoice_number.strip().casefold() for line in payload.invoices]
+    if len(set(normalized_numbers)) != len(normalized_numbers):
+        raise HTTPException(400, "Hay folios repetidos dentro de la captura múltiple.")
+
+    created_at = _now()
+    rows: list[dict[str, Any]] = []
+    alerts_by_invoice: list[dict[str, Any]] = []
+    for line in payload.invoices:
+        alerts = _invoice_alerts(
+            ctx, supplier_id=payload.supplier_id, invoice_number=line.invoice_number,
+            invoice_date=line.invoice_date, total_mxn=line.total_mxn,
+        )
+        rows.append({
+            "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "supplier_id": payload.supplier_id,
+            "expense_type": "direct", "invoice_number": line.invoice_number.strip(),
+            "invoice_date": line.invoice_date.isoformat(), "total_mxn": round(line.total_mxn, 2),
+            "period_key": payload.period_key or None, "description": payload.description.strip(),
+            "concept_id": payload.concept_id, "group_id": payload.group_id, "facility_id": payload.facility_id,
+            "expense_zone_id": payload.expense_zone_id, "payment_target": payload.payment_target,
+            "reimbursement_recipient_id": payload.reimbursement_recipient_id,
+            "reimbursement_account_id": payload.reimbursement_account_id,
+            "created_by_type": "admin", "created_by": ctx["actor_id"],
+            "status": "sent_to_accountant", "sent_to_accountant_at": created_at,
+            "observation": "Alerta: " + " ".join(alerts) if alerts else "",
+        })
+        alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
+    # PostgREST executes a multi-row insert as one SQL statement: all rows are
+    # persisted together or none are persisted.
+    created = ctx["sb"].table("gas_lp_expense_invoices").insert(rows).execute().data or []
+    if len(created) != len(rows):
+        raise HTTPException(500, "No se pudo confirmar la captura completa.")
+    for item in created:
+        _audit(ctx, "invoice", int(item["id"]), "direct_batch_created", after=item)
+    return {"items": created, "count": len(created), "alerts": alerts_by_invoice}
 
 
 @router.get("/gastos/invoices")
@@ -1465,6 +1581,48 @@ def transition_invoice(invoice_id: int, payload: InvoiceTransition, token: str =
     return {"ok": True, "item": {**row, **update}}
 
 
+@router.put("/gastos/invoices/{invoice_id}")
+def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: str = Query(default=""),
+                          authorization: str = Header(default=""),
+                  x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede editar una captura.")
+    rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Gasto no encontrado.")
+    row = rows[0]
+    if row.get("expense_type") != "direct":
+        raise HTTPException(409, "Las facturas relacionadas con vales no se editan desde esta pantalla.")
+    if row.get("status") in {"paid", "cancelled"}:
+        raise HTTPException(409, "Un gasto pagado o eliminado ya no se puede editar.")
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("id")
+                   .eq("invoice_id", invoice_id).limit(1).execute().data or [])
+    if allocations:
+        raise HTTPException(409, "Este gasto tiene pagos relacionados y ya no se puede editar.")
+    alerts = _invoice_alerts(
+        ctx, supplier_id=int(row["supplier_id"]), invoice_number=payload.invoice_number,
+        invoice_date=payload.invoice_date, total_mxn=payload.total_mxn,
+    )
+    observation = payload.observation.strip()
+    if alerts and not observation:
+        observation = "Alerta: " + " ".join(alerts)
+    update = {
+        "invoice_number": payload.invoice_number.strip(),
+        "invoice_date": payload.invoice_date.isoformat(),
+        "total_mxn": round(payload.total_mxn, 2),
+        "description": payload.description.strip(),
+        "observation": observation,
+        "updated_at": _now(),
+    }
+    ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(
+        "tenant_id", ctx["tenant_id"]
+    ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
+    _audit(ctx, "invoice", invoice_id, "edited", before=row, after=update)
+    return {"ok": True, "item": {**row, **update}, "alerts": alerts}
+
+
 @router.delete("/gastos/invoices/{invoice_id}")
 def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
                           authorization: str = Header(default=""),
@@ -1479,7 +1637,7 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
     row = rows[0]
     if row.get("expense_type") != "direct":
         raise HTTPException(409, "Las facturas relacionadas con vales no se eliminan desde esta pantalla.")
-    if row.get("status") not in {"pending_review", "observed", "rejected"}:
+    if row.get("status") not in {"pending_review", "observed", "rejected", "accepted", "sent_to_accountant"}:
         raise HTTPException(409, "Este gasto ya avanzó en el proceso y no se puede eliminar.")
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("id")
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
