@@ -842,10 +842,15 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     iva = iva or block_iva
     total = block_total or total
 
-    kilos = _regex_first(r"(?:KILOS)\s*:?\s*([\d,]+(?:\.\d+)?)", upper)
+    # Algunos proveedores imprimen el peso operativo como ``KG: 21,300`` en
+    # una línea separada del concepto. Debe prevalecer sobre la conversión del
+    # catálogo porque es el peso declarado expresamente en la factura.
+    kilos = _regex_first(r"\b(?:KILOS?|KGS?|KGM)\s*:?\s*([\d,]+(?:\.\d+)?)\b", upper)
     if not kilos:
         kilos = _regex_first(r"(?:KILOS|PESO|KGM)\D{0,20}([\d,]+(?:\.\d+)?)", upper)
-    peso_detectado_explicito = bool(_to_float(kilos))
+    # En estos comprobantes la coma separa millares (21,300), no decimales.
+    kilos_normalizados = kilos.replace(",", "") if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", kilos or "") else kilos
+    peso_detectado_explicito = bool(_to_float(kilos_normalizados))
     permiso = permiso or _regex_first(r"PERMISO\s+DE\s+COMERCIALIZACI[ÓO]N:\s*([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     permiso = permiso or _regex_first(r"([A-Z]/\d+/[A-Z]+/\d{4})", upper)
     mgc_operational = _pdf_mgc_operational_fields(text)
@@ -932,8 +937,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "clave_sat": clave_sat,
         "cantidad_litros": _to_float(liters),
         "litros": _to_float(liters),
-        "peso_kg": _to_float(kilos),
-        "kilos": _to_float(kilos),
+        "peso_kg": _to_float(kilos_normalizados),
+        "kilos": _to_float(kilos_normalizados),
         "peso_kg_detectado_explicito": peso_detectado_explicito,
         "peso_kg_estimado": False,
         "permiso": permiso,
