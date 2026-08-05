@@ -325,18 +325,18 @@ def test_direct_expenses_refresh_today_and_remain_private_from_managers():
     assert ".capture-layout .today-card .today-row{font-size:12px" in css
 
 
-def test_admin_can_delete_only_early_direct_capture_errors():
+def test_admin_can_delete_unpaid_direct_capture_errors():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     assert '@router.delete("/gastos/invoices/{invoice_id}")' in route
     assert 'row.get("expense_type") != "direct"' in route
-    assert '{"pending_review", "observed", "rejected"}' in route
+    assert '"sent_to_accountant"' in route
     assert 'gas_lp_expense_payment_allocations' in route
     assert '"deleted_capture_error"' in route
     assert 'data-delete-invoice' in script
     assert '¿Eliminar el gasto' in script
-    assert "action:'cancel'" in script
+    assert "action:'cancel'" not in script
     assert '"status": "cancelled"' in route
 
 
@@ -409,9 +409,11 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert 'data-review-filter="pending_review"' not in html
     assert 'data-review-filter="sent_to_accountant"' not in html
     assert "> Por pagar</button>" not in html
-    assert "['accepted','sent_to_accountant'].includes(x.status)" in script
+    assert "['pending_review','accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
-    assert "Pagar estas facturas" in script
+    assert 'data-select-party' in script and '>Pagar</button>' in script
+    assert 'id="paymentModal"' in html and 'aria-modal="true"' in html
+    assert 'data-select-all-party' in script
     assert 'id="paymentMethod" value="Transferencia" readonly' in html
     assert 'id="paymentNotes"' in html
     assert "method:'Transferencia'" in script and "notes:$('paymentNotes').value" in script
@@ -424,18 +426,17 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
 
 
-def test_payment_queue_can_be_safely_withdrawn_and_export_is_separated():
+def test_payment_queue_can_delete_unpaid_expenses_and_export_is_separated():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
 
-    assert "withdraw_from_payments" in route and "withdraw_from_payments" in script
-    assert '({"sent_to_accountant"}, "pending_review")' in route
-    assert "Escribe ELIMINAR" in script and "Retirar" in script
+    assert "withdraw_from_payments" not in script
+    assert 'data-delete-invoice' in script and ">Eliminar</button>" in script
     assert 'supplier_ws.title = "Pagos a proveedores"' in route
     assert 'wb.create_sheet("Reembolsos")' in route
     assert 'wb.create_sheet("Resumen")' in route
-    assert "'X-Perfil-ID':String(activeProfile)" in script
+    assert "'X-Perfil-ID':profileScope" in script
     assert "Generar análisis" in html
     assert "sent_to_accountant:'Pendiente de pago'" in script
     assert "id==='statusBars'?label(x.label):x.label" in script
@@ -450,7 +451,7 @@ def test_company_scoped_zones_money_format_and_stale_delete_recovery():
     assert "Ejemplo: 5,020.68" in script
     assert "GLU760309457" not in script and "withVerifiedZones" not in script
     assert "state.bootstrap.expense_zones" in script and "facility_id:null" in script
-    assert "Captura eliminada por error." in script
+    assert "Se quitará de gastos, pendientes de pago y totales" in script
     assert "x.status!=='cancelled'" in script
 
 
@@ -467,7 +468,7 @@ def test_supervision_expenses_show_payment_destination_and_date_filters():
     assert "supplier?.commercial_name||'Proveedor'" in script
     assert "Reembolso a persona" in script and "paymentParty(x)" in script
     assert "scopedRows(i.items,profile)" in script
-    assert "'X-Perfil-ID':String(profile)" in script
+    assert "'X-Perfil-ID':profileScope" in script
     assert "token+(profile" not in script
     assert "verifyBootstrapProfile" not in script
     assert "icon-action" in script and "fa-comment-dots" in script
@@ -487,3 +488,21 @@ def test_direct_expense_catalog_selectors_are_searchable():
     assert "function renderDirectCombo" in script
     assert "renderSearchableDirect" in script
     assert "expense-combobox-option" in script
+
+
+def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_capture():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+
+    assert "`${profile}|${EXPENSE_MODULE}`" in script
+    assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
+    assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
+    assert "requested_expense_module not in modules" in route
+    assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
+    assert 'id="batchInvoiceRows"' in html and 'id="addBatchInvoice"' in html
+    assert "function collectBatchInvoices" in script
+    assert "'/invoices/direct/batch'" in script
+    assert '@router.post("/gastos/invoices/direct/batch", status_code=201)' in route
+    assert "insert(rows).execute()" in route
+    assert "Hay folios repetidos dentro de la captura múltiple" in route
