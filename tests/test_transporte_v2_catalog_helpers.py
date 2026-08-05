@@ -455,6 +455,32 @@ def test_xml_document_analysis_does_not_require_pdf_kilos_variable():
     assert result["detected"]["cantidad_litros"] == 1000
 
 
+def test_pdf_document_analysis_prefers_explicit_kg_label_over_catalog_estimate(monkeypatch):
+    text = """
+PROPANE SERVICES
+REG.FED.DE CONT. PSE170512969
+SR.(ES) ALFA GAS
+R.F.C. AGA9603186X8
+FACTURA FOLIO FE 113458
+41,110.17 15111510 GAS L.P LP/20740/COM/2017 LTR L 5.485818 02 225,522.91
+04/08/2026
+8009655210
+Zapotlanejo
+PG:3535
+KG: 21,300
+Folio Fiscal: 1D047DD8-73C6-4A19-8F39-0BC8C250EF99
+"""
+    monkeypatch.setattr(transporte_v2, "_extract_pdf_text", lambda _content: (text, []))
+
+    result = transporte_v2._detect_pdf_document(b"%PDF")
+
+    assert result["detected"]["cantidad_litros"] == 41110.17
+    assert result["detected"]["peso_kg"] == 21300
+    assert result["detected"]["kilos"] == 21300
+    assert result["detected"]["peso_kg_detectado_explicito"] is True
+    assert result["detected"]["peso_kg_estimado"] is False
+
+
 def test_diesel_defaults_to_clave_sat_15101505_for_stamping():
     internal, subproducto, clave_sat = _stamp_internal_product_keys(
         {"descripcion": "DIESEL", "tipo_producto": "Diésel"},
