@@ -1232,8 +1232,12 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     if len(allocation_map) != len(payload.invoice_allocations):
         raise HTTPException(400, "Una factura no puede repetirse dentro del mismo pago.")
     allocation_total = round(sum(allocation_map.values()), 2)
-    if abs(allocation_total - round(payload.amount_mxn, 2)) > MONEY_TOLERANCE:
-        raise HTTPException(400, "La suma aplicada a las facturas debe coincidir con el monto pagado.")
+    paid_total = round(float(payload.amount_mxn), 2)
+    # amount_mxn is the real bank transfer. Allocations are capped at invoice
+    # balances, so a small bank overpayment remains an explicit difference.
+    if round(allocation_total * 100) > round(paid_total * 100):
+        raise HTTPException(400, "Lo aplicado a las facturas no puede superar el monto realmente pagado.")
+    payment_difference = round(paid_total - allocation_total, 2)
     invoices = (_base_query(ctx, "gas_lp_expense_invoices").in_("id", list(allocation_map)).execute().data or [])
     if len(invoices) != len(allocation_map):
         raise HTTPException(400, "Una o más facturas no pertenecen a esta empresa.")
@@ -1264,7 +1268,7 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
         "supplier_id": target_id if target == "supplier" else None,
         "reimbursement_recipient_id": target_id if target == "reimbursement" else None,
         "reimbursement_account_id": target_account_id if target == "reimbursement" else None,
-        "paid_on": payload.paid_on.isoformat(), "amount_mxn": round(payload.amount_mxn, 2),
+        "paid_on": payload.paid_on.isoformat(), "amount_mxn": paid_total,
         "method": payload.method.strip(), "reference": payload.reference.strip(),
         "notes": payload.notes.strip(), "created_by": ctx["actor_id"],
     }
@@ -1303,8 +1307,11 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     email_update = {"email_status": "sent" if delivery.ok else ("skipped" if delivery.skipped else "failed"),
                     "email_metadata": delivery.as_metadata()}
     ctx["sb"].table("gas_lp_expense_payments").update(email_update).eq("id", payment["id"]).execute()
-    _audit(ctx, "payment", int(payment["id"]), "created", after={**payment, **email_update})
-    return {"item": {**payment, **email_update}}
+    _audit(ctx, "payment", int(payment["id"]), "created",
+           after={**payment, **email_update, "applied_amount_mxn": allocation_total,
+                  "difference_mxn": payment_difference})
+    return {"item": {**payment, **email_update, "applied_amount_mxn": allocation_total,
+                     "difference_mxn": payment_difference}}
 
 
 @router.get("/gastos/payments")
@@ -1346,6 +1353,12 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
             })
     for payment in payments:
         payment["allocations"] = allocations_by_payment.get(int(payment["id"]), [])
+        payment["applied_amount_mxn"] = round(sum(
+            float(row.get("amount_mxn") or 0) for row in payment["allocations"]
+        ), 2)
+        payment["difference_mxn"] = round(
+            float(payment.get("amount_mxn") or 0) - payment["applied_amount_mxn"], 2
+        )
     return {"items": payments}
 
 
@@ -1383,10 +1396,10 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
 
     wb = Workbook(); provider_ws = wb.active; provider_ws.title = "Pagos proveedores"
     reimbursement_ws = wb.create_sheet("Reembolsos"); summary_ws = wb.create_sheet("Resumen por destinatario")
-    headers = ["FOLIO", "RAZÓN SOCIAL", "MONTO PAGADO", "FECHA DE PAGO", "OBSERVACIÓN", "TOTAL TRANSFERENCIA"]
+    headers = ["FOLIO", "RAZÓN SOCIAL", "MONTO APLICADO", "FECHA DE PAGO", "OBSERVACIÓN", "TOTAL TRANSFERIDO", "DIFERENCIA"]
     green, burgundy, thin = "A9D18E", "7A1E2C", Side(style="thin", color="E7E3DC")
     for worksheet in (provider_ws, reimbursement_ws):
-        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:F1"
+        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:G1"
         for cell in worksheet[1]:
             cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=green)
             cell.alignment = Alignment(horizontal="center")
@@ -1405,15 +1418,19 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
             if payment.get("notes"): notes.append(str(payment["notes"]))
             elif payment.get("reference"): notes.append(f"REF. {payment['reference']}")
             if applied + MONEY_TOLERANCE < float(invoice.get("total_mxn") or 0): notes.append("ANTICIPO")
+            transferred = float(payment.get("amount_mxn") or 0)
+            applied_payment = sum(float(item.get("amount_mxn") or 0) for item in rows)
+            difference = round(transferred - applied_payment, 2)
             worksheet.append([invoice.get("invoice_number") or "S/F", party_name, applied, payment.get("paid_on"),
-                              " · ".join(dict.fromkeys(notes)), float(payment.get("amount_mxn") or 0) if index == len(rows) - 1 else None])
+                              " · ".join(dict.fromkeys(notes)), transferred if index == len(rows) - 1 else None,
+                              difference if index == len(rows) - 1 else None])
             bucket = totals[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
             bucket["invoices"] += 1; bucket["payments"].add(int(payment["id"])); bucket["paid"] += applied
     for worksheet in (provider_ws, reimbursement_ws):
         for row in worksheet.iter_rows(min_row=2):
             for cell in row: cell.border = Border(bottom=thin)
-            row[2].number_format = '$#,##0.00'; row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'
-        for column, width in enumerate((18, 38, 18, 18, 38, 22), 1): worksheet.column_dimensions[get_column_letter(column)].width = width
+            row[2].number_format = '$#,##0.00'; row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'; row[6].number_format = '$#,##0.00'
+        for column, width in enumerate((18, 38, 18, 18, 38, 22, 18), 1): worksheet.column_dimensions[get_column_letter(column)].width = width
     summary_ws.append(["TIPO", "PROVEEDOR O PERSONA", "FACTURAS", "TRANSFERENCIAS", "TOTAL PAGADO"])
     for cell in summary_ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=burgundy)
     for (kind, party_name), values in sorted(totals.items()):
