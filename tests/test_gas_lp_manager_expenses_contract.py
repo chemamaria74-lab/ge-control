@@ -285,6 +285,19 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
+
+
+def test_payment_records_real_transfer_and_keeps_overpayment_difference():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text()
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text()
+    template = (ROOT / "templates" / "gastos_gas_lp.html").read_text()
+    html = template
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text()
+    assert '"difference_mxn": payment_difference' in route
+    assert "allocation_total * 100" in route
+    assert "amountCents-targetCents" in script
+    assert "inputmode=\"decimal\"" in template
+    assert "paymentDifference" in template
     assert ".capture-layout{display:flex;align-items:flex-start" in css
     assert ".capture-layout>article{flex:13 1 0" in css
     assert ".capture-layout>aside{flex:7 1 0" in css
