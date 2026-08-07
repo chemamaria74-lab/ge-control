@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GE CONTROL - Empresas y personas</title>
+  <link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:34px 18px 72px;background:#f5f5f5;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif);display:flex;flex-direction:column;align-items:center;justify-content:center}.logo{width:min(300px,72vw);margin:0 0 28px}.shell{width:min(1060px,100%)}.heading{text-align:center;margin:0 0 30px}.heading h1{margin:0;color:#5b0f1d;font-size:clamp(2rem,4vw,3rem)}.heading p{margin:10px 0 0;color:#756f68;font-size:1.1rem}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.portal-card{min-height:270px;padding:32px;background:#fff;border:1px solid #ded6ca;border-radius:14px;box-shadow:0 18px 42px rgba(29,23,18,.08);text-decoration:none;color:#111;display:flex;flex-direction:column;transition:transform .18s,border-color .18s,box-shadow .18s}.portal-card:hover{transform:translateY(-4px);border-color:#c8a96b;box-shadow:0 24px 50px rgba(29,23,18,.13)}.icon{color:#c8a96b;font-size:2rem;margin-bottom:28px}.portal-card h2{margin:0 0 12px;font-size:1.75rem}.portal-card p{margin:0;color:#756f68;line-height:1.55;font-size:1.02rem}.badge{margin-top:auto;align-self:flex-start;padding:8px 13px;border-radius:999px;background:#f5f1e8;border:1px solid #e3d4b4;color:#5b0f1d;font-size:.8rem;font-weight:850}.back{display:inline-block;margin-top:26px;color:#6a1120;text-decoration:none;font-size:1rem;font-weight:900}.back:hover{text-decoration:underline}@media(max-width:700px){body{justify-content:flex-start;padding-top:28px}.grid{grid-template-columns:1fr}.portal-card{min-height:220px;padding:26px}.logo{margin-bottom:22px}}
+  </style>
+</head>
+<body>
+  <img class="logo" src="/static/img/ge-control-logo.svg" alt="GE Control">
+  <main class="shell">
+    <header class="heading"><h1>Empresas y personas</h1><p>Selecciona el portal al que deseas ingresar.</p></header>
+    <section class="grid" aria-label="Portales disponibles">
+      <a class="portal-card" href="/login/control-administrativo?portal=gastos">
+        <i class="fa-solid fa-receipt icon"></i><h2>Gastos y pagos</h2><p>Captura gastos, administra catálogos, prepara pagos y consulta el análisis de la empresa.</p><span class="badge">Portal de gastos</span>
+      </a>
+      <a class="portal-card" href="/login/control-administrativo?portal=facturacion">
+        <i class="fa-solid fa-file-invoice-dollar icon"></i><h2>Facturación</h2><p>Genera, timbra, programa y envía facturas generales para tu empresa o persona física.</p><span class="badge">Portal de facturación</span>
+      </a>
+    </section>
+    <a class="back" href="/choice">Cambiar módulo</a>
+  </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+</body>
+</html>
