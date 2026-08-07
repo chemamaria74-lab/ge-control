@@ -41,3 +41,20 @@
 [data-content="catalogs"]>.subtabs{margin-bottom:10px}[data-content="catalogs"]>.subtabs button{min-height:38px;padding:8px 12px}[data-content="catalogs"] .card{padding:13px;max-width:980px}[data-content="catalogs"] .card-heading{margin-bottom:10px}[data-content="catalogs"] .card-heading h3{font-size:18px}[data-content="catalogs"] .card-heading p{font-size:12px}[data-content="catalogs"] .catalog-search{max-width:620px;margin-bottom:8px}[data-content="catalogs"] .catalog-search input{padding:8px 10px}[data-content="catalogs"] .catalog-list{margin-top:8px;max-height:500px}[data-content="catalogs"] .catalog-result{min-height:50px;padding:7px 10px;margin-bottom:6px}[data-content="catalogs"] .catalog-row-main{gap:2px}[data-content="catalogs"] .catalog-row-main strong{font-size:13px}[data-content="catalogs"] .catalog-row-main small{font-size:11px}[data-content="catalogs"] .catalog-actions .icon-btn{width:34px;height:34px;min-width:34px}[data-content="catalogs"] .catalog-form{padding:10px}
 
 @media(max-width:900px){.review-navigation{align-items:stretch;flex-direction:column}.review-navigation>a{align-self:flex-start}.analytics-panel .analytics-filters{grid-template-columns:repeat(2,minmax(130px,1fr))}.payment-identity{grid-template-columns:1fr}.payment-identity>b{grid-row:auto;width:max-content}.payment-identity>small{grid-column:auto}.capture-layout>article,.capture-layout>aside{flex:1 1 auto}}
+
+/* Compact means better grouping, not miniature text. */
+.expense-shell{width:min(1240px,94vw)}
+.card{padding:18px}.card h3{font-size:21px}
+th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
+.capture-layout .card{padding:18px}.capture-layout>article h3{font-size:23px}.capture-layout>article .form-grid label{font-size:14px}.capture-layout>article .form-grid input,.capture-layout>article .form-grid select,.capture-layout>article .form-grid textarea{font-size:15px;padding:10px 11px}.capture-mode button{padding:9px 14px;font-size:14px}.batch-invoice-fields{padding:13px}.batch-invoice-table{min-width:620px}.batch-invoice-table th,.batch-invoice-table td{padding:9px}.batch-invoice-table input{min-width:120px;padding:9px}.batch-heading .btn{padding:9px 12px;font-size:14px}.batch-summary{padding-top:10px}.batch-summary strong{font-size:19px}
+.analytics-panel .section-heading h3{font-size:21px}.analytics-panel .analytics-filters{padding:12px 14px;gap:10px}.analytics-panel .analytics-filters input,.analytics-panel .analytics-filters select{padding:10px 11px;font-size:14px}.analytics-panel .analytics-filters label{font-size:12px}.analytics-panel .kpi{padding:13px 15px}.analytics-panel .kpi span{font-size:11px}.analytics-panel .kpi strong{font-size:23px}.analytics-panel .card{padding:16px}.analytics-panel .card h3{font-size:19px}
+[data-content="catalogs"] .card{padding:17px;max-width:none}[data-content="catalogs"] .card-heading h3{font-size:21px}[data-content="catalogs"] .card-heading p{font-size:14px}[data-content="catalogs"] .catalog-search{max-width:720px;margin-bottom:10px}[data-content="catalogs"] .catalog-search input{padding:10px 11px;font-size:14px}[data-content="catalogs"] .catalog-result{min-height:58px;padding:10px 12px;margin-bottom:7px}[data-content="catalogs"] .catalog-row-main{gap:3px}[data-content="catalogs"] .catalog-row-main strong{font-size:15px}[data-content="catalogs"] .catalog-row-main small{font-size:12px}[data-content="catalogs"] .catalog-actions .icon-btn{width:36px;height:36px;min-width:36px}[data-content="catalogs"] .catalog-form{padding:13px}
+
+/* Agregar gasto: todos los datos principales siguen la misma cuadrícula de dos columnas. */
+#directForm{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+#directForm>.single-invoice-fields{display:contents}
+#directForm>.single-invoice-fields[hidden]{display:none}
+#directForm>.single-invoice-fields>label{grid-column:auto}
+#directForm>.batch-invoice-fields{grid-column:1/-1}
+#directForm>label.wide{grid-column:1/-1}
+@media(max-width:760px){#directForm{grid-template-columns:1fr}}
