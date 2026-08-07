@@ -536,7 +536,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "auth-scope-20260807" in html
+    assert "invoice-idempotency-20260807" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
@@ -544,5 +544,17 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "function collectBatchInvoices" in script
     assert "'/invoices/direct/batch'" in script
     assert '@router.post("/gastos/invoices/direct/batch", status_code=201)' in route
+
+
+def test_expense_capture_prevents_duplicate_submissions_and_allocation_checks_use_real_key():
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+
+    assert "if(submit.disabled)return" in script
+    assert "submit.disabled=true" in script
+    assert "finally{submit.disabled=false}" in script
+    assert "gas_lp_expense_invoices_active_identity_uidx" in route
+    assert 'gas_lp_expense_payment_allocations").select("id")' not in route
+    assert route.count('gas_lp_expense_payment_allocations").select("payment_id")') >= 2
     assert "insert(rows).execute()" in route
     assert "Hay folios repetidos dentro de la captura múltiple" in route
