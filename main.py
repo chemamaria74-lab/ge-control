@@ -31,6 +31,7 @@ from routes.perfiles    import router as perfiles_router
 from routes.internal_users import router as internal_users_router
 from routes.flotilla import router as flotilla_router
 from routes.gastos_gas_lp import router as gastos_gas_lp_router
+from routes.general_facturacion import router as general_facturacion_router
 from services.database  import init_db
 from services.email_delivery import send_sales_lead_email
 from services.landing_settings import get_landing_settings
@@ -302,6 +303,7 @@ app.include_router(perfiles_router,    prefix="/api", tags=["Perfiles Empresa"])
 app.include_router(internal_users_router, prefix="/api", tags=["Usuarios internos"])
 app.include_router(flotilla_router, prefix="/api", tags=["Flotilla 360"])
 app.include_router(gastos_gas_lp_router, prefix="/api", tags=["Gastos Gas LP"])
+app.include_router(general_facturacion_router, prefix="/api")
 app.include_router(transporte_v2_router, prefix="/api", tags=["Transporte v2"])
 app.include_router(transporte_v2_facturas_servicio_router, prefix="/api", tags=["Transporte v2"])
 
@@ -561,6 +563,13 @@ async def login_view(modulo: str, request: Request):
             target = f"{target}?lang={lang}"
         return RedirectResponse(url=target, status_code=307)
 
+    if modulo == "control_administrativo":
+        portal = (request.query_params.get("portal") or "gastos").strip().lower()
+        if portal == "facturacion":
+            login_next = "/control-administrativo/facturacion"
+        else:
+            login_next = "/control-administrativo"
+
     # Los portales que usan la sesión oficial regresan al destino elegido
     # después de autenticar. El destino se resuelve en servidor y no se acepta
     # una URL arbitraria del cliente, para evitar redirecciones abiertas.
@@ -733,6 +742,18 @@ async def frontend_control_administrativo():
     html = html.replace("Conciliación fiscal", "Empresas y personas")
     html = html.replace('href="/gas-lp/gastos"', 'href="/control-administrativo"')
     return HTMLResponse(content=html)
+
+
+@app.get("/control-administrativo/portales", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_control_administrativo_portals():
+    """Selector previo al login para Gastos y pagos o Facturación."""
+    return _render_html_file("control_administrativo_choice.html")
+
+
+@app.get("/control-administrativo/facturacion", response_class=HTMLResponse, include_in_schema=False)
+async def frontend_control_administrativo_facturacion():
+    """Portal general de facturación para empresas y personas físicas."""
+    return _render_html_file("control_administrativo_facturacion.html")
 
 
 @app.get("/transporte-v2/gastos", response_class=HTMLResponse, include_in_schema=False)
