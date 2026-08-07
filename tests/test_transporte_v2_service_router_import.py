@@ -100,6 +100,7 @@ def test_carta_ingreso_excel_includes_operational_columns():
 
     for header in (
         "Fecha de descarga",
+        "Producto",
         "ID CRE",
         "Permiso origen",
         "Permiso destino",
@@ -109,6 +110,7 @@ def test_carta_ingreso_excel_includes_operational_columns():
     ):
         assert header in frontend
     assert "trv2ServiceInvoiceDownloadDate(item)" in frontend
+    assert "trv2ServiceInvoiceProduct(item)" in frontend
     assert "trv2ServiceInvoiceTripValues(item, 'id_cre')" in frontend
     assert "vehiculoCatalogo.id_cre" in frontend
     assert "`Cartas Ingreso ${monthName} ${year}.xls`" in frontend

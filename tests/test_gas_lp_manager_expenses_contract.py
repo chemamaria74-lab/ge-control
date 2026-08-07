@@ -319,7 +319,7 @@ def test_payment_records_real_transfer_and_keeps_overpayment_difference():
     css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text()
     assert '"difference_mxn": payment_difference' in route
     assert "allocation_total * 100" in route
-    assert "amountCents-targetCents" in script
+    assert "targetCents=Math.min(amountCents,balanceTotalCents)" in script
     assert "inputmode=\"decimal\"" in template
     assert "paymentDifference" in template
     assert ".capture-layout{display:flex;align-items:flex-start" in css
@@ -457,8 +457,11 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert '@router.get("/gastos/payments")' in route
     assert "function paidPaymentsHtml()" in script and "loadPayments()" in script
     assert 'data-pay-invoice' in script and "function startPayment" in script
-    assert "Se enviará la notificación de pago" in script
-    assert "no tiene correo registrado; el pago se guardará sin enviar notificación" in script
+    assert "Se enviará la notificación de pago" not in script
+    assert "no tiene correo registrado; el pago se guardará sin enviar notificación" not in script
+    payment_submit = script.split("$('batchPaymentForm').onsubmit", 1)[1].split("$('cancelPayment')", 1)[0]
+    assert "confirm(" not in payment_submit
+    assert "await api('/payments'" in payment_submit
     assert "state.reviewStatus==='paid'?loadPayments():loadInvoices('',false)" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
 
