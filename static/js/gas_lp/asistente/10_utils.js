@@ -206,8 +206,8 @@ function switchCartaPorteTab(tab){
   }
 }
 function switchBillingTab(tab){
-  const active = ['facturar','facturas','complementos'].includes(tab) ? tab : 'facturar';
-  ['facturar','facturas','complementos'].forEach(name => {
+  const active = ['facturar','facturas','complementos','estaciones'].includes(tab) ? tab : 'facturar';
+  ['facturar','facturas','complementos','estaciones'].forEach(name => {
     document.getElementById(`billing-tab-${name}`)?.classList.toggle('active', name === active);
     document.getElementById(`billing-panel-${name}`)?.classList.toggle('active', name === active);
   });
@@ -216,6 +216,80 @@ function switchBillingTab(tab){
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
     renderComplementosPago();
   }
+  if(active === 'estaciones') loadAssistantStationControl();
+}
+
+function assistantStationLiters(value){ return `${Number(value || 0).toLocaleString('es-MX',{maximumFractionDigits:2})} L`; }
+async function loadAssistantStationControl(){
+  const host = document.getElementById('assistantStationControl');
+  const input = document.getElementById('assistantStationMonth');
+  if(!host) return;
+  const month = input?.value || todayKey().slice(0,7);
+  if(input && !input.value) input.value = month;
+  host.className = 'muted'; host.textContent = 'Cargando estaciones…';
+  try {
+    const data = await api(`/api/internal-auth/gas-lp/inventario-estaciones?mes=${encodeURIComponent(month)}`);
+    const stations = data.stations || [];
+    TRANSFER_INVENTORY_STATIONS = stations;
+    if(!stations.length){ host.textContent = 'No hay estaciones configuradas para esta empresa.'; return; }
+    host.innerHTML = stations.map(s => {
+      const alerts = s.alertas || [];
+      const tone = alerts.some(a=>a.estado==='negative'||a.estado==='over_capacity') ? '#991b1b' : alerts.length ? '#92400e' : '#166534';
+      const msg = alerts.length ? alerts[0].mensaje : 'Todo dentro del rango esperado.';
+      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario aprox.</small><br><b>${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div style="margin-top:8px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div></div>`;
+    }).join('');
+  } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
+}
+
+let TRANSFER_INVENTORY_STATIONS = null;
+async function refreshTransferInventoryHint(){
+  const hint = document.getElementById('transferInventoryHint');
+  const destination = document.getElementById('destinoFacilitySelect');
+  const litersInput = document.getElementById('litros');
+  if(!hint || tipoOperacion?.value !== 'traspaso' || !destination?.value){ hint?.classList.add('hide'); return; }
+  try {
+    if(!TRANSFER_INVENTORY_STATIONS){
+      const month = (document.getElementById('assistantStationMonth')?.value || todayKey().slice(0,7));
+      const data = await api(`/api/internal-auth/gas-lp/inventario-estaciones?mes=${encodeURIComponent(month)}`);
+      TRANSFER_INVENTORY_STATIONS = data.stations || [];
+    }
+    const station = TRANSFER_INVENTORY_STATIONS.find(s => String(s.id) === String(destination.value));
+    if(!station){ hint.classList.add('hide'); return; }
+    const liters = Number(litersInput?.value || 0);
+    const projected = Number(station.inventario || 0) + liters;
+    const exceeds = liters > Number(station.disponible || 0);
+    const negative = Number(station.inventario || 0) < 0;
+    const color = exceeds || negative ? '#991b1b' : '#166534';
+    const message = exceeds
+      ? `No puedes enviar ${assistantStationLiters(liters)}. El máximo estimado es ${assistantStationLiters(station.disponible)}.`
+      : negative
+        ? 'Atención: esta estación presenta faltante calculado. Revisa ventas y traspasos antes de continuar.'
+        : `Después de este traspaso quedaría aproximadamente en ${assistantStationLiters(projected)}.`;
+    hint.classList.remove('hide');
+    hint.style.cssText = `border:1px solid ${color};background:${color==='#166534'?'#f0fdf4':'#fef2f2'};color:${color};border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800`;
+    hint.innerHTML = `<div>${esc(station.nombre)} · Inventario aprox.: ${assistantStationLiters(station.inventario)} · Puedes enviar: ${assistantStationLiters(station.disponible)}</div><div style="margin-top:4px">${esc(message)}</div>`;
+  } catch(error) {
+    hint.classList.remove('hide');
+    hint.style.cssText = 'border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800';
+    hint.textContent = 'No fue posible consultar el inventario estimado. El sistema lo validará antes de timbrar.';
+  }
+}
+
+function previewTransferPhysicalControl(){
+  const hint = document.getElementById('transferPhysicalHint');
+  const before = Number(document.getElementById('transferTankBeforePct')?.value);
+  const after = Number(document.getElementById('transferTankAfterPct')?.value);
+  const destinationId = String(document.getElementById('destinoFacilitySelect')?.value || '');
+  if(!hint || !destinationId || !Number.isFinite(before) || !Number.isFinite(after)){ return; }
+  const station = FACILITIES.find(f => String(f.id) === destinationId) || {};
+  const capacity = Number(station.cap_operativa_tanque || station.cap_util_tanque || station.capacidad_tanque || station.cap_total_tanque || 0);
+  if(capacity <= 0){ hint.textContent = 'La estación no tiene capacidad configurada en Administración.'; return; }
+  const measured = capacity * (after - before) / 100;
+  const cfdi = Number(document.getElementById('litros')?.value || 0);
+  const difference = measured - cfdi;
+  const alert = Math.abs(difference) > Math.max(capacity * Number(station.incertidumbre_medidor || 0.05), cfdi * 0.05);
+  hint.style.color = alert ? '#991b1b' : '#166534';
+  hint.textContent = `Por lectura de tanque: ${assistantStationLiters(measured)}. CFDI: ${assistantStationLiters(cfdi)}. Diferencia: ${assistantStationLiters(difference)}.${alert ? ' Revisa la descarga: la diferencia es mayor a la tolerancia.' : ''}`;
 }
 function switchClientsTab(tab){
   const active = ['clientes','credito','descuentos'].includes(tab) ? tab : 'clientes';

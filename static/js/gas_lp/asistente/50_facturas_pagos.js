@@ -3,19 +3,40 @@ function mergeFacturas(rows){
   (rows || []).forEach(f => byId.set(String(f.id), f));
   FACTURAS = [...byId.values()].sort((a,b)=>String(facturaDateValue(b) || b.created_at || '').localeCompare(String(facturaDateValue(a) || a.created_at || '')));
 }
-const GASLP_SESSION_CACHE_TTL = 5 * 60 * 1000;
-function gaslpSessionCacheKey(kind, key){ return `ge_gaslp:${kind}:${token || 'anon'}:${key}`; }
+const GASLP_SESSION_CACHE_TTL = 12 * 60 * 60 * 1000;
+function gaslpCacheScope(){
+  const company = String(CURRENT_COMPANY?.rfc || CURRENT_COMPANY?.id || 'sin-empresa').trim().toUpperCase();
+  const assistant = String(CURRENT_ASSISTANT?.id || CURRENT_ASSISTANT?.username || CURRENT_ASSISTANT?.display_name || 'sin-usuario').trim().toUpperCase();
+  return `${company}:${assistant}`;
+}
+function gaslpSessionCacheKey(kind, key){ return `ge_gaslp_cache:${gaslpCacheScope()}:${kind}:${key}`; }
 function gaslpSessionCacheGet(kind, key){
   try{
-    const raw = sessionStorage.getItem(gaslpSessionCacheKey(kind, key));
+    const raw = localStorage.getItem(gaslpSessionCacheKey(kind, key));
     if(!raw) return null;
     const item = JSON.parse(raw);
-    if(!item || Date.now() - Number(item.t || 0) > GASLP_SESSION_CACHE_TTL) return null;
+    if(!item || Date.now() - Number(item.t || 0) > GASLP_SESSION_CACHE_TTL){
+      localStorage.removeItem(gaslpSessionCacheKey(kind, key));
+      return null;
+    }
     return item.data || null;
   }catch(_e){ return null; }
 }
 function gaslpSessionCacheSet(kind, key, data){
-  try{ sessionStorage.setItem(gaslpSessionCacheKey(kind, key), JSON.stringify({t:Date.now(), data})); }catch(_e){}
+  try{ localStorage.setItem(gaslpSessionCacheKey(kind, key), JSON.stringify({t:Date.now(), data})); }catch(_e){}
+}
+function gaslpLastMonthKey(){ return `ge_gaslp_cache:${gaslpCacheScope()}:last-month`; }
+function gaslpRememberLastMonth(month){
+  if(!/^\d{4}-\d{2}$/.test(String(month || ''))) return;
+  try{ localStorage.setItem(gaslpLastMonthKey(), JSON.stringify({t:Date.now(), month})); }catch(_e){}
+}
+async function restoreLastFacturasFromCache(){
+  try{
+    const item = JSON.parse(localStorage.getItem(gaslpLastMonthKey()) || 'null');
+    if(!item || Date.now() - Number(item.t || 0) > GASLP_SESSION_CACHE_TTL || !/^\d{4}-\d{2}$/.test(String(item.month || ''))) return false;
+    facturaMes.value = item.month;
+    return await loadFacturas(item.month, {limit:300, deep:true, cacheOnly:true});
+  }catch(_e){ return false; }
 }
 async function loadFacturas(month='', opts={}){
   const realizadasHoy = !!opts.realizadasHoy;
@@ -69,17 +90,25 @@ async function loadFacturas(month='', opts={}){
       renderDashboard();
       renderDescuentosList();
       if(!credito && !descuentos){
+        if(!receptorRfc && !complementos && !cartaPorte && !realizadasHoy) gaslpRememberLastMonth(selectedMonth);
         renderComplementosPago();
         if(typeof renderCartaPorteHistoryPanels === 'function') renderCartaPorteHistoryPanels();
         applyFacturasFilters();
       }
       return true;
     }
+    if(opts.cacheOnly){
+      refreshButtons.forEach(btn => { btn.disabled = false; delete btn.dataset.loadingFacturas; });
+      if(todayFacturasRows) todayFacturasRows.innerHTML = '<tr><td colspan="5">Presiona Cargar para consultar los documentos realizados hoy.</td></tr>';
+      if(facturasRows) facturasRows.innerHTML = '<tr><td colspan="11">Presiona Cargar mes para consultar facturas.</td></tr>';
+      return false;
+    }
   }
   FACTURAS_LOAD_PROMISE = (async () => {
     try{
       const data = await api('/api/internal-auth/gas-lp/facturas' + qs, {signal: FACTURAS_LOAD_CONTROLLER.signal});
       gaslpSessionCacheSet('facturas', cacheKey, data);
+      if(!credito && !descuentos && !receptorRfc && !complementos && !cartaPorte && !realizadasHoy) gaslpRememberLastMonth(selectedMonth);
       const loadedRows = data.facturas || [];
       if(credito){
         CREDITO_FACTURAS = loadedRows;
@@ -389,6 +418,13 @@ function complementoRelatedLabel(c){
   if(!facturas.length) return 'Factura relacionada';
   return facturas.map(f => f.folio || String(f.uuid || '').slice(0,8) || 'Factura').filter(Boolean).join(', ');
 }
+function complementoFolioLabel(c){
+  const md = c.metadata || {};
+  const serie = String(c.serie || md.serie || 'P').trim();
+  const raw = String(c.folio_usuario || c.folio || c.folio_pago || md.folio_usuario || '').trim();
+  const folio = /^\d{14}$/.test(raw) ? String(Number(raw.slice(-6))) : (/^\d+$/.test(raw) ? String(Number(raw)) : raw);
+  return folio ? `${serie}-${folio}` : (String(c.uuid_sat || '').slice(0, 8) || 'Folio pendiente');
+}
 function complementoView(c){
   const id = encodeURIComponent(c.id || '');
   const q = `token=${encodeURIComponent(token)}`;
@@ -410,11 +446,11 @@ function complementoView(c){
     assistant:c.realizado_por || 'Sistema',
     assistantBadge:`<span class="assistant-chip"><i class="fa-solid fa-user-check"></i> ${esc(c.realizado_por || 'Sistema')}</span>`,
     statusHtml:`<span class="payment-status-badge paid">Complemento</span><span class="payment-note">${esc(c.email_status || 'Correo pendiente')}</span>`,
-    folio:complementoRelatedLabel(c),
+    folio:complementoFolioLabel(c),
     uuid:c.uuid_sat || 'UUID pendiente',
     docs,
     emailHtml:`<span class="email-status ${complementoEmailClass(c)}" title="${esc(emailTitle)}">${esc(c.email_status || 'Pendiente')}</span>`,
-    search:[c.uuid_sat,c.rfc_receptor,c.cliente,complementoRelatedLabel(c),c.realizado_por,c.email_status,'Complemento'].join(' ').toLowerCase()
+    search:[c.uuid_sat,c.rfc_receptor,c.cliente,complementoFolioLabel(c),complementoRelatedLabel(c),c.realizado_por,c.email_status,'Complemento'].join(' ').toLowerCase()
   };
 }
 function facturaEmailValue(f){
@@ -607,16 +643,31 @@ function applyFacturasFilters(){
   }
   const client = String(document.getElementById('facturaClienteFilter')?.value || '').trim().toUpperCase();
   const month = document.getElementById('facturaMes')?.value || '';
-  const pago = document.getElementById('facturaPago')?.value || '';
+  const day = document.getElementById('facturaDia')?.value || '';
+  const folioQuery = String(document.getElementById('facturaFolio')?.value || '').trim().toLowerCase();
+  const fiscalState = document.getElementById('facturaEstado')?.value || '';
+  const paymentForm = document.getElementById('facturaForma')?.value || '';
   const tipo = document.getElementById('facturaTipo')?.value || '';
   const rows = fiscalDocumentRows().filter(f => {
     const isComp = f.__kind === 'complemento';
     const key = isComp ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f);
     const v = isComp ? complementoView(f) : facturaView(f);
     const clientKey = isComp ? String(f.cliente || f.rfc_receptor || 'SIN CLIENTE').trim().toUpperCase() : facturaClientKey(f);
+    const md = f.metadata || {};
+    const info = f.payment_info || {};
+    const form = String(isComp ? (f.forma_pago || '') : (f.forma_pago || info.forma_pago || md.forma_pago || '')).toUpperCase();
+    const canceled = isComp
+      ? String(f.status || '').toLowerCase().includes('cancel')
+      : isCanceledForDisplay(f);
+    const pending = !isComp && !canceled && isPPD(f) && !facturaComplementoId(f) && facturaSaldo(f) > 0;
     if(client && clientKey !== client) return false;
     if(month && !key.startsWith(month)) return false;
-    if(pago && !String(v.pago).toUpperCase().includes(pago.toUpperCase())) return false;
+    if(day && key !== day) return false;
+    if(folioQuery && !String(v.search || v.folio || '').toLowerCase().includes(folioQuery)) return false;
+    if(paymentForm && form !== paymentForm) return false;
+    if(fiscalState === 'cancelada' && !canceled) return false;
+    if(fiscalState === 'pendiente' && !pending) return false;
+    if(fiscalState === 'vigente' && (canceled || pending)) return false;
     if(tipo === 'complemento' && !isComp) return false;
     if(tipo === 'carta_porte' && (isComp || !v.isCartaPorte)) return false;
     if(tipo === 'traspaso' && (isComp || v.isCartaPorte || !v.isTraspaso)) return false;
