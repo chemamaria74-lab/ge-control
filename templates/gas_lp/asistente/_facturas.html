@@ -5,6 +5,7 @@
           <p class="muted" style="margin:4px 0 0">Consulta y filtra las facturas timbradas de la empresa asignada.</p>
         </div>
         <div class="toolbar">
+          <div><label>Mes</label><input id="facturaMes" type="month" onchange="applyMonthFilter()"></div>
           <div><label>Exportar día</label><input id="facturaExportDia" type="date"></div>
           <button class="btn ghost" type="button" onclick="exportFacturasDiaExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
           <button class="btn ghost" type="button" onclick="loadFacturasSelectedMonth()"><i class="fa-solid fa-magnifying-glass"></i> Cargar mes</button>
@@ -13,8 +14,10 @@
       </div>
       <div class="filters month-filters">
         <div><label>Cliente</label><select id="facturaClienteFilter" onchange="applyFacturasFilters()"><option value="">Todos los clientes</option></select></div>
-        <div><label>Mes</label><input id="facturaMes" type="month" onchange="applyMonthFilter()"></div>
-        <div><label>Pago</label><select id="facturaPago" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="PUE">PUE</option><option value="PPD">PPD</option><option value="Complemento">Complemento</option><option value="Traslado">Traslado</option></select></div>
+        <div><label>Día</label><input id="facturaDia" type="date" onchange="applyFacturasFilters()"></div>
+        <div><label>Folio</label><input id="facturaFolio" type="search" placeholder="Ej. 35 o P-12" oninput="applyFacturasFilters()"></div>
+        <div><label>Estado fiscal</label><select id="facturaEstado" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="vigente">Vigente</option><option value="pendiente">Pendiente complemento</option><option value="cancelada">Cancelada</option></select></div>
+        <div><label>Forma de pago</label><select id="facturaForma" onchange="applyFacturasFilters()"><option value="">Todas</option><option value="01">01 Efectivo</option><option value="02">02 Cheque</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta de crédito</option><option value="28">28 Tarjeta de débito</option><option value="99">99 Por definir</option></select></div>
         <div><label>Tipo</label><select id="facturaTipo" onchange="applyFacturasFilters()"><option value="">Todos</option><option value="factura">Facturas</option><option value="complemento">Complementos de pago</option><option value="traspaso">Traspasos</option></select></div>
       </div>
       <div class="table-wrap facturas-table-wrap"><table class="facturas-table"><thead><tr><th class="date-cell">Fecha</th><th class="op-cell">Operación</th><th class="facility-cell">Instalación</th><th class="client-cell">Cliente/Destino</th><th class="liters-cell">Litros</th><th class="money-cell">Total</th><th class="pay-cell">Pago</th><th class="assistant-cell">Realizado por</th><th class="status-cell">Estado fiscal</th><th class="uuid-cell">Folio</th><th class="docs-cell">Docs</th></tr></thead><tbody id="facturasRows"><tr><td colspan="11">Selecciona un mes y presiona Cargar mes.</td></tr></tbody></table></div>

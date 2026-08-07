@@ -3,6 +3,7 @@
         <button class="subtab-btn active" id="billing-tab-facturar" type="button" onclick="switchBillingTab('facturar')"><i class="fa-solid fa-stamp"></i> Facturar</button>
         <button class="subtab-btn" id="billing-tab-facturas" type="button" onclick="switchBillingTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
         <button class="subtab-btn" id="billing-tab-complementos" type="button" onclick="switchBillingTab('complementos')"><i class="fa-solid fa-receipt"></i> Complementos de pago</button>
+        <button class="subtab-btn" id="billing-tab-estaciones" type="button" onclick="switchBillingTab('estaciones')"><i class="fa-solid fa-gas-pump"></i> Control de estaciones</button>
       </nav>
     <div id="billing-panel-facturar" class="billing-subpanel active">
     <div id="facturacion" class="work-grid">
@@ -59,19 +60,29 @@
               <div class="muted" style="font-size:12px;margin-top:4px">Se enviará PDF y XML del traspaso a este correo.</div>
             </div>
             <div class="muted" style="font-size:12px;margin-top:5px">Fiscalmente el receptor es la misma empresa. Operativamente se guardan origen y destino para inventario, JSON y reportes.</div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #e5e7eb">
+              <b>Control físico de descarga <span class="muted" style="font-size:12px">(opcional por ahora)</span></b>
+              <div class="form-grid" style="margin-top:8px">
+                <div><label>Tanque antes de descargar (%)</label><input id="transferTankBeforePct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+                <div><label>Tanque después de descargar (%)</label><input id="transferTankAfterPct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+                <div><label>Litros que declara el chofer</label><input id="transferDriverLiters" type="number" min="0" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              </div>
+              <div id="transferPhysicalHint" class="muted" style="font-size:12px;margin-top:7px">Registra ambos porcentajes para comparar la descarga física contra el CFDI.</div>
+            </div>
           </div>
           <div id="cartaPorteNotice" class="client-preview form-span hide">
             <b>Carta Porte Gas LP</b>
             <div class="muted" style="font-size:12px;margin-top:4px">Preparación y vista previa sin timbrado. Revisa catálogos antes de preparar.</div>
           </div>
-          <div id="destinoField" class="hide"><label>Estación destino *</label><select id="destinoFacilitySelect" required onchange="filterRutasForTransfer()"><option value="">Selecciona estación destino</option></select></div>
+          <div id="destinoField" class="hide"><label>Estación destino *</label><select id="destinoFacilitySelect" required onchange="filterRutasForTransfer();refreshTransferInventoryHint()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Traspaso a estación</option><option value="1">Preparar Carta Porte</option></select></div>
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
-          <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals()"></div>
+          <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals();refreshTransferInventoryHint()"></div>
+          <div id="transferInventoryHint" class="form-span hide" aria-live="polite"></div>
           <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" placeholder="Selecciona instalación" oninput="markManualPrice();updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="markManualDiscount();updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
           <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="markManualDiscount();updateTotals()"><div id="descuentoHelp" class="muted" style="font-size:12px;margin-top:5px"></div></div>
@@ -111,6 +122,13 @@
     </div>
     </div>
     <!-- ge-include: gas_lp/asistente/_facturas.html -->
+    <div id="billing-panel-estaciones" class="billing-subpanel card">
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+        <div><label for="assistantStationMonth">Mes</label><input id="assistantStationMonth" type="month"></div>
+        <button class="btn" type="button" onclick="loadAssistantStationControl()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+      </div>
+      <div id="assistantStationControl" class="muted">Presiona Actualizar para consultar el inventario estimado de las estaciones.</div>
+    </div>
     <div id="billing-panel-complementos" class="billing-subpanel">
       <div class="card">
         <div class="section-title">
