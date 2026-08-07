@@ -53,7 +53,11 @@ def build_station_ledger(*, facility: dict, invoices: list[dict], initial_invent
         destination = _id(md.get("destino_facility_id"))
         if transfer and destination == facility_id:
             days[day]["recibidos"] += liters
-            days[day]["traspasos"].append({"id": invoice.get("id"), "litros": float(liters), "tipo": "recibido"})
+            physical = md.get("transfer_physical_control") if isinstance(md.get("transfer_physical_control"), dict) else {}
+            days[day]["traspasos"].append({
+                "id": invoice.get("id"), "litros": float(liters), "tipo": "recibido",
+                "control_fisico": physical,
+            })
         elif transfer and origin == facility_id:
             days[day]["enviados"] += liters
             days[day]["traspasos"].append({"id": invoice.get("id"), "litros": float(liters), "tipo": "enviado"})
