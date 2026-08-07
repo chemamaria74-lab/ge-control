@@ -228,7 +228,7 @@ document.getElementById('btnGenerarCartaPorte').addEventListener('click', async 
 });
 
 // ── Controles Volumétricos ───────────────────────────────────────────────
-document.getElementById('btnLoadControles').addEventListener('click', async () => {
+document.getElementById('btnLoadControles')?.addEventListener('click', async () => {
   const facilitySelect = document.getElementById('controlesFacility');
   const facilityId = facilitySelect?.value;
   const info = document.getElementById('controlesInfo');
@@ -263,8 +263,22 @@ function renderTransferAnalysis(data) {
   host.innerHTML = stations.map(({facility, ledger}) => {
     const alerts = ledger.alerts || [];
     const alertHtml = alerts.length ? alerts.map(a => `<li><b>${a.fecha}:</b> ${a.mensaje} (${_transferLiters(a.inventario_final)})</li>`).join('') : '<li>Sin alertas en este mes.</li>';
-    const rows = (ledger.days || []).map(d => `<tr><td>${d.fecha}</td><td>${_transferLiters(d.ventas)}</td><td>${_transferLiters(d.traspasos_recibidos)}</td><td>${_transferLiters(d.traspasos_enviados)}</td><td>${_transferLiters(d.inventario_final)}</td><td>${d.mensaje}</td></tr>`).join('') || '<tr><td colspan="6">Sin movimientos en este mes.</td></tr>';
-    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${facility.nombre || 'Estación'}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div><div style="overflow:auto"><table style="width:100%;font-size:.78rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Ventas</th><th>Recibidos</th><th>Enviados</th><th>Inventario</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    const rows = (ledger.days || []).map(d => {
+      const physicalControls = (d.traspasos || []).map(t => t.control_fisico || {}).filter(c => Object.keys(c).length);
+      const physical = physicalControls.map(c => {
+        const measured = _transferLiters(c.litros_medidos);
+        const cfdi = _transferLiters(c.litros_cfdi);
+        const difference = _transferLiters(c.diferencia_litros);
+        const color = c.alerta ? '#991b1b' : '#166534';
+        const label = c.alerta ? 'Revisar diferencia física' : 'Lectura física dentro de tolerancia';
+        return `<div style="margin-top:4px;color:${color}"><b>${label}:</b> medido ${measured}; CFDI ${cfdi}; diferencia ${difference}.</div>`;
+      }).join('');
+      return `<tr><td>${d.fecha}</td><td>${_transferLiters(d.ventas)}</td><td>${_transferLiters(d.traspasos_recibidos)}</td><td>${_transferLiters(d.traspasos_enviados)}</td><td>${_transferLiters(d.inventario_final)}</td><td>${escapeHtml(d.mensaje)}${physical}</td></tr>`;
+    }).join('') || '<tr><td colspan="6">Sin movimientos en este mes.</td></tr>';
+    const chartDays = (ledger.days || []).slice(-14);
+    const chartMax = Math.max(1, ...chartDays.flatMap(d => [Number(d.ventas || 0), Number(d.traspasos_recibidos || 0)]));
+    const chart = chartDays.length ? `<div style="display:flex;align-items:end;gap:8px;height:120px;padding:10px 4px 0;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;margin:.7rem 0 1rem">${chartDays.map(d => { const sales = Number(d.ventas || 0), received = Number(d.traspasos_recibidos || 0); return `<div title="${d.fecha}: ventas ${_transferLiters(sales)}, recibidos ${_transferLiters(received)}" style="flex:1;display:flex;align-items:end;gap:2px;height:100%"><i style="display:block;flex:1;height:${Math.max(2, sales / chartMax * 100)}%;background:#2563eb;border-radius:3px 3px 0 0"></i><i style="display:block;flex:1;height:${Math.max(2, received / chartMax * 100)}%;background:#10b981;border-radius:3px 3px 0 0"></i></div>`; }).join('')}</div><div style="font-size:.75rem;color:#64748b"><span style="color:#2563eb">■ Ventas</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> · últimos ${chartDays.length} días</div>` : '';
+    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${facility.nombre || 'Estación'}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div>${chart}<div style="overflow:auto"><table style="width:100%;font-size:.78rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Ventas</th><th>Recibidos</th><th>Enviados</th><th>Inventario</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }).join('');
 }
 

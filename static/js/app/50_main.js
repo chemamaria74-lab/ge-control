@@ -2506,7 +2506,7 @@ document.getElementById('btnGenerarCartaPorte').addEventListener('click', async 
 });
 
 // ── Controles Volumétricos ───────────────────────────────────────────────
-document.getElementById('btnLoadControles').addEventListener('click', async () => {
+document.getElementById('btnLoadControles')?.addEventListener('click', async () => {
   const facilitySelect = document.getElementById('controlesFacility');
   const facilityId = facilitySelect?.value;
   const info = document.getElementById('controlesInfo');
