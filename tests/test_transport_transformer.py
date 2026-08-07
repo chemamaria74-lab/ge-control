@@ -1,6 +1,6 @@
 import zipfile
 
-from services.transport_transformer import build_transport_covol, save_transport_covol
+from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_product_key
 
 
 def test_transport_covol_accepts_trip_catalog_field_names_and_balances_tank():
@@ -29,11 +29,19 @@ def test_transport_covol_accepts_trip_catalog_field_names_and_balances_tank():
     )
 
     monthly = report["Producto"][0]["ReporteDeVolumenMensual"]
+    assert report["Producto"][0]["ClaveProducto"] == "PR12"
     assert monthly["Recepciones"]["SumaVolumenRecepcionMes"]["ValorNumerico"] == 36072.8
     assert monthly["Entregas"]["SumaVolumenEntregadoMes"]["ValorNumerico"] == 36072.8
     assert monthly["ControlDeExistencias"]["VolumenExistenciasMes"] == 0
     assert monthly["Recepciones"]["Complemento"][0]["Nacional"][0]["CFDIs"][0]["TipoCfdi"] == "Traslado"
     assert meta["inv_final_litros"] == 0
+
+
+def test_transport_covol_maps_cfdi_bienes_transp_to_covol_product_key():
+    assert transport_covol_product_key("15111510", "Gas LP") == "PR12"
+    assert transport_covol_product_key("15101514", "MAGNA") == "PR06"
+    assert transport_covol_product_key("15101515", "PREMIUM") == "PR07"
+    assert transport_covol_product_key("15101505", "DIESEL") == "PR05"
 
 
 def test_transport_zip_contains_json_and_xml(tmp_path):

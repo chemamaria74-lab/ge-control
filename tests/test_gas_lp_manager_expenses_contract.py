@@ -362,12 +362,12 @@ def test_direct_expenses_refresh_today_and_remain_private_from_managers():
     assert ".capture-layout .today-card .today-row{font-size:12px" in css
 
 
-def test_admin_can_delete_unpaid_direct_capture_errors():
+def test_admin_can_delete_unpaid_direct_or_credit_note_capture_errors():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
 
     assert '@router.delete("/gastos/invoices/{invoice_id}")' in route
-    assert 'row.get("expense_type") != "direct"' in route
+    assert 'row.get("expense_type") not in {"direct", "credit_note"}' in route
     assert '"sent_to_accountant"' in route
     assert 'gas_lp_expense_payment_allocations' in route
     assert '"deleted_capture_error"' in route
