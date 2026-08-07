@@ -332,6 +332,16 @@ def test_payment_records_real_transfer_and_keeps_overpayment_difference():
     assert "function apiError(detail)" in script
 
 
+def test_payment_initializes_credit_notes_before_using_them():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    payment_route = route.split('def create_expense_payment(', 1)[1].split(
+        '@router.get("/gastos/payments")', 1
+    )[0]
+
+    assert payment_route.index("credit_notes = []") < payment_route.index("if payload.credit_note_ids")
+    assert payment_route.index("credit_notes = []") < payment_route.index("credit_remaining =")
+
+
 def test_expenses_support_custom_zones_without_phone_fields():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     admin_html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
@@ -464,6 +474,27 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "await api('/payments'" in payment_submit
     assert "state.reviewStatus==='paid'?loadPayments():loadInvoices('',false)" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
+
+
+def test_accounting_export_and_paid_view_make_payment_invoice_relationship_explicit():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    for header in (
+        "ID DE PAGO", "FACTURA EN EL PAGO", "FOLIO DE FACTURA", "FECHA DE FACTURA",
+        "RAZÓN SOCIAL / DESTINATARIO", "MONTO DE LA FACTURA", "MONTO PAGADO",
+        "FECHA DE PAGO", "TOTAL TRANSFERIDO", "DIFERENCIA", "REFERENCIA", "CONCEPTO / NOTAS",
+    ):
+        assert header in route
+    assert 'f"P-{payment[\'id\']}"' in route
+    assert "UN SOLO PAGO" not in route.split('def export_expense_payments(', 1)[1].split(
+        'def _legacy_export_expense_payments(', 1
+    )[0]
+    assert "Pago P-${esc(payment.id)}" in script
+    assert "Facturas incluidas en el pago P-${esc(payment.id)}" in script
+    assert "$('exportPayments').hidden" not in script
+    assert 'class="review-navigation"' in html
 
 
 def test_payment_queue_can_delete_unpaid_expenses_and_export_is_separated():
