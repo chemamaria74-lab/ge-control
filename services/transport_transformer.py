@@ -35,6 +35,43 @@ logger = logging.getLogger(__name__)
 # ── Constantes de transporte ──────────────────────────────────────────────────
 RFC_PROVEEDOR_DEFAULT = "ATI9404219D5"  # RFC del proveedor del programa informático
 
+_PRODUCTO_FAMILY_BY_CLAVE = {
+    "PR12": "gas_lp",
+    "15111510": "gas_lp",
+    "PR03": "petroliferos",
+    "PR05": "petroliferos",
+    "PR06": "petroliferos",
+    "PR07": "petroliferos",
+    "PR08": "petroliferos",
+    "PR09": "petroliferos",
+    "PR10": "petroliferos",
+    "PR13": "petroliferos",
+    "PR14": "petroliferos",
+    "PR16": "petroliferos",
+    "PR17": "petroliferos",
+    "15101505": "petroliferos",
+    "15101510": "petroliferos",
+    "15101511": "petroliferos",
+    "15101512": "petroliferos",
+    "15101514": "petroliferos",
+    "15101515": "petroliferos",
+    "15101516": "petroliferos",
+    "15101517": "petroliferos",
+}
+
+_CFDI_TO_COVOL_PRODUCT = {
+    "15111510": "PR12",
+    "15111501": "PR12",
+    "15101505": "PR05",
+    "15101507": "PR05",
+    "15101514": "PR06",
+    "15101515": "PR07",
+    "15101516": "PR03",
+    "15101517": "PR10",
+    "15101511": "PR17",
+    "15101512": "PR09",
+}
+
 # Catálogo TipoEvento conforme §17.4 Guía SAT — reutilizable pero independiente
 _TIPO_EVENTO: dict[int, str] = {
     1:  "Inicio de operaciones del periodo",
@@ -69,6 +106,133 @@ def _smart_num(v: Any) -> Any:
         return int(fv) if fv == int(fv) else fv
     except (TypeError, ValueError):
         return v
+
+
+def _normalize_product_text(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    replacements = (
+        ("Á", "A"), ("É", "E"), ("Í", "I"), ("Ó", "O"), ("Ú", "U"),
+        ("Ü", "U"), ("Ñ", "N"),
+    )
+    for source, target in replacements:
+        text = text.replace(source, target)
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def transport_product_family(value: Any) -> str:
+    norm = _normalize_product_text(value)
+    if not norm:
+        return ""
+    if norm in _PRODUCTO_FAMILY_BY_CLAVE:
+        return _PRODUCTO_FAMILY_BY_CLAVE[norm]
+    if "GASLP" in norm or "GASLICUADODEPETROLEO" in norm:
+        return "gas_lp"
+    if any(term in norm for term in ("PETROLIFERO", "GASOLINA", "MAGNA", "PREMIUM", "DIESEL", "NAFTA", "QUEROSENO", "TURBOSINA")):
+        return "petroliferos"
+    return norm.lower()
+
+
+def transport_covol_product_key(value: Any, description: Any = "") -> str:
+    norm = _normalize_product_text(value)
+    desc = _normalize_product_text(description)
+    if norm.startswith("PR") and norm[2:].isdigit():
+        return norm
+    if norm in _CFDI_TO_COVOL_PRODUCT:
+        if norm in {"15101505", "15101507"}:
+            if "MARINO" in desc:
+                return "PR08"
+            if "INDUSTRIAL" in desc:
+                return "PR13"
+        return _CFDI_TO_COVOL_PRODUCT[norm]
+    if "GASLP" in desc or "GASLICUADODEPETROLEO" in desc:
+        return "PR12"
+    if "PREMIUM" in desc:
+        return "PR07"
+    if "MAGNA" in desc or "REGULAR" in desc or "GASOLINA" in desc:
+        return "PR06"
+    if "DIESEL" in desc:
+        if "MARINO" in desc:
+            return "PR08"
+        if "INDUSTRIAL" in desc:
+            return "PR13"
+        return "PR05"
+    if "NAFTA" in desc:
+        return "PR03"
+    if "QUEROSENO" in desc:
+        return "PR10"
+    if "TURBOSINA" in desc:
+        return "PR17"
+    return norm
+
+
+def transport_covol_subproduct_key(clave_producto: Any, clave_subproducto: Any = "", description: Any = "") -> str:
+    current = str(clave_subproducto or "").strip().upper()
+    if current.startswith("SP"):
+        return current
+    clave = str(clave_producto or "").strip().upper()
+    desc = _normalize_product_text(description)
+    if clave == "PR12":
+        return ""
+    if clave == "PR07":
+        return "SP16" if "PREMIUM" in desc else "SP2"
+    if clave == "PR06":
+        return "SP15" if "MAGNA" in desc else "SP1"
+    if clave == "PR05":
+        return "SP6"
+    if clave == "PR08":
+        return "SP7"
+    if clave == "PR13":
+        return "SP9"
+    if clave == "PR03":
+        return "SP18" if "INDUSTRIAL" in desc else "SP12"
+    if clave == "PR10":
+        return "SP18" if "INDUSTRIAL" in desc else "SP17"
+    if clave == "PR16":
+        return "SP3"
+    if clave == "PR17":
+        return "SP45"
+    return current
+
+
+def transport_products_match_permit(product_value: Any, permit_products: list[Any] | None = None, permit_families: list[Any] | None = None, permit_product: Any = "") -> bool:
+    target_family = transport_product_family(product_value)
+    target_norm = _normalize_product_text(product_value)
+    allowed_products = {_normalize_product_text(value) for value in (permit_products or []) if str(value or "").strip()}
+    allowed_families = {transport_product_family(value) for value in (permit_families or []) if str(value or "").strip()}
+    permit_family = transport_product_family(permit_product)
+    if target_norm and target_norm in allowed_products:
+        return True
+    if target_family and target_family in allowed_families and (not allowed_products or target_norm in allowed_products):
+        return True
+    if target_family and permit_family == target_family and not allowed_products:
+        return True
+    return False
+
+
+def empty_transport_product_node(clave_producto: str, clave_subproducto: str = "") -> dict:
+    prod_dict: dict = {
+        "ClaveProducto": clave_producto,
+        "ReporteDeVolumenMensual": {
+            "ControlDeExistencias": {},
+            "Recepciones": {
+                "TotalRecepcionesMes": 0,
+                "SumaVolumenRecepcionMes": {"ValorNumerico": 0, "UnidadDeMedida": CLAVE_UNIDAD_LITROS},
+                "TotalDocumentosMes": 0,
+                "ImporteTotalRecepcionesMensual": 0,
+                "Complemento": [],
+            },
+            "Entregas": {
+                "TotalEntregasMes": 0,
+                "SumaVolumenEntregadoMes": {"ValorNumerico": 0, "UnidadDeMedida": CLAVE_UNIDAD_LITROS},
+                "TotalDocumentosMes": 0,
+                "ImporteTotalEntregasMes": 0,
+                "Complemento": [],
+            },
+        },
+    }
+    if clave_subproducto:
+        prod_dict["ClaveSubProducto"] = clave_subproducto
+    return prod_dict
 
 
 def _fmt_iso(ts: str) -> str:
@@ -166,8 +330,9 @@ def build_transport_covol(
         tipo_cfdi = (v.get("tipo_cfdi") or "Traslado").strip().title()
 
         for prod in productos_viaje:
-            clave_pr = (prod.get("clave_producto") or prod.get("clave_sat") or "").strip().upper()
-            clave_sp = (prod.get("clave_subproducto") or "").strip().upper()
+            descripcion = prod.get("descripcion") or prod.get("producto") or ""
+            clave_pr = transport_covol_product_key(prod.get("clave_producto") or prod.get("clave_sat") or "", descripcion)
+            clave_sp = transport_covol_subproduct_key(clave_pr, prod.get("clave_subproducto") or "", descripcion)
             vol      = float(prod.get("volumen_litros") or prod.get("cantidad_litros") or prod.get("cantidad") or 0)
             imp      = float(prod.get("importe") or prod.get("valor_mercancia") or 0)
 
@@ -350,6 +515,29 @@ def build_transport_covol(
         if len(sp_unicos) == 1:
             prod_dict["ClaveSubProducto"] = sp_unicos.pop()
 
+        productos_sat.append(prod_dict)
+
+    for autorizado in settings.get("ProductosAutorizados") or []:
+        if isinstance(autorizado, dict):
+            clave_autorizada = str(autorizado.get("clave_producto") or autorizado.get("clave") or "").strip().upper()
+            sub_autorizado = str(autorizado.get("clave_subproducto") or autorizado.get("subproducto") or "").strip().upper()
+        else:
+            clave_autorizada = str(autorizado or "").strip().upper()
+            sub_autorizado = ""
+        if not clave_autorizada:
+            continue
+        exists = any(
+            producto.get("ClaveProducto") == clave_autorizada
+            and (producto.get("ClaveSubProducto") or "") == sub_autorizado
+            for producto in productos_sat
+        )
+        if exists:
+            continue
+        prod_dict = empty_transport_product_node(clave_autorizada, sub_autorizado)
+        prod_dict["ReporteDeVolumenMensual"]["ControlDeExistencias"] = {
+            "VolumenExistenciasMes": 0,
+            "FechaYHoraEstaMedicionMes": fin_mes,
+        }
         productos_sat.append(prod_dict)
 
     # ── Eventos de cierre ─────────────────────────────────────────────────────
