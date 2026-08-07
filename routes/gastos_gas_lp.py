@@ -201,6 +201,20 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", "".join(c for c in text if not unicodedata.combining(c))).upper()
 
 
+def _insert_expense_invoices(ctx: dict[str, Any], rows: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Insert invoices while translating the database idempotency guard for the UI."""
+    try:
+        return ctx["sb"].table("gas_lp_expense_invoices").insert(rows).execute().data or []
+    except Exception as exc:
+        detail = str(exc).lower()
+        if "gas_lp_expense_invoices_active_identity_uidx" in detail or "23505" in detail:
+            raise HTTPException(
+                409,
+                "Una o más facturas ya estaban registradas. No se guardó ninguna para evitar duplicados.",
+            ) from exc
+        raise
+
+
 def _code(value: str, length: int) -> str:
     cleaned = re.sub(r"[^A-Z0-9]", "", _normalize(value))
     return (cleaned or "X")[:length]
@@ -1078,7 +1092,10 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         "status": "sent_to_accountant", "sent_to_accountant_at": _now(),
         "observation": "Alerta: " + " ".join(alerts) if alerts else "",
     }
-    created = ctx["sb"].table("gas_lp_expense_invoices").insert(row).execute().data[0]
+    created_rows = _insert_expense_invoices(ctx, row)
+    if not created_rows:
+        raise HTTPException(500, "No se pudo confirmar la captura.")
+    created = created_rows[0]
     _audit(ctx, "invoice", int(created["id"]), "direct_created", after=created)
     return {"item": created, "alerts": alerts}
 
@@ -1154,7 +1171,7 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
         alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
     # PostgREST executes a multi-row insert as one SQL statement: all rows are
     # persisted together or none are persisted.
-    created = ctx["sb"].table("gas_lp_expense_invoices").insert(rows).execute().data or []
+    created = _insert_expense_invoices(ctx, rows)
     if len(created) != len(rows):
         raise HTTPException(500, "No se pudo confirmar la captura completa.")
     for item in created:
@@ -1619,7 +1636,7 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
         raise HTTPException(409, "Las facturas relacionadas con vales no se editan desde esta pantalla.")
     if row.get("status") in {"paid", "cancelled"}:
         raise HTTPException(409, "Un gasto pagado o eliminado ya no se puede editar.")
-    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("id")
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("payment_id")
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if allocations:
         raise HTTPException(409, "Este gasto tiene pagos relacionados y ya no se puede editar.")
@@ -1661,7 +1678,7 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
         raise HTTPException(409, "Las facturas relacionadas con vales no se eliminan desde esta pantalla.")
     if row.get("status") not in {"pending_review", "observed", "rejected", "accepted", "sent_to_accountant"}:
         raise HTTPException(409, "Este gasto ya avanzó en el proceso y no se puede eliminar.")
-    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("id")
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("payment_id")
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if allocations:
         raise HTTPException(409, "Este gasto tiene pagos relacionados y no se puede eliminar.")
