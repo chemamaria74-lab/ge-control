@@ -250,6 +250,42 @@ document.getElementById('btnLoadControles').addEventListener('click', async () =
   error.style.display = '';
 });
 
+function _transferLiters(value) {
+  return `${Number(value || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})} L`;
+}
+
+function renderTransferAnalysis(data) {
+  const host = document.getElementById('transferAnalysisResults');
+  if (!host) return;
+  const stations = data.stations || [];
+  host.style.display = '';
+  if (!stations.length) { host.textContent = 'No hay instalaciones para analizar.'; return; }
+  host.innerHTML = stations.map(({facility, ledger}) => {
+    const alerts = ledger.alerts || [];
+    const alertHtml = alerts.length ? alerts.map(a => `<li><b>${a.fecha}:</b> ${a.mensaje} (${_transferLiters(a.inventario_final)})</li>`).join('') : '<li>Sin alertas en este mes.</li>';
+    const rows = (ledger.days || []).map(d => `<tr><td>${d.fecha}</td><td>${_transferLiters(d.ventas)}</td><td>${_transferLiters(d.traspasos_recibidos)}</td><td>${_transferLiters(d.traspasos_enviados)}</td><td>${_transferLiters(d.inventario_final)}</td><td>${d.mensaje}</td></tr>`).join('') || '<tr><td colspan="6">Sin movimientos en este mes.</td></tr>';
+    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${facility.nombre || 'Estación'}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div><div style="overflow:auto"><table style="width:100%;font-size:.78rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Ventas</th><th>Recibidos</th><th>Enviados</th><th>Inventario</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+}
+
+document.getElementById('btnLoadTransferAnalysis')?.addEventListener('click', async () => {
+  const monthInput = document.getElementById('transferAnalysisMonth');
+  const month = monthInput?.value || new Date().toISOString().slice(0, 7);
+  if (monthInput && !monthInput.value) monthInput.value = month;
+  const facilityId = document.getElementById('controlesFacility')?.value;
+  const host = document.getElementById('transferAnalysisResults');
+  if (host) { host.style.display = ''; host.textContent = 'Cargando análisis de traspasos…'; }
+  try {
+    const suffix = facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : '';
+    const res = await fetch(`/api/history/${month}/inventory-control${suffix}`, {headers: authHeader()});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'No fue posible cargar el análisis.');
+    renderTransferAnalysis(data);
+  } catch (error) {
+    if (host) host.textContent = error.message || 'No fue posible cargar el análisis.';
+  }
+});
+
 // ── Procesar CFDI (múltiples archivos) ────────────────────────────────────
 let _cfdiProcessing = false;
 let _supplementalUploadActive = false;
