@@ -247,7 +247,12 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
     requested_expense_module = requested_expense_module.strip().lower()
     if requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}:
         raise HTTPException(400, "Módulo de gastos inválido.")
-    if token and token.count(".") == 2:
+    # The query token belongs to the Gas LP supervision/conciliation portal,
+    # even when it happens to be a Supabase JWT.  Standalone expense portals
+    # authenticate with the Authorization header instead.  Token shape is not
+    # an authorization contract: treating every three-part token as a generic
+    # module session made valid supervisors lose their write permission.
+    if token and requested_expense_module in {"transporte", "control_administrativo"}:
         authorization = f"Bearer {token}"
         token = ""
     if fleet_access:
