@@ -102,11 +102,20 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
     if not origen:
         raise HTTPException(400, "Selecciona la instalación origen para registrar la operación Gas LP.")
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
+    transfer_physical_control = {}
     if is_transfer:
         if not destino:
             raise HTTPException(400, "Selecciona la estación destino para el traspaso.")
         if int(payload.facility_id or 0) == int(payload.destino_facility_id or 0):
             raise HTTPException(400, "Origen y destino deben ser distintos para el traspaso.")
+        inventory_check = _gas_lp_transfer_inventory_check(sb, user, destino, payload.litros)
+        if not inventory_check.get("ok"):
+            raise HTTPException(400, {
+                "message": "El traspaso supera la capacidad operativa de la estación. Revisa las ventas y los litros capturados antes de timbrar.",
+                "code": inventory_check.get("code"),
+                "inventory": inventory_check,
+            })
+        transfer_physical_control = _gas_lp_transfer_physical_control(destino, payload)
         existing_transfer = _gas_lp_existing_transfer_invoice(sb, user, payload)
         if existing_transfer:
             md_existing = existing_transfer.get("metadata") if isinstance(existing_transfer.get("metadata"), dict) else {}
@@ -629,6 +638,7 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
             "destino_facility_id": payload.destino_facility_id,
             "destino_facility_name": destino.get("nombre") or "",
             "destino_nombre": destino.get("nombre") or "",
+            "transfer_physical_control": transfer_physical_control,
             "transfer_email": transfer_recipient_text,
             "created_from": "assistant_transfer" if is_transfer else "assistant_sale",
             "observaciones": payload.comentarios,

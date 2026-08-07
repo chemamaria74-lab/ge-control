@@ -12,6 +12,8 @@ from services.carta_porte_pdf import (
     extraer_info_pdf as carta_porte_pdf_info,
     generar_pdf_carta_porte_desde_xml,
 )
+from services.gas_lp_inventory_control import build_station_ledger
+from services.database import get_reports
 
 
 def _gas_lp_credit_reminder_parse_days(value: str | int | None) -> list[int]:
@@ -352,6 +354,43 @@ async def gas_lp_credito_recordatorios_candidatos(
     if include_exclusions:
         response["exclusiones"] = exclusiones
     return JSONResponse(response)
+
+
+@router.get("/internal-auth/gas-lp/inventario-estaciones")
+async def gas_lp_internal_station_inventory(token: str, mes: str | None = None):
+    """Resumen operativo para asistentes; no expone conciliación fiscal."""
+    ctx = _gas_lp_internal_context(token)
+    user = ctx["user"]
+    profile = _gas_lp_profile(user)
+    month = str(mes or datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m"))[:7]
+    if len(month) != 7 or month[4] != "-":
+        raise HTTPException(400, "Mes inválido.")
+    sb = get_supabase_admin()
+    try:
+        rows = _gas_lp_company_facturas_rows(
+            sb, user, profile, month=month, limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
+            company_fallback=True, visibility_log=False,
+        )
+    except Exception as exc:
+        raise _safe_internal_error("gas_lp_station_inventory", exc)
+    stations = []
+    for facility in _gas_lp_admin_facilities(user):
+        if str(facility.get("tipo_instalacion") or "").lower() != "estacion":
+            continue
+        initial = 0.0
+        try:
+            reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility.get("id"), perfil_id=user.get("perfil_id"))
+            if reports: initial = float(reports[0].get("inventario_inicial") or 0)
+        except Exception:
+            pass
+        ledger = build_station_ledger(facility=facility, invoices=rows, initial_inventory=initial)
+        stations.append({
+            "id": facility.get("id"), "nombre": facility.get("nombre") or "Estación",
+            "inventario": ledger["current_inventory"], "capacidad": ledger["capacity"],
+            "disponible": ledger["available_to_transfer"], "alertas": ledger["alerts"],
+        })
+    return JSONResponse({"mes": month, "stations": stations})
 
 
 @router.get("/internal-auth/gas-lp/facturas")
