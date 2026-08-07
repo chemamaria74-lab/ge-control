@@ -33,7 +33,7 @@ function trv2CvProductMatchesPermit(productName = '', permitItem = {}) {
 function trv2CvProductFamilyKey(value = '') {
   const compact = trv2CvNormalize(value).replace(/[._\s-]/g, '');
   if (compact.includes('gaslp') || compact.includes('gaslicuado') || compact.includes('15111510')) return 'gas_lp';
-  if (['petrol', 'gasolina', 'magna', 'premium', 'diesel', '151015'].some(word => compact.includes(word))) return 'petroliferos';
+  if (['petrol', 'gasolina', 'magna', 'premium', 'diesel', '151015', 'pr03', 'pr05', 'pr06', 'pr07', 'pr08', 'pr09', 'pr10', 'pr13', 'pr14', 'pr16', 'pr17'].some(word => compact.includes(word))) return 'petroliferos';
   return '';
 }
 
@@ -162,7 +162,7 @@ function trv2PopulateCvPermisos() {
 }
 
 function trv2CvTripDate(row) {
-  const raw = row.fecha_salida || row.created_at || '';
+  const raw = row.fecha_hora_salida || row.fecha_salida || row.created_at || '';
   const parsed = raw ? new Date(raw) : null;
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 }
