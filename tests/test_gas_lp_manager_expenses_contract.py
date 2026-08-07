@@ -85,6 +85,30 @@ def test_expense_context_prefers_explicit_profile_header(monkeypatch):
     assert result["perfil_id"] == 3
 
 
+def test_gas_lp_supervision_jwt_uses_conciliation_permissions(monkeypatch):
+    captured = {}
+    jwt = "header.payload.signature"
+
+    def fake_context(token, *, write, perfil_id):
+        captured.update(token=token, write=write, perfil_id=perfil_id)
+        return {"user": {"id": "u1", "tenant_id": "t1", "perfil_id": perfil_id,
+                         "role": "conciliacion", "display_name": "Supervisión"}}
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(gastos_gas_lp, "_gas_lp_conciliacion_context", fake_context)
+    monkeypatch.setattr(
+        gastos_gas_lp,
+        "verify_token",
+        lambda _token: pytest.fail("Gas LP supervision must not use generic module auth"),
+    )
+
+    result = gastos_gas_lp._ctx("", "", jwt, "4|gas_lp")
+
+    assert captured == {"token": jwt, "write": True, "perfil_id": 4}
+    assert result["is_admin"] is True
+    assert result["perfil_id"] == 4
+
+
 def test_manager_ui_does_not_load_assistant_or_fiscal_scripts():
     html = (ROOT / "templates" / "gerentes_gastos.html").read_text(encoding="utf-8")
     assert "gas_lp/conciliacion/" not in html
@@ -510,6 +534,9 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
 
     assert "`${profile}|${EXPENSE_MODULE}`" in script
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
+    assert "const q=path=>IS_STANDALONE?path:path+" in script
+    assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
+    assert "auth-scope-20260807" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
