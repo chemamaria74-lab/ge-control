@@ -1286,12 +1286,6 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     }
     if len(target_keys) != 1:
         raise HTTPException(400, "Un pago agrupado debe corresponder al mismo proveedor o persona a reembolsar.")
-    if credit_notes and next(iter({
-        (row.get("payment_target") or "supplier",
-         int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0),
-         int(row.get("reimbursement_account_id") or 0)) for row in credit_notes
-    })) != next(iter(target_keys)):
-        raise HTTPException(400, "La nota de crédito debe corresponder al mismo destinatario del pago.")
     invoice_ids = list(allocation_map)
     credit_notes = []
     if payload.credit_note_ids:
@@ -1310,6 +1304,8 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
         }
         if len(credit_keys) != 1:
             raise HTTPException(400, "Las notas de crédito deben corresponder al mismo destinatario.")
+        if next(iter(credit_keys)) != next(iter(target_keys)):
+            raise HTTPException(400, "La nota de crédito debe corresponder al mismo destinatario del pago.")
     old_allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                        .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
     already_paid: defaultdict[int, float] = defaultdict(float)
@@ -1465,10 +1461,12 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
 
     wb = Workbook(); provider_ws = wb.active; provider_ws.title = "Pagos proveedores"
     reimbursement_ws = wb.create_sheet("Reembolsos"); summary_ws = wb.create_sheet("Resumen por destinatario")
-    headers = ["FOLIO", "RAZÓN SOCIAL", "MONTO APLICADO", "FECHA DE PAGO", "OBSERVACIÓN", "TOTAL TRANSFERIDO", "DIFERENCIA"]
+    headers = ["ID DE PAGO", "FACTURA EN EL PAGO", "FOLIO DE FACTURA", "FECHA DE FACTURA",
+               "RAZÓN SOCIAL / DESTINATARIO", "MONTO DE LA FACTURA", "MONTO PAGADO",
+               "FECHA DE PAGO", "TOTAL TRANSFERIDO", "DIFERENCIA", "REFERENCIA", "CONCEPTO / NOTAS"]
     green, burgundy, thin = "A9D18E", "7A1E2C", Side(style="thin", color="E7E3DC")
     for worksheet in (provider_ws, reimbursement_ws):
-        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:G1"
+        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:L1"
         for cell in worksheet[1]:
             cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=green)
             cell.alignment = Alignment(horizontal="center")
@@ -1483,23 +1481,28 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
             invoice = invoices_by_id.get(int(allocation["invoice_id"]), {})
             applied = float(allocation.get("amount_mxn") or 0)
             notes = []
-            if len(rows) > 1 and index == 0: notes.append("UN SOLO PAGO")
             if payment.get("notes"): notes.append(str(payment["notes"]))
-            elif payment.get("reference"): notes.append(f"REF. {payment['reference']}")
-            if applied + MONEY_TOLERANCE < float(invoice.get("total_mxn") or 0): notes.append("ANTICIPO")
+            if applied + MONEY_TOLERANCE < float(invoice.get("total_mxn") or 0): notes.append("PAGO PARCIAL")
             transferred = float(payment.get("amount_mxn") or 0)
             applied_payment = sum(float(item.get("amount_mxn") or 0) for item in rows)
             difference = round(transferred - applied_payment, 2)
-            worksheet.append([invoice.get("invoice_number") or "S/F", party_name, applied, payment.get("paid_on"),
-                              " · ".join(dict.fromkeys(notes)), transferred if index == len(rows) - 1 else None,
-                              difference if index == len(rows) - 1 else None])
+            worksheet.append([
+                f"P-{payment['id']}", f"{index + 1} de {len(rows)}", invoice.get("invoice_number") or "S/F",
+                invoice.get("invoice_date"), party_name, float(invoice.get("total_mxn") or 0), applied,
+                payment.get("paid_on"), transferred if index == 0 else None,
+                difference if index == 0 else None, payment.get("reference") or "",
+                " · ".join(dict.fromkeys(notes)),
+            ])
             bucket = totals[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
             bucket["invoices"] += 1; bucket["payments"].add(int(payment["id"])); bucket["paid"] += applied
     for worksheet in (provider_ws, reimbursement_ws):
         for row in worksheet.iter_rows(min_row=2):
             for cell in row: cell.border = Border(bottom=thin)
-            row[2].number_format = '$#,##0.00'; row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'; row[6].number_format = '$#,##0.00'
-        for column, width in enumerate((18, 38, 18, 18, 38, 22, 18), 1): worksheet.column_dimensions[get_column_letter(column)].width = width
+            row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'
+            row[6].number_format = '$#,##0.00'; row[7].number_format = 'dd/mm/yyyy'
+            row[8].number_format = '$#,##0.00'; row[9].number_format = '$#,##0.00'
+        for column, width in enumerate((14, 18, 20, 18, 38, 20, 18, 18, 20, 16, 24, 34), 1):
+            worksheet.column_dimensions[get_column_letter(column)].width = width
     summary_ws.append(["TIPO", "PROVEEDOR O PERSONA", "FACTURAS", "TRANSFERENCIAS", "TOTAL PAGADO"])
     for cell in summary_ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=burgundy)
     for (kind, party_name), values in sorted(totals.items()):
