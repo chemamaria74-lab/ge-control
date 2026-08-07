@@ -62,6 +62,7 @@ TBL_PROVEEDORES = "tr_proveedores_operacion"
 TBL_TARIFAS = "tr_tarifas"
 TBL_TARIFAS_OPERADOR = "tr_tarifas_operador"
 TBL_FACT_SERV = "tr_facturas_servicio"
+TBL_FACT_SERV_CARTAS = "tr_facturas_servicio_cartas"
 TBL_SETTINGS = "tr_settings"
 TBL_OPERADOR_ACCESOS = "tr_operador_accesos"
 TBL_AUDITORIA = "transporte_v2_auditoria"
@@ -6791,17 +6792,44 @@ async def transporte_v2_generar_control_volumetrico(
     try:
         invoice_rows = (
             sb.table(TBL_FACT_SERV)
-            .select("viaje_ids,total,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at")
+            .select("id,viaje_ids,total,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at")
             .eq("user_id", uid)
             .eq("perfil_id", pid)
             .execute()
             .data
             or []
         )
+        invoice_trip_ids = {
+            int(invoice["id"]): set()
+            for invoice in invoice_rows
+            if str(invoice.get("id") or "").isdigit()
+        }
+        try:
+            relation_rows = (
+                sb.table(TBL_FACT_SERV_CARTAS)
+                .select("factura_servicio_id,viaje_id")
+                .eq("user_id", uid)
+                .eq("perfil_id", pid)
+                .execute()
+                .data
+                or []
+            )
+            for relation in relation_rows:
+                try:
+                    invoice_id = int(relation.get("factura_servicio_id"))
+                    trip_id = int(relation.get("viaje_id"))
+                except (TypeError, ValueError):
+                    continue
+                if invoice_id in invoice_trip_ids and trip_id:
+                    invoice_trip_ids[invoice_id].add(trip_id)
+        except Exception as exc:
+            logger.info("COVOL Transporte sin relaciones Carta Ingreso: %s", exc)
         for invoice in invoice_rows:
             if _status_cancelado(invoice.get("status")):
                 continue
-            for trip_id in (_parse_json_value(invoice.get("viaje_ids"), []) or []):
+            trip_ids = set(invoice_trip_ids.get(int(invoice.get("id") or 0), set()))
+            trip_ids.update(_parse_json_value(invoice.get("viaje_ids"), []) or [])
+            for trip_id in trip_ids:
                 try:
                     invoice_by_trip[int(trip_id)] = {
                         "uuid": _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")).upper(),

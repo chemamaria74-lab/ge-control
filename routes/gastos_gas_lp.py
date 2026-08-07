@@ -141,6 +141,10 @@ class DirectInvoiceUpdate(BaseModel):
     observation: str = Field(default="", max_length=500)
 
 
+class PaidInvoiceDateUpdate(BaseModel):
+    invoice_date: date
+
+
 class ReimbursementAccountInput(BaseModel):
     account_type: Literal["payroll", "credit_card"]
     label: str = Field(default="", max_length=80)
@@ -315,9 +319,15 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
             elif "transporte" in modules and "gas_lp" not in modules:
                 module = "transporte"
         access = obtener_acceso_modulo(uid, module, access_token=access_token) if uid else {}
-        if str(access.get("role") or "").lower() != "admin":
+        access_role = str(access.get("role") or "").lower()
+        requested_perfil = requested_profile_id or int(access.get("perfil_id") or 0)
+        owner_write = (
+            module == "control_administrativo" and access_role == "user"
+            and _control_admin_owner_can_manage(sb, str(uid), requested_perfil)
+        )
+        if access_role != "admin" and not owner_write:
             raise HTTPException(403, "Se requiere administración del módulo de gastos.")
-        perfil_id = requested_profile_id or int(access.get("perfil_id") or 0)
+        perfil_id = requested_perfil
         if not perfil_id:
             raise HTTPException(400, "Selecciona una empresa activa.")
         from routes.auth import require_profile_access
@@ -336,6 +346,22 @@ def _profile(ctx: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         raise HTTPException(403, "Empresa no disponible.")
     return rows[0]
+
+
+def _control_admin_owner_can_manage(sb: Any, user_id: str, perfil_id: int) -> bool:
+    """Company owners in Control administrativo may manage their own expenses.
+
+    Some legacy Control administrativo memberships were created with role
+    ``user`` even though the user owns the selected company.  Keep the write
+    permission scoped to that exact profile instead of treating every module
+    user as an administrator.
+    """
+    if not user_id or not perfil_id:
+        return False
+    rows = (sb.table("perfiles_empresa").select("id")
+            .eq("id", perfil_id).eq("user_id", user_id).eq("activo", True)
+            .limit(1).execute().data or [])
+    return bool(rows)
 
 
 def _profile_facilities(ctx: dict[str, Any], profile: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -1710,6 +1736,31 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
     ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
     _audit(ctx, "invoice", invoice_id, "edited", before=row, after=update)
     return {"ok": True, "item": {**row, **update}, "alerts": alerts}
+
+
+@router.put("/gastos/invoices/{invoice_id}/paid-date")
+def update_paid_invoice_date(invoice_id: int, payload: PaidInvoiceDateUpdate, token: str = Query(default=""),
+                             authorization: str = Header(default=""),
+                             x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                             x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Correct only the documentary invoice date after a payment exists."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede corregir la fecha de una factura.")
+    rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Factura no encontrada.")
+    row = rows[0]
+    if row.get("status") != "paid":
+        raise HTTPException(409, "Esta corrección está disponible únicamente para facturas pagadas.")
+    if row.get("expense_type") not in {"direct", "credit_note"}:
+        raise HTTPException(409, "Las facturas relacionadas con vales se corrigen desde su módulo de origen.")
+    update = {"invoice_date": payload.invoice_date.isoformat(), "updated_at": _now()}
+    ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(
+        "tenant_id", ctx["tenant_id"]
+    ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
+    _audit(ctx, "invoice", invoice_id, "paid_invoice_date_corrected", before=row, after=update)
+    return {"ok": True, "item": {**row, **update}}
 
 
 @router.delete("/gastos/invoices/{invoice_id}")
