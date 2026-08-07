@@ -422,6 +422,21 @@ function trv2ServiceInvoiceTripValues(item = {}, key = '') {
   return [...new Set(trv2ServiceInvoiceTripData(item).map(service => service[key]).filter(Boolean))].join(', ');
 }
 
+function trv2ServiceInvoiceProduct(item = {}) {
+  const fromTrips = trv2ServiceInvoiceTripValues(item, 'producto');
+  if (fromTrips) return fromTrips;
+  const meta = item.metadata || {};
+  return [...new Set([
+    item.producto,
+    item.producto_nombre,
+    item.producto_descripcion,
+    meta.producto,
+    meta.producto_nombre,
+    meta.producto_descripcion,
+    meta.mercancia_descripcion,
+  ].filter(Boolean).map(value => String(value).trim()).filter(Boolean))].join(', ');
+}
+
 function trv2ServiceInvoiceDownloadDate(item = {}) {
   return [...new Set(trv2ServiceInvoiceTripData(item)
     .map(service => service.fecha_descarga)
@@ -636,6 +651,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     trv2ServiceInvoiceTripValues(item, 'permiso_origen'),
     trv2ServiceInvoiceRouteValue(item, 'destino'),
     trv2ServiceInvoiceTripValues(item, 'permiso_destino'),
+    trv2ServiceInvoiceProduct(item),
     trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'litros'), 'decimal'),
     trv2ExcelNumber(trv2ServiceInvoiceQuantity(item, 'kilos'), 'decimal'),
     trv2ServiceInvoiceDriver(item),
@@ -646,7 +662,7 @@ function trv2ExportServiceExcel(tab = TRV2_SERVICE_TAB) {
     trv2ExcelNumber(item.total, 'currency'),
     trv2ServicePaymentLabel(item),
   ]);
-  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Litros', 'Kilos', 'Chofer', 'ID CRE', 'Carta Porte', 'Carta Ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
+  trv2DownloadExcelTable(trv2ServiceExcelScope('facturadas'), ['Fecha ingreso', 'Fecha de descarga', 'Origen', 'Permiso origen', 'Destino', 'Permiso destino', 'Producto', 'Litros', 'Kilos', 'Chofer', 'ID CRE', 'Carta Porte', 'Carta Ingreso', 'Costo del flete', 'Total', 'Pago'], rows);
 }
 
 function trv2ServiceVehicleShort(value = '') {
