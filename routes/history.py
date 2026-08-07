@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse, FileResponse
 
 from services.database import (
-    get_records, get_reports, get_available_periods, get_period_totals,
+    get_records, get_reports, get_available_periods, get_period_totals, get_facilities,
     get_archived_records, get_archived_reports,
     get_facility, get_closed_report, mark_reports_closed, reopen_reports, report_is_closed, save_report,
     set_report_initial_inventory,
@@ -23,6 +23,7 @@ from services.sat_transformer import (
     sat_dict_to_json,
     sat_dict_to_xml,
 )
+from services.gas_lp_inventory_control import build_station_ledger
 from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
 from routes.settings import _load as load_settings
 from supabase_config import get_supabase_admin
@@ -539,6 +540,38 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
     except Exception as e:
         logger.warning("history_invoice_records: %s", e)
         return {"entradas": [], "salidas": [], "cancelled_uuids": []}
+
+
+@router.get("/history/{periodo}/inventory-control")
+async def inventory_control(
+    periodo: str,
+    facility_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Vista administrativa del libro operativo por estación; no altera datos."""
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    facilities = get_facilities(data_user_id, "gas_lp", perfil_id=perfil_id)
+    if facility_id is not None:
+        facilities = [f for f in facilities if _safe_int(f.get("id")) == facility_id]
+    invoices = []
+    try:
+        q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("perfil_id", perfil_id)
+        if scope.get("tenant_id"): q = q.eq("tenant_id", scope.get("tenant_id"))
+        invoices = q.gte("fecha_emision", f"{periodo}-01T00:00:00-06:00").lt("fecha_emision", f"{_next_period(periodo)}-01T00:00:00-06:00").order("fecha_emision").limit(GAS_LP_HISTORY_FACTURAS_LIMIT).execute().data or []
+    except Exception as exc:
+        logger.warning("inventory_control_invoice_query_failed: %s", exc)
+    stations = []
+    for facility in facilities:
+        initial = 0.0
+        reports = get_reports(data_user_id, periodo, facility_id=_safe_int(facility.get("id")), perfil_id=perfil_id)
+        if reports: initial = float(reports[0].get("inventario_inicial") or 0)
+        stations.append({"facility": facility, "ledger": build_station_ledger(facility=facility, invoices=invoices, initial_inventory=initial)})
+    return JSONResponse(content={"periodo": periodo, "stations": stations})
 
 
 @router.get("/history/periods")

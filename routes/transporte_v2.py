@@ -38,7 +38,7 @@ from services.cfdi_cancellation import cancel_cfdi_universal
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
-from services.transport_transformer import build_transport_covol, save_transport_covol
+from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_product_key, transport_covol_subproduct_key, transport_product_family, transport_products_match_permit
 from services.observability import set_scope
 from services.security import client_ip, enforce_rate_limit
 
@@ -4089,12 +4089,7 @@ def _normalize_producto_value(value: Any) -> str:
 
 
 def _producto_permiso_family(value: Any) -> str:
-    norm = _normalize_producto_value(value)
-    if norm == "GASLP":
-        return "gas_lp"
-    if norm in {"MAGNA", "PREMIUM", "DIESEL", "PETROLIFEROS", "GASOLINA", "GASOLINAS"}:
-        return "petroliferos"
-    return norm.lower() if norm else ""
+    return transport_product_family(value)
 
 
 def _producto_permiso_label(value: Any) -> str:
@@ -4107,10 +4102,6 @@ def _producto_permiso_label(value: Any) -> str:
 
 
 def _permiso_product_family_match(row: dict[str, Any], producto_text: Any) -> bool:
-    target_family = _producto_permiso_family(producto_text)
-    target_norm = _normalize_producto_value(producto_text)
-    if not target_family and not target_norm:
-        return False
     metadata = _parse_json_value(row.get("metadata"), {})
     familias = _parse_json_value(row.get("familias_producto"), [])
     productos = _parse_json_value(row.get("productos_permitidos"), [])
@@ -4121,21 +4112,7 @@ def _permiso_product_family_match(row: dict[str, Any], producto_text: Any) -> bo
         familias = [familias]
     if isinstance(productos, str):
         productos = [productos]
-    family_norms = {_producto_permiso_family(value) for value in (familias or []) if _first_text(value)}
-    product_norms = {_normalize_producto_value(value) for value in (productos or []) if _first_text(value)}
-    row_family = _producto_permiso_family(row.get("producto"))
-    row_product = _normalize_producto_value(row.get("producto"))
-    if target_norm and target_norm in product_norms:
-        return True
-    if target_family and target_family in family_norms and (not product_norms or target_norm in product_norms):
-        return True
-    if target_norm and target_norm == row_product:
-        return True
-    if row_product in {"PETROLIFEROS", "GASOLINA", "GASOLINAS"} and target_family == "petroliferos":
-        return True
-    if row_product == "GASLP" and target_family == "gas_lp":
-        return True
-    return bool(target_family and target_family == row_family and not product_norms)
+    return transport_products_match_permit(producto_text, productos or [], familias or [], row.get("producto"))
 
 
 def _resolve_client_match(client_rows: list[dict[str, Any]], detected: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -6227,9 +6204,12 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
         logger.info("Versionado XML Transporte v2 omitido cfdi=%s: %s", cfdi_saved.get("id"), exc)
 
     metadata = _meta(viaje_row)
+    resolved_num_permiso = _first_text(context["viaje_obj"].num_permiso_cne, viaje_row.get("num_permiso_cne"))
     metadata.update({
         "uuid_carta_porte": uuid_sat,
         "id_ccp": id_ccp,
+        "num_permiso_cne": resolved_num_permiso,
+        "permiso_transportista": resolved_num_permiso,
         "serie_carta_porte": cfdi_dict.get("Serie"),
         "folio_carta_porte": cfdi_dict.get("Folio"),
         "fecha_timbrado": now_iso,
@@ -6247,6 +6227,7 @@ def _stamp_carta_porte_context(context: dict[str, Any]) -> dict[str, Any]:
     update = {
         "uuid_cfdi": uuid_sat,
         "id_ccp": id_ccp,
+        "num_permiso_cne": resolved_num_permiso,
         "status": "timbrado" if carta_ok else "error",
         "carta_porte_status": "timbrado" if carta_ok else "error",
         "defaults_json": metadata,
@@ -6408,7 +6389,7 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
     uuid_cfdi = _first_text(detected.get("uuid"))
     if not uuid_cfdi:
         raise HTTPException(400, f"{filename}: el XML no contiene UUID timbrado.")
-    clave_producto = _first_text(
+    bienes_transp = _first_text(
         mercancia.get("BienesTransp") if mercancia is not None else "",
         detected.get("clave_sat"),
     )
@@ -6416,6 +6397,8 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
         mercancia.get("Descripcion") if mercancia is not None else "",
         detected.get("producto"),
     )
+    clave_producto = transport_covol_product_key(bienes_transp, producto)
+    clave_subproducto = transport_covol_subproduct_key(clave_producto, "", producto)
     volumen = _num(
         mercancia.get("Cantidad") if mercancia is not None else 0
     ) or _num(detected.get("cantidad_litros"))
@@ -6454,14 +6437,14 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
         "uuid_cfdi": uuid_cfdi.upper(),
         "id_ccp": _first_text(carta_porte.get("IdCCP") if carta_porte is not None else ""),
         "clave_producto": clave_producto,
-        "clave_subproducto": "",
+        "clave_subproducto": clave_subproducto,
         "producto": producto,
         "volumen_litros": volumen,
         "importe": _num(root.get("Total")) or _num(mercancia.get("ValorMercancia") if mercancia is not None else 0),
         "rfc_contraparte": contraparte_rfc,
         "nombre_contraparte": contraparte_nombre,
         "filename": filename,
-        "metadata": {"source": "xml_externo", "tipo_comprobante": root.get("TipoDeComprobante", "")},
+        "metadata": {"source": "xml_externo", "tipo_comprobante": root.get("TipoDeComprobante", ""), "bienes_transp": bienes_transp},
     }
 
 
@@ -6958,6 +6941,7 @@ async def transporte_v2_generar_control_volumetrico(
         "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or "",
         "ModalidadPermiso": _first_text(fiscal.get("modalidad_permiso"), "PER51"),
         "display_name": _first_text(fiscal.get("nombre_fiscal"), "GE Control Transporte"),
+        "ProductosAutorizados": _parse_json_value(selected_permiso_row.get("productos_permitidos"), []) or [],
     }
     try:
         sat_dict, meta = build_transport_covol(

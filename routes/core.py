@@ -28,7 +28,7 @@ from routes.auth import (
     verify_token as _auth_verify_token,
 )
 from routes.perfiles import _tenant_id_for_user as _perfiles_tenant_id_for_user
-from services.database import get_facilities
+from services.database import get_facilities, get_reports
 from services.email_delivery import send_gas_lp_invoice_email, send_gas_lp_payment_complement_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
@@ -335,6 +335,9 @@ class GasLpInternalFacturaPayload(BaseModel):
     facility_id: Optional[int] = None
     tipo_operacion: str = "venta"
     destino_facility_id: Optional[int] = None
+    lectura_tanque_antes_pct: Optional[float] = None
+    lectura_tanque_despues_pct: Optional[float] = None
+    litros_descarga_declarados: Optional[float] = None
     generar_carta_porte: bool = False
     vehiculo_id: Optional[int] = None
     chofer_id: Optional[int] = None
@@ -2524,6 +2527,76 @@ def _gas_lp_factura_estado_excel(factura: dict) -> str:
     except Exception:
         metodo = ""
     return "Vigente - PPD / Crédito" if str(metodo or "").upper() == "PPD" else "Vigente"
+
+
+def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> dict:
+    """Proyección operativa sencilla para validar una estación antes de timbrar."""
+    from decimal import Decimal, ROUND_HALF_UP
+    try: qty = Decimal(str(litros or 0))
+    except Exception: qty = Decimal("0")
+    facility_id = _safe_int_id(destino.get("id"))
+    cap = destino.get("cap_operativa_tanque") or destino.get("cap_util_tanque") or destino.get("capacidad_tanque") or destino.get("cap_total_tanque")
+    try: capacity = Decimal(str(cap or 0))
+    except Exception: capacity = Decimal("0")
+    if not facility_id or qty <= 0 or capacity <= 0:
+        return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
+    initial = Decimal("0")
+    month = datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m")
+    try:
+        reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility_id, perfil_id=user.get("perfil_id"))
+        if reports: initial = Decimal(str(reports[0].get("inventario_inicial") or 0))
+    except Exception: pass
+    entradas = salidas = Decimal("0")
+    try:
+        rows = (sb.table("gas_lp_facturas").select("volumen_litros,facility_id,tipo_operacion,is_transfer,metadata,status").eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).eq("status", "Vigente").limit(10000).execute().data or [])
+        for row in rows:
+            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            try: vol = Decimal(str(row.get("volumen_litros") or md.get("litros") or 0))
+            except Exception: continue
+            if vol <= 0: continue
+            transfer = bool(row.get("is_transfer") or row.get("tipo_operacion") == "traspaso" or md.get("tipo_operacion") == "traspaso" or md.get("is_transfer"))
+            if transfer:
+                if _safe_int_id(md.get("destino_facility_id") or row.get("destino_facility_id")) == facility_id: entradas += vol
+                if _safe_int_id(md.get("origen_facility_id") or row.get("facility_id")) == facility_id: salidas += vol
+            elif _safe_int_id(row.get("facility_id") or md.get("facility_id")) == facility_id: salidas += vol
+    except Exception as exc:
+        logger.warning("gas_lp_transfer_inventory_check_failed facility=%s err=%s", facility_id, exc)
+        return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
+    current = (initial + entradas - salidas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    projected = (current + qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    maximum = (capacity * Decimal("1.03")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    available = max(Decimal("0"), maximum - current).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    result = {"current": float(current), "projected": float(projected), "capacity": float(capacity), "maximum": float(maximum), "available": float(available)}
+    if projected > maximum: return {"ok": False, "code": "gas_lp_inventory_over_capacity", **result}
+    if current < 0: return {"ok": True, "code": "gas_lp_inventory_negative", **result}
+    return {"ok": True, "code": "gas_lp_inventory_ok", **result}
+
+
+def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFacturaPayload) -> dict:
+    """Guarda mediciones operativas sin alterar el inventario fiscal."""
+    before = payload.lectura_tanque_antes_pct
+    after = payload.lectura_tanque_despues_pct
+    declared = payload.litros_descarga_declarados
+    if before is None and after is None and declared is None:
+        return {}
+    if before is None or after is None:
+        raise HTTPException(400, "Captura la lectura del tanque antes y después de la descarga.")
+    if not 0 <= float(before) <= 100 or not 0 <= float(after) <= 100:
+        raise HTTPException(400, "Las lecturas del tanque deben estar entre 0% y 100%.")
+    capacity = destino.get("cap_operativa_tanque") or destino.get("cap_util_tanque") or destino.get("capacidad_tanque") or destino.get("cap_total_tanque")
+    if not capacity or float(capacity) <= 0:
+        raise HTTPException(400, "La estación destino no tiene capacidad configurada en Administración.")
+    measured = round(float(capacity) * (float(after) - float(before)) / 100, 2)
+    expected = float(payload.litros or 0)
+    declared_value = float(declared) if declared is not None else expected
+    tolerance = max(float(capacity) * float(destino.get("incertidumbre_medidor") or 0.05), expected * 0.05)
+    difference = round(measured - expected, 2)
+    return {
+        "antes_pct": float(before), "despues_pct": float(after), "capacidad_litros": float(capacity),
+        "litros_medidos": measured, "litros_cfdi": expected, "litros_declarados": declared_value,
+        "diferencia_litros": difference, "tolerancia_litros": round(tolerance, 2),
+        "alerta": abs(difference) > tolerance,
+    }
 
 
 def _gas_lp_existing_transfer_invoice(sb, user: dict, payload: GasLpInternalFacturaPayload) -> dict | None:

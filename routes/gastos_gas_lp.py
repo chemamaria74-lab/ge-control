@@ -27,6 +27,7 @@ from supabase_config import get_supabase_admin
 
 router = APIRouter()
 MONEY_TOLERANCE = 0.005
+PAYMENT_BALANCE_TOLERANCE = 1.00
 
 
 class ConceptCreate(BaseModel):
@@ -109,6 +110,7 @@ class DirectInvoiceCreate(BaseModel):
     payment_target: Literal["supplier", "reimbursement"] = "supplier"
     reimbursement_recipient_id: int | None = None
     reimbursement_account_id: int | None = None
+    expense_type: Literal["direct", "credit_note"] = "direct"
 
 
 class DirectInvoiceBatchLine(BaseModel):
@@ -164,6 +166,7 @@ class PaymentAllocation(BaseModel):
 
 class ExpensePaymentCreate(BaseModel):
     invoice_allocations: list[PaymentAllocation] = Field(min_length=1, max_length=200)
+    credit_note_ids: list[int] = Field(default_factory=list, max_length=100)
     paid_on: date
     amount_mxn: float = Field(gt=0, le=100_000_000)
     method: str = Field(default="", max_length=80)
@@ -1041,6 +1044,8 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede registrar gastos directos.")
+    if payload.expense_type == "credit_note" and payload.payment_target != "supplier":
+        raise HTTPException(400, "Una nota de crédito debe quedar asociada al proveedor.")
     if payload.payment_target == "reimbursement" and not payload.reimbursement_recipient_id:
         raise HTTPException(400, "Selecciona a la persona que recibirá el reembolso.")
     if payload.payment_target == "reimbursement" and not payload.reimbursement_account_id:
@@ -1080,7 +1085,7 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
     )
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "supplier_id": payload.supplier_id,
-        "expense_type": "direct", "invoice_number": payload.invoice_number.strip(),
+        "expense_type": payload.expense_type, "invoice_number": payload.invoice_number.strip(),
         "invoice_date": payload.invoice_date.isoformat(), "total_mxn": round(payload.total_mxn, 2),
         "period_key": payload.period_key or None, "description": payload.description.strip(),
         "concept_id": payload.concept_id, "group_id": payload.group_id, "facility_id": payload.facility_id,
@@ -1150,11 +1155,16 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
     created_at = _now()
     rows: list[dict[str, Any]] = []
     alerts_by_invoice: list[dict[str, Any]] = []
+    skipped_duplicates: list[dict[str, Any]] = []
     for line in payload.invoices:
         alerts = _invoice_alerts(
             ctx, supplier_id=payload.supplier_id, invoice_number=line.invoice_number,
             invoice_date=line.invoice_date, total_mxn=line.total_mxn,
         )
+        if alerts:
+            skipped_duplicates.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
+            alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts, "skipped": True})
+            continue
         rows.append({
             "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "supplier_id": payload.supplier_id,
             "expense_type": "direct", "invoice_number": line.invoice_number.strip(),
@@ -1169,6 +1179,8 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
             "observation": "Alerta: " + " ".join(alerts) if alerts else "",
         })
         alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
+    if not rows:
+        return {"items": [], "count": 0, "alerts": alerts_by_invoice, "skipped_duplicates": skipped_duplicates}
     # PostgREST executes a multi-row insert as one SQL statement: all rows are
     # persisted together or none are persisted.
     created = _insert_expense_invoices(ctx, rows)
@@ -1176,7 +1188,7 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
         raise HTTPException(500, "No se pudo confirmar la captura completa.")
     for item in created:
         _audit(ctx, "invoice", int(item["id"]), "direct_batch_created", after=item)
-    return {"items": created, "count": len(created), "alerts": alerts_by_invoice}
+    return {"items": created, "count": len(created), "alerts": alerts_by_invoice, "skipped_duplicates": skipped_duplicates}
 
 
 @router.get("/gastos/invoices")
@@ -1238,7 +1250,8 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
     for item in items:
         paid = round(paid_by_invoice.get(int(item["id"]), float(item.get("paid_amount_mxn") or 0)), 2)
         item["applied_amount_mxn"] = paid
-        item["balance_mxn"] = round(max(0, float(item.get("total_mxn") or 0) - paid), 2)
+        raw_balance = float(item.get("total_mxn") or 0) - paid
+        item["balance_mxn"] = 0.0 if abs(raw_balance) < PAYMENT_BALANCE_TOLERANCE else round(max(0, raw_balance), 2)
     return {"items": items}
 
 
@@ -1273,17 +1286,45 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     }
     if len(target_keys) != 1:
         raise HTTPException(400, "Un pago agrupado debe corresponder al mismo proveedor o persona a reembolsar.")
+    if credit_notes and next(iter({
+        (row.get("payment_target") or "supplier",
+         int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0),
+         int(row.get("reimbursement_account_id") or 0)) for row in credit_notes
+    })) != next(iter(target_keys)):
+        raise HTTPException(400, "La nota de crédito debe corresponder al mismo destinatario del pago.")
     invoice_ids = list(allocation_map)
+    credit_notes = []
+    if payload.credit_note_ids:
+        credit_notes = (_base_query(ctx, "gas_lp_expense_invoices")
+                        .in_("id", payload.credit_note_ids).execute().data or [])
+        if len(credit_notes) != len(set(payload.credit_note_ids)):
+            raise HTTPException(400, "Una o más notas de crédito no pertenecen a esta empresa.")
+        if any(row.get("expense_type") != "credit_note" or row.get("status") in {"paid", "cancelled"}
+               for row in credit_notes):
+            raise HTTPException(409, "Una nota de crédito ya no está disponible para aplicar.")
+        credit_keys = {
+            (row.get("payment_target") or "supplier",
+             int(row.get("reimbursement_recipient_id") or row.get("supplier_id") or 0),
+             int(row.get("reimbursement_account_id") or 0))
+            for row in credit_notes
+        }
+        if len(credit_keys) != 1:
+            raise HTTPException(400, "Las notas de crédito deben corresponder al mismo destinatario.")
     old_allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                        .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
     already_paid: defaultdict[int, float] = defaultdict(float)
     for row in old_allocations:
         already_paid[int(row["invoice_id"])] += float(row.get("amount_mxn") or 0)
+    credit_remaining = round(sum(float(row.get("total_mxn") or 0) for row in credit_notes), 2)
+    credit_applied_by_invoice: dict[int, float] = {}
     for invoice in invoices:
         invoice_id = int(invoice["id"])
         outstanding = round(float(invoice["total_mxn"]) - already_paid[invoice_id], 2)
         if allocation_map[invoice_id] > outstanding + MONEY_TOLERANCE:
             raise HTTPException(400, f"La aplicación a {invoice['invoice_number']} supera su saldo de ${outstanding:,.2f}.")
+        credit_applied = min(max(0.0, outstanding - allocation_map[invoice_id]), credit_remaining)
+        credit_applied_by_invoice[invoice_id] = round(credit_applied, 2)
+        credit_remaining = round(credit_remaining - credit_applied, 2)
     target, target_id, target_account_id = next(iter(target_keys))
     payment_row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "payment_target": target,
@@ -1301,13 +1342,19 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
     ]).execute()
     for invoice in invoices:
         invoice_id = int(invoice["id"])
-        applied = round(already_paid[invoice_id] + allocation_map[invoice_id], 2)
-        complete = applied + MONEY_TOLERANCE >= float(invoice["total_mxn"])
+        applied = round(already_paid[invoice_id] + allocation_map[invoice_id] + credit_applied_by_invoice.get(invoice_id, 0), 2)
+        complete = applied + PAYMENT_BALANCE_TOLERANCE >= float(invoice["total_mxn"])
         update = {"paid_amount_mxn": applied, "paid_on": payload.paid_on.isoformat(),
                   "status": "paid" if complete else "sent_to_accountant", "updated_at": _now()}
         if complete:
             update["paid_at"] = _now()
         ctx["sb"].table("gas_lp_expense_invoices").update(update).eq("id", invoice_id).execute()
+    for credit in credit_notes:
+        ctx["sb"].table("gas_lp_expense_invoices").update({
+            "paid_amount_mxn": round(float(credit.get("total_mxn") or 0), 2),
+            "paid_on": payload.paid_on.isoformat(), "paid_at": _now(), "status": "paid",
+            "observation": "Nota de crédito aplicada en pago.", "updated_at": _now(),
+        }).eq("id", int(credit["id"])).execute()
     if target == "reimbursement":
         party = (_base_query(ctx, "gas_lp_expense_recipients").eq("id", target_id).limit(1).execute().data or [{}])[0]
         party_email, party_name = party.get("email"), party.get("name") or "Persona a reembolsar"
@@ -1371,7 +1418,7 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
             allocations_by_payment[int(allocation["payment_id"])].append({
                 "amount_mxn": float(allocation.get("amount_mxn") or 0),
                 "invoice": {**invoice, "applied_amount_mxn": total_applied,
-                            "balance_mxn": round(max(0, float(invoice.get("total_mxn") or 0) - total_applied), 2)},
+                            "balance_mxn": (0.0 if abs(float(invoice.get("total_mxn") or 0) - total_applied) < PAYMENT_BALANCE_TOLERANCE else round(max(0, float(invoice.get("total_mxn") or 0) - total_applied), 2))},
             })
     for payment in payments:
         payment["allocations"] = allocations_by_payment.get(int(payment["id"]), [])
@@ -1632,7 +1679,7 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
     if not rows:
         raise HTTPException(404, "Gasto no encontrado.")
     row = rows[0]
-    if row.get("expense_type") != "direct":
+    if row.get("expense_type") not in {"direct", "credit_note"}:
         raise HTTPException(409, "Las facturas relacionadas con vales no se editan desde esta pantalla.")
     if row.get("status") in {"paid", "cancelled"}:
         raise HTTPException(409, "Un gasto pagado o eliminado ya no se puede editar.")
@@ -1674,7 +1721,7 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
     if not rows:
         raise HTTPException(404, "Gasto no encontrado.")
     row = rows[0]
-    if row.get("expense_type") != "direct":
+    if row.get("expense_type") not in {"direct", "credit_note"}:
         raise HTTPException(409, "Las facturas relacionadas con vales no se eliminan desde esta pantalla.")
     if row.get("status") not in {"pending_review", "observed", "rejected", "accepted", "sent_to_accountant"}:
         raise HTTPException(409, "Este gasto ya avanzó en el proceso y no se puede eliminar.")
@@ -1748,7 +1795,10 @@ def correct_observed_invoice(invoice_id: int, payload: InvoiceCorrection, token:
 @router.get("/gastos/analytics")
 def analytics(token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
-                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+                  x_perfil_id: str = Header(default="", alias="X-Perfil-ID"),
+                  period: str = Query(default=""), zone_id: int | None = Query(default=None),
+                  supplier_id: int | None = Query(default=None), concept_id: int | None = Query(default=None),
+                  status: str = Query(default="")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     invoices = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
     active_invoices = [
@@ -1775,15 +1825,30 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     vehicle_names = {int(row["id"]): row["vehicle_number"] for row in vehicles}
     voucher_by_id = {int(row["id"]): row for row in vouchers}
     invoice_by_id = {int(row["id"]): row for row in active_invoices}
+    def invoice_zone_id(row):
+        return row.get("facility_id") or row.get("expense_zone_id") or row.get("group_id")
+    if period:
+        active_invoices = [row for row in active_invoices if str(row.get("invoice_date") or "").startswith(period)]
+    if supplier_id is not None:
+        active_invoices = [row for row in active_invoices if int(row.get("supplier_id") or 0) == supplier_id]
+    if concept_id is not None:
+        active_invoices = [row for row in active_invoices if int(row.get("concept_id") or 0) == concept_id]
+    if zone_id is not None:
+        active_invoices = [row for row in active_invoices if int(invoice_zone_id(row) or 0) == zone_id]
+    if status == "paid":
+        active_invoices = [row for row in active_invoices if row.get("status") == "paid"]
+    elif status == "pending":
+        active_invoices = [row for row in active_invoices if row.get("status") != "paid"]
+    invoice_by_id = {int(row["id"]): row for row in active_invoices}
     dimensions: dict[str, defaultdict[str, float]] = {
         key: defaultdict(float) for key in
         ("status", "supplier", "type", "month", "concept", "zone", "unit", "manager")
     }
     for row in active_invoices:
-        amount = float(row.get("total_mxn") or 0)
+        amount = float(row.get("total_mxn") or 0) * (-1 if row.get("expense_type") == "credit_note" else 1)
         dimensions["status"][row["status"]] += amount
         dimensions["supplier"][supplier_names.get(int(row["supplier_id"]), "Proveedor")] += amount
-        dimensions["type"]["Con vales" if row["expense_type"] == "voucher" else "Gasto directo"] += amount
+        dimensions["type"]["Con vales" if row["expense_type"] == "voucher" else ("Nota de crédito" if row["expense_type"] == "credit_note" else "Gasto directo")] += amount
         dimensions["month"][str(row.get("invoice_date") or "")[:7] or "Sin fecha"] += amount
         if row.get("concept_id"):
             dimensions["concept"][concept_names.get(int(row["concept_id"]), "Concepto")] += amount
@@ -1815,7 +1880,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
             str(row["supplier_id"]), str(row.get("invoice_date") or ""),
             round(float(row.get("total_mxn") or 0), 2),
         )] += 1
-        supplier_months[int(row["supplier_id"])][str(row.get("invoice_date") or "")[:7]] += float(row.get("total_mxn") or 0)
+        supplier_months[int(row["supplier_id"])][str(row.get("invoice_date") or "")[:7]] += float(row.get("total_mxn") or 0) * (-1 if row.get("expense_type") == "credit_note" else 1)
     today = date.today()
     stale_amount = sum(
         row["status"] == "amount_pending"
@@ -1856,12 +1921,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     def ranked(key: str, limit: int = 20) -> list[dict[str, Any]]:
         return [{"label": label, "amount": round(amount, 2)}
                 for label, amount in sorted(dimensions[key].items(), key=lambda item: item[1], reverse=True)[:limit]]
+    detail = [{"invoice_date": row.get("invoice_date"), "supplier": supplier_names.get(int(row["supplier_id"]), "Proveedor"), "concept": concept_names.get(int(row.get("concept_id") or 0), "—"), "zone": expense_zone_names.get(int(invoice_zone_id(row) or 0), "General de la empresa"), "total_mxn": round(float(row.get("total_mxn") or 0), 2), "status": "pending" if row.get("status") != "paid" else "paid"} for row in active_invoices]
     return {
         "totals": {"all": round(sum(float(row.get("total_mxn") or 0) for row in active_invoices), 2),
                    "paid": round(dimensions["status"].get("paid", 0), 2),
                    "pending": round(sum(value for key, value in dimensions["status"].items() if key != "paid"), 2)},
         **{f"by_{key}": ranked(key) for key in dimensions},
         "alerts": alerts,
-        "alert_total": sum(alerts.values()),
+        "alert_total": sum(alerts.values()), "invoice_count": len(active_invoices), "detail": detail,
         "anomalies": anomalies,
     }
