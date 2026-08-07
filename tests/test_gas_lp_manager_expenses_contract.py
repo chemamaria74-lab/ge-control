@@ -9,6 +9,7 @@ os.environ.setdefault("SUPABASE_KEY", "test-key")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 
 from routes import gastos_gas_lp
+import routes.auth as auth_routes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,32 @@ def test_expense_context_prefers_explicit_profile_header(monkeypatch):
 
     assert captured == {"token": "session-token", "write": True, "perfil_id": 3}
     assert result["perfil_id"] == 3
+
+
+def test_control_admin_company_owner_can_manage_expenses_with_legacy_user_role(monkeypatch):
+    class Query:
+        def __init__(self, table): self.table_name = table
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self):
+            rows = ([{"module": "control_administrativo"}] if self.table_name == "company_module_memberships"
+                    else [{"id": 4}])
+            return type("Result", (), {"data": rows})()
+
+    class Supabase:
+        def table(self, name):
+            return Query(name)
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: Supabase())
+    monkeypatch.setattr(gastos_gas_lp, "verify_token", lambda _token: "u1")
+    monkeypatch.setattr(gastos_gas_lp, "obtener_acceso_modulo", lambda *_args, **_kwargs: {
+        "role": "user", "tenant_id": "t1", "perfil_id": 4,
+    })
+    monkeypatch.setattr(auth_routes, "require_profile_access", lambda *_args, **_kwargs: None)
+    result = gastos_gas_lp._ctx("Bearer jwt", "", "", "4|control_administrativo")
+    assert result["is_admin"] is True
+    assert result["perfil_id"] == 4
 
 
 def test_gas_lp_supervision_jwt_uses_conciliation_permissions(monkeypatch):
@@ -495,6 +522,18 @@ def test_accounting_export_and_paid_view_make_payment_invoice_relationship_expli
     assert "Facturas incluidas en el pago P-${esc(payment.id)}" in script
     assert "$('exportPayments').hidden" not in script
     assert 'class="review-navigation"' in html
+
+
+def test_paid_invoices_allow_only_documentary_date_correction():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert 'class PaidInvoiceDateUpdate' in route
+    assert '@router.put("/gastos/invoices/{invoice_id}/paid-date")' in route
+    assert 'row.get("status") != "paid"' in route
+    assert '"paid_invoice_date_corrected"' in route
+    assert 'data-edit-paid-date' in script
+    assert "correctPaidDate" in script
 
 
 def test_payment_queue_can_delete_unpaid_expenses_and_export_is_separated():
