@@ -245,7 +245,7 @@ function trv2BuildCvMovements() {
     if (sourceFilter && item.source !== sourceFilter) return false;
     return true;
   });
-  const externalMovements = (TRV2_CV_EXTERNAL || []).map(row => {
+  const externalRows = (TRV2_CV_EXTERNAL || []).map(row => {
     const date = row.fecha_hora ? new Date(row.fecha_hora) : null;
     return {
       row: {
@@ -278,6 +278,33 @@ function trv2BuildCvMovements() {
     if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
     return true;
   });
+  const externalByTransfer = new Map();
+  externalRows.forEach(item => {
+    const row = item.row || {};
+    // Un XML Carta Ingreso produce dos renglones persistidos (carga y
+    // descarga). Su identidad documental es el UUID/IdCCP, no el tipo de
+    // movimiento ni las columnas derivadas del producto.
+    const key = [
+      item.permiso,
+      item.uuid,
+      row.id_ccp || '',
+    ].join('|');
+    const grouped = externalByTransfer.get(key) || {
+      ...item,
+      row,
+      externalLoad: null,
+      externalDelivery: null,
+    };
+    if (item.movementType === 'carga') grouped.externalLoad = item;
+    else grouped.externalDelivery = item;
+    if (!grouped.externalLoad || item.movementType === 'carga') {
+      grouped.row = item.row;
+      grouped.productName = item.productName;
+      grouped.date = item.date;
+    }
+    externalByTransfer.set(key, grouped);
+  });
+  const externalMovements = [...externalByTransfer.values()];
   return [...systemMovements, ...externalMovements];
 }
 
@@ -336,7 +363,14 @@ function trv2RenderCvKpis(movements) {
   const deliveryVolume = deliveries.reduce((sum, item) => sum + item.volume, 0);
   const finalVolume = Math.max(0, loadVolume - deliveryVolume);
   const uniqueCartaPorte = new Set(movements.filter(item => item.source === 'sistema' && item.uuid).map(item => item.uuid)).size;
-  const externals = movements.filter(item => item.source === 'externo').length;
+  const externals = new Set(
+    movements
+      .filter(item => item.source === 'externo')
+      .map(item => {
+        const row = item.row || {};
+        return [item.permiso || '', item.uuid || '', row.id_ccp || row.id || ''].join('|');
+      }),
+  ).size;
   kpis.innerHTML = `
     <article><span>Inventario inicial</span><strong>0 L</strong><small>Autotanque vacío</small></article>
     <article><span>Cargas</span><strong>${trv2CvNumber(loadVolume)} L</strong><small>${loads.length} registros</small></article>
@@ -369,14 +403,26 @@ function trv2CvEntries(movements = []) {
     const row = item.row || {};
     const product = trv2CvProductData(row);
     const base = {item, product: product.name, volume: product.volume, amount: product.amount};
-    if (item.source === 'externo') return [{
-      ...base,
-      type: item.movementType,
-      date: item.date,
-      counterpart: item.clientName,
-      uuid: item.uuid,
-      source: 'Externo',
-    }];
+    if (item.source === 'externo') {
+      return [
+        item.externalLoad && {
+          ...base,
+          type: 'carga',
+          date: item.externalLoad.date,
+          counterpart: item.externalLoad.clientName,
+          uuid: item.uuid,
+          source: 'Externo',
+        },
+        item.externalDelivery && {
+          ...base,
+          type: 'descarga',
+          date: item.externalDelivery.date,
+          counterpart: item.externalDelivery.clientName,
+          uuid: item.uuid,
+          source: 'Externo',
+        },
+      ].filter(Boolean);
+    }
     return [
       {...base, type: 'carga', date: trv2CvTripDate(row), counterpart: row.nombre_origen || row.origen || 'Origen de carga', uuid: item.uuid, source: 'GE Control'},
       {...base, type: 'descarga', date: row.fecha_hora_llegada ? new Date(row.fecha_hora_llegada) : trv2CvTripDate(row), counterpart: item.clientName || row.nombre_destino || 'Destino', uuid: item.uuid, source: 'GE Control'},
@@ -398,17 +444,20 @@ function trv2RenderCvTables(movements) {
     const row = item.row || {};
     const product = trv2CvProductData(row);
     const isExternal = item.source === 'externo';
-    const type = item.movementType || '';
-    const loadDate = isExternal && type !== 'carga' ? null : item.date;
+    const externalLoad = item.externalLoad;
+    const externalDelivery = item.externalDelivery;
+    const loadDate = isExternal
+      ? (externalLoad?.date || null)
+      : item.date;
     const deliveryRaw = row.fecha_hora_llegada || row.fecha_llegada_estimada || '';
     const deliveryDate = isExternal
-      ? (type === 'descarga' ? item.date : null)
+      ? (externalDelivery?.date || null)
       : (deliveryRaw ? new Date(deliveryRaw) : item.date);
-    const origin = isExternal && type === 'descarga'
-      ? 'Movimiento externo'
+    const origin = isExternal
+      ? (externalLoad?.clientName || 'Origen pendiente')
       : (row.nombre_origen || row.origen || item.clientName || 'Origen pendiente');
-    const destination = isExternal && type === 'carga'
-      ? 'Movimiento externo'
+    const destination = isExternal
+      ? (externalDelivery?.clientName || 'Destino pendiente')
       : (row.nombre_destino || row.destino || item.clientName || 'Destino pendiente');
     return `
       <tr>
