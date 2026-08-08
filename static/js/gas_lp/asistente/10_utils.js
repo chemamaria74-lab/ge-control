@@ -178,9 +178,8 @@ function switchPortalTab(tab, subtab=''){
     'carta-porte': ['carta-porte','']
   };
   const [mainTab, nextSubtab] = legacy[tab] || [tab, subtab];
-  const activeNavTab = mainTab === 'facturacion' && nextSubtab === 'estaciones' ? 'estaciones' : mainTab;
-  ['facturacion','clientes','carta-porte','estaciones'].forEach(name => {
-    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === activeNavTab);
+  ['facturacion','clientes','carta-porte'].forEach(name => {
+    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === mainTab);
   });
   ['facturacion','clientes','carta-porte'].forEach(name => {
     document.getElementById(`panel-${name}`)?.classList.toggle('active', name === mainTab);
@@ -223,6 +222,24 @@ function switchBillingTab(tab){
 }
 
 function assistantStationLiters(value){ return `${Number(value || 0).toLocaleString('es-MX',{maximumFractionDigits:2})} L`; }
+function assistantStationChart(days){
+  const chartDays = (days || []).slice(-14);
+  if(!chartDays.length) return '';
+  const chartMax = Math.max(1, ...chartDays.flatMap(d => [
+    Number(d.ventas || 0),
+    Number(d.traspasos_recibidos || 0),
+    Math.abs(Math.min(0, Number(d.inventario_final || 0)))
+  ]));
+  const bars = chartDays.map(d => {
+    const sales = Number(d.ventas || 0);
+    const received = Number(d.traspasos_recibidos || 0);
+    const inventory = Number(d.inventario_final || 0);
+    const deficit = Math.abs(Math.min(0, inventory));
+    const title = `${d.fecha}: ventas ${assistantStationLiters(sales)}, recibidos ${assistantStationLiters(received)}, inventario ${assistantStationLiters(inventory)}`;
+    return `<div title="${esc(title)}" style="flex:1;display:grid;grid-template-rows:1fr 1fr;min-width:0"><div style="display:flex;align-items:end;gap:2px"><i style="display:block;flex:1;height:${sales ? Math.max(3,sales/chartMax*100) : 0}%;background:#2563eb;border-radius:3px 3px 0 0"></i><i style="display:block;flex:1;height:${received ? Math.max(3,received/chartMax*100) : 0}%;background:#10b981;border-radius:3px 3px 0 0"></i></div><div style="display:flex;align-items:start;justify-content:center"><i style="display:block;width:45%;height:${deficit ? Math.max(3,deficit/chartMax*100) : 0}%;background:#dc2626;border-radius:0 0 3px 3px"></i></div></div>`;
+  }).join('');
+  return `<div style="position:relative;display:flex;gap:8px;height:170px;padding:8px 4px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;margin:12px 0 7px"><span style="position:absolute;left:0;right:0;top:50%;border-top:1px solid #94a3b8"></span>${bars}</div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">■ Ventas</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#dc2626">■ Inventario negativo</span> · últimos ${chartDays.length} días</div>`;
+}
 async function loadAssistantStationControl(){
   const host = document.getElementById('assistantStationControl');
   const input = document.getElementById('assistantStationMonth');
@@ -239,7 +256,7 @@ async function loadAssistantStationControl(){
       const alerts = s.alertas || [];
       const tone = alerts.some(a=>a.estado==='negative'||a.estado==='over_capacity') ? '#991b1b' : alerts.length ? '#92400e' : '#166534';
       const msg = alerts.length ? alerts[0].mensaje : 'Todo dentro del rango esperado.';
-      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario aprox.</small><br><b>${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div style="margin-top:8px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div></div>`;
+      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario aprox.</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div style="margin-top:8px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${assistantStationChart(s.dias)}</div>`;
     }).join('');
   } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
 }
