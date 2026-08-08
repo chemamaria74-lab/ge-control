@@ -1,6 +1,11 @@
 import zipfile
 
-from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_product_key
+from services.transport_transformer import (
+    build_transport_covol,
+    save_transport_covol,
+    transport_covol_product_key,
+    transport_products_match_permit,
+)
 
 
 def test_transport_covol_accepts_trip_catalog_field_names_and_balances_tank():
@@ -42,6 +47,15 @@ def test_transport_covol_maps_cfdi_bienes_transp_to_covol_product_key():
     assert transport_covol_product_key("15101514", "MAGNA") == "PR06"
     assert transport_covol_product_key("15101515", "PREMIUM") == "PR07"
     assert transport_covol_product_key("15101505", "DIESEL") == "PR05"
+
+
+def test_permit_products_match_equivalent_sat_codes_and_descriptions():
+    allowed = ["Magna", "Premium", "Diésel"]
+    assert transport_products_match_permit("15101514", allowed, ["Petrolíferos"], "Petrolíferos")
+    assert transport_products_match_permit("Gasolina menor a 91 octanos", allowed, ["Petrolíferos"], "Petrolíferos")
+    assert transport_products_match_permit("15101515", allowed, ["Petrolíferos"], "Petrolíferos")
+    assert transport_products_match_permit("15101505", allowed, ["Petrolíferos"], "Petrolíferos")
+    assert not transport_products_match_permit("15111510", allowed, ["Petrolíferos"], "Petrolíferos")
 
 
 def test_transport_zip_contains_json_and_xml(tmp_path):
