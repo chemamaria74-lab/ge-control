@@ -266,12 +266,25 @@ function setStampingButton(loading=false){
   }
   updateOperacionUI();
 }
+function transferConfirmElements(){
+  return {
+    modal: document.getElementById('transferConfirmModal'),
+    body: document.getElementById('transferConfirmBody'),
+  };
+}
 function resolveTransferConfirm(confirmed){
-  if(transferConfirmResolver) transferConfirmResolver(!!confirmed);
+  const {modal} = transferConfirmElements();
+  const resolver = transferConfirmResolver;
   transferConfirmResolver = null;
-  transferConfirmModal.classList.add('hide');
+  modal?.classList.add('hide');
+  if(resolver) resolver(!!confirmed);
 }
 function confirmTransferStamp(summary){
+  const {modal, body} = transferConfirmElements();
+  if(!modal || !body){
+    setStatus('facturaMsg','No se pudo abrir la confirmación del traspaso. Actualiza la página e inténtalo de nuevo.',false);
+    return Promise.resolve(false);
+  }
   const rows = [
     ['Empresa', summary.empresa],
     ['RFC', summary.rfc],
@@ -285,8 +298,8 @@ function confirmTransferStamp(summary){
     ['Total', money(summary.total)],
     ['Uso CFDI', 'S01'],
   ];
-  transferConfirmBody.innerHTML = rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
-  transferConfirmModal.classList.remove('hide');
+  body.innerHTML = rows.map(([k,v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+  modal.classList.remove('hide');
   return new Promise(resolve => { transferConfirmResolver = resolve; });
 }
 function resolveInvoiceConfirm(confirmed){
@@ -339,6 +352,15 @@ function resetFacturaFormAfterSuccess(opts={}){
   rutaSelect.value = '';
   facturaGlobal.value = '0';
   transferEmail.value = defaultTransferEmail();
+  ['transferTankBeforePct','transferTankAfterPct','transferDriverLiters'].forEach(id => {
+    const field = document.getElementById(id);
+    if(field) field.value = '';
+  });
+  const physicalHint = document.getElementById('transferPhysicalHint');
+  if(physicalHint) {
+    physicalHint.style.color = '';
+    physicalHint.textContent = 'Registra ambos porcentajes para comparar la descarga física contra el CFDI.';
+  }
   if(saveTransferEmailDefault) saveTransferEmailDefault.checked = false;
   metodoPago.value = 'PUE';
   formaPago.disabled = false;
@@ -370,7 +392,10 @@ function renderFacturaSuccess(data, emailMsg=''){
   const pdfUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/pdf?${q}` : '';
   const xmlUrl = id ? `/api/internal-auth/gas-lp/facturas/${id}/xml?${q}` : '';
   const isCarta = (md.tipo_flujo || '').includes('carta_porte') || factura.tipo_comprobante === 'T';
-  const title = isCarta ? 'Carta Porte timbrada correctamente.' : 'Factura timbrada correctamente.';
+  const isTransfer = factura.is_transfer === true || md.is_transfer === true || md.tipo_operacion === 'traspaso';
+  const title = isCarta
+    ? 'Carta Porte timbrada correctamente.'
+    : (isTransfer ? 'Factura de traspaso timbrada correctamente.' : 'Factura timbrada correctamente.');
   const emailButton = id && !isCarta ? `<button class="btn ghost" type="button" onclick="openEmailModal('${esc(String(factura.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
   const viewButton = pdfUrl ? `<a class="btn ghost" href="${pdfUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> ${isCarta ? 'PDF Carta Porte' : 'Ver factura'}</a>` : '';
   const xmlButton = xmlUrl ? `<a class="btn ghost" href="${xmlUrl}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>` : '';
@@ -439,7 +464,8 @@ async function crearFactura(){
   if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
   if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
   if(isTraspaso && !validEmailList(transferEmail.value)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return; }
-  if(isTraspaso && saveTransferEmailDefault?.checked && !transferEmail.value.trim()){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return; }
+  const saveTransferEmailDefaultField = document.getElementById('saveTransferEmailDefault');
+  if(isTraspaso && saveTransferEmailDefaultField?.checked && !transferEmail.value.trim()){ setStatus('facturaMsg','Captura el correo de traspaso antes de guardarlo como predeterminado.',false); transferEmail.focus(); return; }
   const wantsCarta = false;
   if(wantsCarta && (!vehiculoSelect.value || !choferSelect.value || !rutaSelect.value)){ setStatus('facturaMsg','Para preparar Carta Porte selecciona vehículo, chofer y ruta.',false); return; }
   syncPaymentMethod();
@@ -534,7 +560,10 @@ async function crearFactura(){
       precioSimbolicoLitro: transferSymbolicUnitPrice(),
     });
     if(!confirmed) return;
-    if(saveTransferEmailDefault?.checked){
+    setStatus('facturaMsg','Confirmación aceptada. Preparando el timbrado del traspaso...');
+    // La confirmación ya fue aceptada: a partir de aquí cualquier error debe
+    // mostrarse en la tarjeta de facturación, nunca quedar sólo en consola.
+    if(saveTransferEmailDefaultField?.checked){
       setStatus('facturaMsg','Guardando correo predeterminado de traspasos...');
       const savedDefault = await saveTransferEmailDefaultNow();
       if(!savedDefault){
@@ -639,12 +668,6 @@ async function crearFactura(){
     let emailMsg = data.email?.ok ? ' · correo enviado' : (data.email?.error ? ` · correo pendiente: ${data.email.error}` : '');
     if(isTraspaso && transferPreStampWarning) emailMsg += ` · ${transferPreStampWarning}`;
     if(Array.isArray(data.warnings) && data.warnings.length) emailMsg += ` · ${data.warnings.join(' ')}`;
-    suppressFacturaStatus = true;
-    try{
-      resetFacturaFormAfterSuccess({silent:true});
-    }finally{
-      suppressFacturaStatus = false;
-    }
     mergeFacturaFromResponse(data.factura);
     renderFacturaSuccess(data, emailMsg);
   }catch(e){

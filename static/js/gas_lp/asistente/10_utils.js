@@ -178,8 +178,11 @@ function switchPortalTab(tab, subtab=''){
     'carta-porte': ['carta-porte','']
   };
   const [mainTab, nextSubtab] = legacy[tab] || [tab, subtab];
+  const activeNavTab = mainTab === 'facturacion' && nextSubtab === 'estaciones' ? 'estaciones' : mainTab;
+  ['facturacion','clientes','carta-porte','estaciones'].forEach(name => {
+    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === activeNavTab);
+  });
   ['facturacion','clientes','carta-porte'].forEach(name => {
-    document.getElementById(`tab-${name}`)?.classList.toggle('active', name === mainTab);
     document.getElementById(`panel-${name}`)?.classList.toggle('active', name === mainTab);
   });
   if(mainTab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
@@ -277,10 +280,17 @@ async function refreshTransferInventoryHint(){
 
 function previewTransferPhysicalControl(){
   const hint = document.getElementById('transferPhysicalHint');
-  const before = Number(document.getElementById('transferTankBeforePct')?.value);
-  const after = Number(document.getElementById('transferTankAfterPct')?.value);
+  const beforeInput = document.getElementById('transferTankBeforePct');
+  const afterInput = document.getElementById('transferTankAfterPct');
+  const beforeRaw = beforeInput?.value ?? '';
+  const afterRaw = afterInput?.value ?? '';
+  const before = Number(beforeRaw);
+  const after = Number(afterRaw);
   const destinationId = String(document.getElementById('destinoFacilitySelect')?.value || '');
-  if(!hint || !destinationId || !Number.isFinite(before) || !Number.isFinite(after)){ return; }
+  if(!hint || !destinationId || beforeRaw === '' || afterRaw === '' || !Number.isFinite(before) || !Number.isFinite(after)){
+    if(hint) hint.textContent = 'Registra ambos porcentajes para comparar la descarga física contra el CFDI.';
+    return;
+  }
   const station = FACILITIES.find(f => String(f.id) === destinationId) || {};
   const capacity = Number(station.cap_operativa_tanque || station.cap_util_tanque || station.capacidad_tanque || station.cap_total_tanque || 0);
   if(capacity <= 0){ hint.textContent = 'La estación no tiene capacidad configurada en Administración.'; return; }
