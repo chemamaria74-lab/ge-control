@@ -264,7 +264,17 @@ function setStampingButton(loading=false){
     btnTimbrar.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Timbrando...';
     return;
   }
+  // updateOperacionUI recalcula el estado del formulario y, para traspasos,
+  // escribe "Traspaso listo". Conservamos el resultado del PAC para que un
+  // rechazo o un UUID exitoso nunca desaparezcan al terminar el timbrado.
+  const status = document.getElementById('facturaMsg');
+  const statusText = status?.textContent || '';
+  const statusClass = status?.className || '';
   updateOperacionUI();
+  if(status && statusText){
+    status.textContent = statusText;
+    status.className = statusClass;
+  }
 }
 function transferConfirmElements(){
   return {
