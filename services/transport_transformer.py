@@ -198,11 +198,19 @@ def transport_products_match_permit(product_value: Any, permit_products: list[An
     target_family = transport_product_family(product_value)
     target_norm = _normalize_product_text(product_value)
     allowed_products = {_normalize_product_text(value) for value in (permit_products or []) if str(value or "").strip()}
+    target_covol_key = transport_covol_product_key(product_value, product_value)
+    allowed_covol_keys = {
+        transport_covol_product_key(value, value)
+        for value in (permit_products or [])
+        if str(value or "").strip()
+    }
     allowed_families = {transport_product_family(value) for value in (permit_families or []) if str(value or "").strip()}
     permit_family = transport_product_family(permit_product)
     if target_norm and target_norm in allowed_products:
         return True
-    if target_family and target_family in allowed_families and (not allowed_products or target_norm in allowed_products):
+    if target_covol_key and target_covol_key in allowed_covol_keys:
+        return True
+    if target_family and target_family in allowed_families and not allowed_products:
         return True
     if target_family and permit_family == target_family and not allowed_products:
         return True
