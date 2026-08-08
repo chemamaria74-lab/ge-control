@@ -6352,7 +6352,15 @@ def _covol_validate_rows(
             errors.append(f"Viaje {row.get('id')}: volumen inválido o faltante.")
         if not _first_text(row.get("fecha_hora_salida"), row.get("fecha_salida")):
             errors.append(f"Viaje {row.get('id')}: falta fecha de carga.")
-        if not _first_text(row.get("fecha_hora_llegada"), row.get("fecha_llegada_estimada")):
+        # El generador SAT usa la salida como fecha de descarga cuando el viaje
+        # timbrado no guardó una llegada separada. El cierre debe aceptar el
+        # mismo fallback para no aprobar en pantalla y rechazar en el servidor.
+        if not _first_text(
+            row.get("fecha_hora_llegada"),
+            row.get("fecha_llegada_estimada"),
+            row.get("fecha_hora_salida"),
+            row.get("fecha_salida"),
+        ):
             errors.append(f"Viaje {row.get('id')}: falta fecha de descarga.")
 
     for row in external_rows:
