@@ -225,20 +225,22 @@ function assistantStationLiters(value){ return `${Number(value || 0).toLocaleStr
 function assistantStationChart(days){
   const chartDays = (days || []).slice(-14);
   if(!chartDays.length) return '';
-  const chartMax = Math.max(1, ...chartDays.flatMap(d => [
-    Number(d.ventas || 0),
-    Number(d.traspasos_recibidos || 0),
-    Math.abs(Math.min(0, Number(d.inventario_final || 0)))
-  ]));
-  const bars = chartDays.map(d => {
-    const sales = Number(d.ventas || 0);
-    const received = Number(d.traspasos_recibidos || 0);
-    const inventory = Number(d.inventario_final || 0);
-    const deficit = Math.abs(Math.min(0, inventory));
-    const title = `${d.fecha}: ventas ${assistantStationLiters(sales)}, recibidos ${assistantStationLiters(received)}, inventario ${assistantStationLiters(inventory)}`;
-    return `<div title="${esc(title)}" style="flex:1;display:grid;grid-template-rows:1fr 1fr;min-width:0"><div style="display:flex;align-items:end;gap:2px"><i style="display:block;flex:1;height:${sales ? Math.max(3,sales/chartMax*100) : 0}%;background:#2563eb;border-radius:3px 3px 0 0"></i><i style="display:block;flex:1;height:${received ? Math.max(3,received/chartMax*100) : 0}%;background:#10b981;border-radius:3px 3px 0 0"></i></div><div style="display:flex;align-items:start;justify-content:center"><i style="display:block;width:45%;height:${deficit ? Math.max(3,deficit/chartMax*100) : 0}%;background:#dc2626;border-radius:0 0 3px 3px"></i></div></div>`;
+  const width = 720, height = 210, left = 52, right = 12, top = 16, bottom = 32;
+  const values = chartDays.flatMap(d => [Number(d.inventario_final || 0), Number(d.inventario_inicio || 0), Number(d.traspasos_recibidos || 0), -Number(d.ventas || 0), 0]);
+  const low = Math.min(0, ...values), high = Math.max(1, ...values);
+  const span = Math.max(1, high - low);
+  const x = i => left + (chartDays.length === 1 ? (width-left-right)/2 : i * (width-left-right)/(chartDays.length-1));
+  const y = value => top + (high - value) * (height-top-bottom) / span;
+  const baseline = y(0);
+  const linePoints = chartDays.map((d, i) => `${x(i).toFixed(1)},${y(Number(d.inventario_final || 0)).toFixed(1)}`).join(' ');
+  const bars = chartDays.map((d, i) => {
+    const received = Number(d.traspasos_recibidos || 0), sales = Number(d.ventas || 0), center = x(i);
+    const receivedY = y(received), salesY = y(-sales), barWidth = Math.max(5, Math.min(18, (width-left-right) / Math.max(chartDays.length * 3, 1)));
+    const title = `${d.fecha}: ventas ${assistantStationLiters(sales)}, recibidos ${assistantStationLiters(received)}, inventario final ${assistantStationLiters(d.inventario_final)}`;
+    return `<g><title>${esc(title)}</title><rect x="${(center-barWidth-2).toFixed(1)}" y="${Math.min(receivedY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-receivedY).toFixed(1)}" rx="2" fill="#10b981"/><rect x="${(center+2).toFixed(1)}" y="${Math.min(salesY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-salesY).toFixed(1)}" rx="2" fill="#ef4444"/><text x="${center.toFixed(1)}" y="${height-9}" text-anchor="middle" font-size="10" fill="#64748b">${esc(String(d.fecha || '').slice(8,10))}</text></g>`;
   }).join('');
-  return `<div style="position:relative;display:flex;gap:8px;height:170px;padding:8px 4px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;margin:12px 0 7px"><span style="position:absolute;left:0;right:0;top:50%;border-top:1px solid #94a3b8"></span>${bars}</div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">■ Ventas</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#dc2626">■ Inventario negativo</span> · últimos ${chartDays.length} días</div>`;
+  const dots = chartDays.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(Number(d.inventario_final || 0)).toFixed(1)}" r="3.5" fill="#2563eb"><title>${esc(`${d.fecha}: inventario final ${assistantStationLiters(d.inventario_final)}`)}</title></circle>`).join('');
+  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width-right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top+8).toFixed(1)}" font-size="10" fill="#64748b">${assistantStationLiters(high)}</text><text x="4" y="${(baseline-4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height-bottom).toFixed(1)}" font-size="10" fill="#dc2626">${assistantStationLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario final</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
 }
 async function loadAssistantStationControl(){
   const host = document.getElementById('assistantStationControl');
@@ -253,9 +255,10 @@ async function loadAssistantStationControl(){
     TRANSFER_INVENTORY_STATIONS = stations;
     if(!stations.length){ host.textContent = 'No hay estaciones configuradas para esta empresa.'; return; }
     host.innerHTML = stations.map(s => {
-      const alerts = s.alertas || [];
-      const tone = alerts.some(a=>a.estado==='negative'||a.estado==='over_capacity') ? '#991b1b' : alerts.length ? '#92400e' : '#166534';
-      const msg = alerts.length ? alerts[0].mensaje : 'Todo dentro del rango esperado.';
+      const negative = Number(s.inventario || 0) < 0;
+      const overCapacity = Number(s.capacidad || 0) > 0 && Number(s.inventario || 0) > Number(s.capacidad || 0) * 1.03;
+      const tone = negative || overCapacity ? '#991b1b' : '#166534';
+      const msg = negative ? 'Faltan litros actualmente: registra el traspaso recibido para regularizar el inventario.' : overCapacity ? 'El inventario actual supera la capacidad configurada.' : 'Inventario actual dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
       return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario aprox.</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div style="margin-top:8px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${assistantStationChart(s.dias)}</div>`;
     }).join('');
   } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
@@ -279,11 +282,11 @@ async function refreshTransferInventoryHint(){
     const projected = Number(station.inventario || 0) + liters;
     const exceeds = liters > Number(station.disponible || 0);
     const negative = Number(station.inventario || 0) < 0;
-    const color = exceeds || negative ? '#991b1b' : '#166534';
+    const color = exceeds ? '#991b1b' : '#166534';
     const message = exceeds
       ? `No puedes enviar ${assistantStationLiters(liters)}. El máximo estimado es ${assistantStationLiters(station.disponible)}.`
       : negative
-        ? 'Atención: esta estación presenta faltante calculado. Revisa ventas y traspasos antes de continuar.'
+        ? `Este traspaso está permitido para regularizar el faltante. Después quedaría aproximadamente en ${assistantStationLiters(projected)}.`
         : `Después de este traspaso quedaría aproximadamente en ${assistantStationLiters(projected)}.`;
     hint.classList.remove('hide');
     hint.style.cssText = `border:1px solid ${color};background:${color==='#166534'?'#f0fdf4':'#fef2f2'};color:${color};border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800`;
