@@ -6535,7 +6535,7 @@ async def transporte_v2_subir_covol_externos(
     )
     if not permit_rows:
         raise HTTPException(400, "El permiso seleccionado no existe o no está activo para esta empresa.")
-    selected_permit = permit_rows[0]
+    selected_permit = _normalize_permiso_row(permit_rows[0])
     xml_files: list[tuple[str, bytes]] = []
     for uploaded in files:
         content = await uploaded.read()
@@ -6697,7 +6697,7 @@ async def transporte_v2_cerrar_mes_control_volumetrico(
     except Exception:
         external_rows = []
     validation = _covol_validate_rows(
-        permit_rows[0] if permit_rows else {},
+        _normalize_permiso_row(permit_rows[0]) if permit_rows else {},
         trip_rows,
         external_rows,
         selected_permiso,
@@ -6792,7 +6792,7 @@ async def transporte_v2_generar_control_volumetrico(
             .data
             or []
         )
-        selected_permiso_row = permiso_rows[0] if permiso_rows else {}
+        selected_permiso_row = _normalize_permiso_row(permiso_rows[0]) if permiso_rows else {}
     except Exception:
         selected_permiso_row = {}
 
