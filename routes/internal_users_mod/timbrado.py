@@ -108,14 +108,6 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
             raise HTTPException(400, "Selecciona la estación destino para el traspaso.")
         if int(payload.facility_id or 0) == int(payload.destino_facility_id or 0):
             raise HTTPException(400, "Origen y destino deben ser distintos para el traspaso.")
-        inventory_check = _gas_lp_transfer_inventory_check(sb, user, destino, payload.litros)
-        if not inventory_check.get("ok"):
-            raise HTTPException(400, {
-                "message": "El traspaso supera la capacidad operativa de la estación. Revisa las ventas y los litros capturados antes de timbrar.",
-                "code": inventory_check.get("code"),
-                "inventory": inventory_check,
-            })
-        transfer_physical_control = _gas_lp_transfer_physical_control(destino, payload)
         existing_transfer = _gas_lp_existing_transfer_invoice(sb, user, payload)
         if existing_transfer:
             md_existing = existing_transfer.get("metadata") if isinstance(existing_transfer.get("metadata"), dict) else {}
@@ -133,6 +125,14 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
                     "litros": float(existing_transfer.get("volumen_litros") or 0),
                 },
             })
+        inventory_check = _gas_lp_transfer_inventory_check(sb, user, destino, payload.litros)
+        if not inventory_check.get("ok"):
+            raise HTTPException(400, {
+                "message": "El traspaso supera la capacidad operativa de la estación. Revisa las ventas y los litros capturados antes de timbrar.",
+                "code": inventory_check.get("code"),
+                "inventory": inventory_check,
+            })
+        transfer_physical_control = _gas_lp_transfer_physical_control(destino, payload)
         folio_factura, transfer_folio_reservation = _gas_lp_next_invoice_folio(
             sb,
             user,
