@@ -610,7 +610,7 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
     assert 'data-payment-config-nav hidden style="display:none"' in template
     assert shell.count("transport-ondemand-20260729b") == 1
     assert shell.count("transport-multiclient-audit-20260729a") == 2
-    assert shell.count("transport-sat-ingreso-20260729e") == 1
+    assert shell.count("transport-sat-close-and-external-count-20260808") == 1
     assert "transport-payroll-catalogs-20260729f" in shell
 
 

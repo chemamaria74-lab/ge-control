@@ -40,13 +40,20 @@ def test_covol_close_validation_accepts_matching_trip():
     assert result == {"ok": True, "errors": [], "movement_count": 1}
 
 
-def test_covol_close_validation_rejects_wrong_product_and_missing_dates():
+def test_covol_close_validation_rejects_wrong_product():
     trip = _trip(product="Gas L.P.")
     trip["fecha_hora_llegada"] = ""
     result = transporte_v2._covol_validate_rows(PETROL_PERMIT, [trip], [], PETROL_PERMIT["permiso_cre"])
     assert result["ok"] is False
     assert any("producto incompatible" in error for error in result["errors"])
-    assert any("fecha de descarga" in error for error in result["errors"])
+    assert not any("fecha de descarga" in error for error in result["errors"])
+
+
+def test_covol_close_validation_uses_departure_as_delivery_date_fallback():
+    trip = _trip()
+    trip["fecha_hora_llegada"] = ""
+    result = transporte_v2._covol_validate_rows(PETROL_PERMIT, [trip], [], PETROL_PERMIT["permiso_cre"])
+    assert result == {"ok": True, "errors": [], "movement_count": 1}
 
 
 def test_covol_close_validation_does_not_borrow_trip_from_other_permit():
