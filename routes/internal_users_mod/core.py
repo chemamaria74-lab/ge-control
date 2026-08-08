@@ -2723,7 +2723,7 @@ def _gas_lp_factura_estado_excel(factura: dict) -> str:
 
 
 def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> dict:
-    """Proyección operativa sencilla para validar una estación antes de timbrar."""
+    """Valida con el mismo libro operativo que se muestra al asistente."""
     try:
         qty = Decimal(str(litros or 0))
     except Exception:
@@ -2744,29 +2744,22 @@ def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> d
             initial = Decimal(str(reports[0].get("inventario_inicial") or 0))
     except Exception:
         pass
-    entradas = salidas = Decimal("0")
     try:
-        rows = (sb.table("gas_lp_facturas").select("volumen_litros,facility_id,tipo_operacion,is_transfer,metadata,status").eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).eq("status", "Vigente").limit(10000).execute().data or [])
-        for row in rows:
-            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            try:
-                vol = Decimal(str(row.get("volumen_litros") or md.get("litros") or 0))
-            except Exception:
-                continue
-            if vol <= 0:
-                continue
-            transfer = bool(row.get("is_transfer") or row.get("tipo_operacion") == "traspaso" or md.get("tipo_operacion") == "traspaso" or md.get("is_transfer"))
-            if transfer:
-                if _safe_int_id(md.get("destino_facility_id") or row.get("destino_facility_id")) == facility_id:
-                    entradas += vol
-                if _safe_int_id(md.get("origen_facility_id") or row.get("facility_id")) == facility_id:
-                    salidas += vol
-            elif _safe_int_id(row.get("facility_id") or md.get("facility_id")) == facility_id:
-                salidas += vol
+        from services.gas_lp_inventory_control import build_station_ledger
+
+        profile = _gas_lp_profile(user)
+        rows = _gas_lp_company_facturas_rows(
+            sb, user, profile, month=month, limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
+            company_fallback=True, visibility_log=False,
+        )
+        ledger = build_station_ledger(
+            facility=destino, invoices=rows, initial_inventory=initial,
+        )
     except Exception as exc:
         logger.warning("gas_lp_transfer_inventory_check_failed facility=%s err=%s", facility_id, exc)
         return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
-    current = (initial + entradas - salidas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    current = Decimal(str(ledger["current_inventory"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     projected = (current + qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     maximum = (capacity * Decimal("1.03")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     available = max(Decimal("0"), maximum - current).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
