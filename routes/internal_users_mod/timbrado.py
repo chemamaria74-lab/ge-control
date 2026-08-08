@@ -17,6 +17,11 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
     settings = _gas_lp_settings(user.get("owner_user_id"), int(user.get("perfil_id")))
     issuer = _require_gas_lp_issuer(profile, settings)
     is_transfer = str(payload.tipo_operacion or "").strip().lower() == "traspaso"
+    if is_transfer:
+        raise HTTPException(
+            503,
+            "El timbrado de traspasos está pausado temporalmente para evitar CFDI duplicados. No se envió nada al PAC.",
+        )
     receptor = {
         "rfc": issuer["rfc"],
         "nombre": issuer["nombre"],

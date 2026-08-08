@@ -389,6 +389,7 @@ async def gas_lp_internal_station_inventory(token: str, mes: str | None = None):
             "id": facility.get("id"), "nombre": facility.get("nombre") or "Estación",
             "inventario": ledger["current_inventory"], "capacidad": ledger["capacity"],
             "disponible": ledger["available_to_transfer"], "alertas": ledger["alerts"],
+            "dias": ledger["days"],
         })
     return JSONResponse({"mes": month, "stations": stations})
 
