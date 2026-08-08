@@ -1795,6 +1795,16 @@ def test_assistant_invoice_duplicate_guard_runs_before_stamp():
     assert "duplicate_window_seconds" in duplicate_source
 
 
+def test_assistant_transfer_duplicate_guard_runs_before_inventory_validation():
+    create_source = inspect.getsource(internal_users._gas_lp_internal_crear_factura_impl)
+
+    duplicate_guard = "_gas_lp_existing_transfer_invoice(sb, user, payload)"
+    inventory_check = "_gas_lp_transfer_inventory_check(sb, user, destino, payload.litros)"
+    assert duplicate_guard in create_source
+    assert inventory_check in create_source
+    assert create_source.index(duplicate_guard) < create_source.index(inventory_check)
+
+
 def test_assistant_invoice_preview_rounds_half_up_like_backend():
     html = _assistant_frontend_source()
 
