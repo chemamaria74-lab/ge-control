@@ -444,6 +444,25 @@ async def root():
     return _render_html_file("landing.html")
 
 
+@app.get("/auth/complete-invite", response_class=HTMLResponse, include_in_schema=False)
+async def complete_invite_view(request: Request):
+    """Finaliza invitaciones de Supabase sin exponer la llave administrativa."""
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    publishable_key = os.environ.get("SUPABASE_KEY", "").strip()
+    if not supabase_url or not publishable_key:
+        logger.error("Invite completion unavailable: missing public Supabase configuration")
+        raise HTTPException(status_code=503, detail="El servicio de acceso no está disponible.")
+    return templates.TemplateResponse(
+        request=request,
+        name="auth_complete_invite.html",
+        context={
+            "supabase_url": supabase_url,
+            "supabase_publishable_key": publishable_key,
+        },
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
 @app.get("/choice", response_class=HTMLResponse, include_in_schema=False)
 async def choice_view():
     """Pantalla de selección de módulo (Gas LP / Transporte)."""
