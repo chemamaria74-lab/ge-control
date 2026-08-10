@@ -1309,13 +1309,58 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             }).eq("id", factura_id).eq("user_id", uid).execute()
         except Exception as exc:
             logger.info("Columnas idempotency factura servicio aun no disponibles factura=%s: %s", factura_id, exc)
+        relation_status = "linked"
+        relation_rows = [
+            {"user_id": uid, "perfil_id": perfil_factura, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
+            for vid in payload.viaje_ids
+        ]
         try:
-            sb.table(_TBL_FACT_SERV_CARTAS).insert([
-                {"user_id": uid, "perfil_id": perfil_factura, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
-                for vid in payload.viaje_ids
-            ]).execute()
-        except Exception as e:
-            logger.warning("No se pudo registrar bloqueo de doble factura: %s", e)
+            # La relación forma parte de la trazabilidad fiscal. Un reintento
+            # idempotente debe reparar un vínculo previo incompleto en vez de
+            # dejar la Carta Ingreso timbrada sin relación con su viaje.
+            sb.table(_TBL_FACT_SERV_CARTAS).upsert(
+                relation_rows,
+                on_conflict="user_id,viaje_id",
+            ).execute()
+        except Exception as exc:
+            logger.info("Reintentando relaciones Carta Ingreso con estrategia compatible: %s", exc)
+            try:
+                # Compatibilidad con instalaciones cuyo cache de esquema aún
+                # no reconoce perfil_id u on_conflict. viaje_ids en la factura
+                # permanece como fuente canónica y este índice se reconstruye.
+                for relation in relation_rows:
+                    existing = (
+                        sb.table(_TBL_FACT_SERV_CARTAS)
+                        .select("id")
+                        .eq("user_id", uid)
+                        .eq("viaje_id", relation["viaje_id"])
+                        .limit(1)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    if existing:
+                        sb.table(_TBL_FACT_SERV_CARTAS).update({
+                            "factura_servicio_id": factura_id,
+                        }).eq("id", existing[0]["id"]).eq("user_id", uid).execute()
+                    else:
+                        sb.table(_TBL_FACT_SERV_CARTAS).insert({
+                            "user_id": uid,
+                            "factura_servicio_id": factura_id,
+                            "viaje_id": relation["viaje_id"],
+                            "created_at": now_iso,
+                        }).execute()
+            except Exception as fallback_exc:
+                # No se rompe una Carta Ingreso ya timbrada: viaje_ids quedó
+                # persistido en la propia factura y todas las lecturas usan ese
+                # vínculo canónico. La migración de backfill repara el índice.
+                relation_status = "canonical"
+                logger.error(
+                    "Relación auxiliar pendiente de backfill factura=%s viajes=%s: %s",
+                    factura_id,
+                    payload.viaje_ids,
+                    fallback_exc,
+                )
         for vid in payload.viaje_ids:
             _registrar_evento(
                 sb, uid, perfil_factura, int(vid), "carta_ingreso_timbrada",
@@ -1390,6 +1435,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         try:
             merged_metadata = dict(row.get("metadata") or {})
             merged_metadata.update({"email_receptor": email_receptor, "email_delivery": email_delivery})
+            merged_metadata["trip_relation"] = {
+                "status": relation_status,
+                "viaje_ids": payload.viaje_ids,
+            }
             update_payload = {"metadata": merged_metadata, "email_receptor": email_receptor}
             try:
                 sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
@@ -1397,7 +1446,14 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 sb.table(_TBL_FACT_SERV).update({"metadata": update_payload["metadata"]}).eq("id", factura_id).eq("user_id", uid).execute()
         except Exception as exc:
             logger.warning("No se pudo guardar auditoría email Carta Ingreso: %s", exc)
-        return JSONResponse({"ok": True, "id": factura_id, "status": "timbrada", "uuid_sat": sw_data.get("uuid", ""), "email_delivery": email_delivery})
+        return JSONResponse({
+            "ok": True,
+            "id": factura_id,
+            "status": "timbrada",
+            "uuid_sat": sw_data.get("uuid", ""),
+            "email_delivery": email_delivery,
+            "trip_relation": relation_status,
+        })
     except Exception as e:
         raise HTTPException(500, f"Error al crear Carta Ingreso: {e}")
 
