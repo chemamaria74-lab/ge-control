@@ -316,7 +316,13 @@ async function refreshTransferInventoryHint(){
   const hint = document.getElementById('transferInventoryHint');
   const destination = document.getElementById('destinoFacilitySelect');
   const litersInput = document.getElementById('litros');
-  if(!hint || tipoOperacion?.value !== 'traspaso' || !destination?.value){ hint?.classList.add('hide'); return; }
+  if(!hint || tipoOperacion?.value !== 'traspaso'){ hint?.classList.add('hide'); return; }
+  if(!destination?.value){
+    hint.classList.remove('hide');
+    hint.style.cssText = 'border:1px solid #cbd5e1;background:#f8fafc;color:#475569;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800';
+    hint.textContent = 'Selecciona la estación destino para consultar su inventario y capacidad operativa.';
+    return;
+  }
   try {
     if(!TRANSFER_INVENTORY_STATIONS){
       hint.classList.remove('hide');

@@ -50,6 +50,7 @@ function updateOperacionUI(){
     btnTimbrar.disabled = false;
     updateDiscountMode();
   }
+  refreshTransferInventoryHint();
 }
 function selectCliente(){
   markInvoiceInteraction();
