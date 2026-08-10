@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 import re
 from urllib.parse import quote
 
@@ -204,7 +205,25 @@ def _log_memory_budget() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log_memory_budget()
-    yield
+    async def general_schedule_loop() -> None:
+        from services.general_schedule_worker import run_due_schedules
+
+        while True:
+            try:
+                await asyncio.to_thread(run_due_schedules)
+            except Exception:
+                logger.exception("Falló el ciclo de facturación general programada.")
+            await asyncio.sleep(300)
+
+    schedule_task = asyncio.create_task(general_schedule_loop())
+    try:
+        yield
+    finally:
+        schedule_task.cancel()
+        try:
+            await schedule_task
+        except asyncio.CancelledError:
+            pass
 
 
 # ── App FastAPI ───────────────────────────────────────────────────────────────
