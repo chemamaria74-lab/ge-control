@@ -21,6 +21,7 @@ import calendar
 import json
 import logging
 import os
+import re
 import zipfile
 import base64
 from xml.etree import ElementTree as ET
@@ -58,6 +59,30 @@ _PRODUCTO_FAMILY_BY_CLAVE = {
     "15101516": "petroliferos",
     "15101517": "petroliferos",
 }
+
+
+def transport_covol_permit_identity(permit_number: str) -> tuple[str, str, str]:
+    """Derive the SAT identity from the permit itself, never from a stale profile default."""
+    permit = str(permit_number or "").strip().upper()
+    if re.fullmatch(r"PL/[^/]+/TRA/OM/[^/]+", permit):
+        return (
+            "PER7",
+            "TRA-0001",
+            f"Transporte de petrolíferos por medios distintos a ducto; permiso {permit}.",
+        )
+    if re.fullmatch(r"LP/[^/]+/DIST/REP/[^/]+", permit):
+        return (
+            "PER51",
+            "TRA-0001",
+            f"Distribución de Gas LP mediante vehículos de reparto; permiso {permit}.",
+        )
+    if permit.startswith("LP/") and "/TRA/" in permit:
+        return (
+            "PER48",
+            "TRA-0001",
+            f"Transporte de Gas LP por medios distintos a ducto; permiso {permit}.",
+        )
+    raise ValueError(f"El permiso {permit_number} no tiene una modalidad SAT de transporte configurada.")
 
 _CFDI_TO_COVOL_PRODUCT = {
     "15111510": "PR12",
@@ -312,6 +337,21 @@ def build_transport_covol(
     Returns:
         (sat_dict, meta_dict)
     """
+    settings = dict(settings)
+    permit_number = str(settings.get("NumPermiso") or "").strip()
+    try:
+        expected_modality, default_installation, default_description = transport_covol_permit_identity(permit_number)
+    except ValueError:
+        # Compatibilidad con actividades históricas que aún no tienen un patrón
+        # de transporte catalogado. Los patrones reconocidos siempre se fuerzan.
+        expected_modality = ""
+        default_installation = ""
+        default_description = ""
+    if expected_modality:
+        settings["ModalidadPermiso"] = expected_modality
+        settings["ClaveInstalacion"] = settings.get("ClaveInstalacion") or default_installation
+        settings["DescripcionInstalacion"] = settings.get("DescripcionInstalacion") or default_description
+
     now      = datetime.now(timezone.utc)
     now_cst  = now.strftime("%Y-%m-%dT%H:%M:%S-06:00")
     fin_mes  = _fin_mes_iso(anio, mes)
@@ -525,29 +565,6 @@ def build_transport_covol(
 
         productos_sat.append(prod_dict)
 
-    for autorizado in settings.get("ProductosAutorizados") or []:
-        if isinstance(autorizado, dict):
-            clave_autorizada = str(autorizado.get("clave_producto") or autorizado.get("clave") or "").strip().upper()
-            sub_autorizado = str(autorizado.get("clave_subproducto") or autorizado.get("subproducto") or "").strip().upper()
-        else:
-            clave_autorizada = str(autorizado or "").strip().upper()
-            sub_autorizado = ""
-        if not clave_autorizada:
-            continue
-        exists = any(
-            producto.get("ClaveProducto") == clave_autorizada
-            and (producto.get("ClaveSubProducto") or "") == sub_autorizado
-            for producto in productos_sat
-        )
-        if exists:
-            continue
-        prod_dict = empty_transport_product_node(clave_autorizada, sub_autorizado)
-        prod_dict["ReporteDeVolumenMensual"]["ControlDeExistencias"] = {
-            "VolumenExistenciasMes": 0,
-            "FechaYHoraEstaMedicionMes": fin_mes,
-        }
-        productos_sat.append(prod_dict)
-
     # ── Eventos de cierre ─────────────────────────────────────────────────────
     bitacora.append({
         "NumeroRegistro":     n_evento,
@@ -579,7 +596,7 @@ def build_transport_covol(
         "RfcContribuyente":     _rfc_cv,
         "RfcProveedor":         _rfc_prov,
         "Caracter":             settings.get("Caracter",             "permisionario"),
-        "ModalidadPermiso":     settings.get("ModalidadPermiso",     "PER51"),  # PER51 = distribución autotanque
+        "ModalidadPermiso":     settings.get("ModalidadPermiso",     ""),
         "NumPermiso":           settings.get("NumPermiso",           ""),
         "ClaveInstalacion":     settings.get("ClaveInstalacion",     ""),
         "DescripcionInstalacion": settings.get("DescripcionInstalacion", ""),
