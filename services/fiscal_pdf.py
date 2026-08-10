@@ -708,7 +708,7 @@ def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None,
         Paragraph("<b>Fecha pago</b>", styles["HeaderTiny"]),
         Paragraph("<b>Forma</b>", styles["HeaderTiny"]),
         Paragraph("<b>Monto</b>", styles["HeaderTiny"]),
-        Paragraph("<b>Documento relacionado</b>", styles["HeaderTiny"]),
+        Paragraph("<b>Folio / UUID relacionado</b>", styles["HeaderTiny"]),
         Paragraph("<b>Parc.</b>", styles["HeaderTiny"]),
         Paragraph("<b>Saldo ant.</b>", styles["HeaderTiny"]),
         Paragraph("<b>Pagado</b>", styles["HeaderTiny"]),
@@ -727,12 +727,21 @@ def _pagos_table(pagos, Table, TableStyle, Paragraph, styles, colors, wine=None,
                 Paragraph("—", styles["Tiny"]),
                 Paragraph("—", styles["Tiny"]),
             ])
-        for docto in doctos[:4]:
+        for docto in doctos:
+            serie = _attr(docto, "Serie", "")
+            folio = _attr(docto, "Folio", "")
+            folio_label = _serie_folio_label(serie, folio) if (serie or folio) else ""
+            uuid = _text(_attr(docto, "IdDocumento"))
+            referencia = (
+                f"<b>Folio {_text(folio_label)}</b><br/><font size='5.5'>{uuid}</font>"
+                if folio_label
+                else uuid
+            )
             data.append([
                 Paragraph(_text(_attr(pago, "FechaPago")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "FormaDePagoP")), styles["Tiny"]),
                 Paragraph(_text(_attr(pago, "Monto")), styles["Tiny"]),
-                Paragraph(_text(_attr(docto, "IdDocumento")), styles["Tiny"]),
+                Paragraph(referencia, styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "NumParcialidad")), styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "ImpSaldoAnt")), styles["Tiny"]),
                 Paragraph(_text(_attr(docto, "ImpPagado")), styles["Tiny"]),

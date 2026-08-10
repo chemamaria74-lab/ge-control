@@ -76,13 +76,13 @@ def transport_covol_permit_identity(permit_number: str) -> tuple[str, str, str]:
     if re.fullmatch(r"LP/[^/]+/DIST/REP/[^/]+", permit):
         return (
             "PER51",
-            "TRA-0001",
+            "TRA-0002",
             f"Distribución de Gas LP mediante vehículos de reparto; permiso {permit}.",
         )
     if permit.startswith("LP/") and "/TRA/" in permit:
         return (
             "PER48",
-            "TRA-0001",
+            "TRA-0002",
             f"Transporte de Gas LP por medios distintos a ducto; permiso {permit}.",
         )
     raise ValueError(f"El permiso {permit_number} no tiene una modalidad SAT de transporte configurada.")
@@ -349,7 +349,9 @@ def build_transport_covol(
         default_description = ""
     if expected_modality:
         settings["ModalidadPermiso"] = expected_modality
-        settings["ClaveInstalacion"] = settings.get("ClaveInstalacion") or default_installation
+        # Identidad estable por operación: evita que Gas LP y petrolíferos
+        # compartan TRA-0001 por una configuración histórica del perfil.
+        settings["ClaveInstalacion"] = default_installation
         settings["DescripcionInstalacion"] = settings.get("DescripcionInstalacion") or default_description
 
     now      = datetime.now(timezone.utc)
