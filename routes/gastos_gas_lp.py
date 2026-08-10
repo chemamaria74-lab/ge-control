@@ -1719,10 +1719,15 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
     alerts = _invoice_alerts(
         ctx, supplier_id=int(row["supplier_id"]), invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date, total_mxn=payload.total_mxn,
+        exclude_invoice_id=invoice_id,
     )
     observation = payload.observation.strip()
-    if alerts and not observation:
+    previous_observation = str(row.get("observation") or "").strip()
+    previous_was_automatic_alert = previous_observation.startswith("Alerta: ")
+    if alerts and (not observation or observation == previous_observation and previous_was_automatic_alert):
         observation = "Alerta: " + " ".join(alerts)
+    elif not alerts and observation == previous_observation and previous_was_automatic_alert:
+        observation = ""
     update = {
         "invoice_number": payload.invoice_number.strip(),
         "invoice_date": payload.invoice_date.isoformat(),

@@ -38,7 +38,7 @@ from services.cfdi_cancellation import cancel_cfdi_universal
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
-from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_permit_identity, transport_covol_product_key, transport_covol_subproduct_key, transport_product_family, transport_products_match_permit
+from services.transport_transformer import RFC_PROVEEDOR_DEFAULT, build_transport_covol, save_transport_covol, transport_covol_permit_identity, transport_covol_product_key, transport_covol_subproduct_key, transport_product_family, transport_products_match_permit
 from services.observability import set_scope
 from services.security import client_ip, enforce_rate_limit
 
@@ -6985,7 +6985,7 @@ async def transporte_v2_generar_control_volumetrico(
     covol_settings = {
         "RfcContribuyente": rfc_contribuyente,
         "NombreContribuyente": _first_text(fiscal.get("nombre_fiscal")),
-        "RfcProveedor": "ATI9404219D5",
+        "RfcProveedor": RFC_PROVEEDOR_DEFAULT,
         "NumPermiso": selected_permiso,
         "ClaveInstalacion": payload.clave_instalacion or cierre.get("clave_instalacion") or fiscal.get("clave_instalacion") or clave_instalacion_default,
         "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or descripcion_instalacion_default,
