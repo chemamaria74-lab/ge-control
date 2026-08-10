@@ -6815,9 +6815,9 @@ async def transporte_v2_generar_control_volumetrico(
     if not selected_permiso:
         raise HTTPException(400, "Selecciona permiso CRE/CNE transportista.")
     sb = _sb(token)
-    cierre = _covol_month_closed(sb, uid, pid, periodo, selected_permiso)
-    if not cierre:
-        raise HTTPException(409, "Primero cierra el mes para este permiso. Después descarga el ZIP SAT.")
+    # La descarga es una generación reproducible, no un bloqueo contable.
+    # Conservamos metadatos de cierres históricos si existen, pero no son requisito.
+    cierre = _covol_month_closed(sb, uid, pid, periodo, selected_permiso) or {}
     settings = _load_settings(token, uid, pid)
     fiscal = settings.get("perfil_fiscal") or {}
     rfc_contribuyente = _first_text(fiscal.get("rfc_contribuyente"))

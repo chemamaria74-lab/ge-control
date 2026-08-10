@@ -17,7 +17,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import verify_token
 from routes.flotilla import _internal_fleet_context
 from routes.internal_users_mod.core import _gas_lp_conciliacion_context
 from services.email_delivery import send_gas_lp_expense_payment_email
@@ -318,7 +318,7 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
                 module = "control_administrativo"
             elif "transporte" in modules and "gas_lp" not in modules:
                 module = "transporte"
-        access = obtener_acceso_modulo(uid, module, access_token=access_token) if uid else {}
+        access = _server_module_access(sb, str(uid or ""), module, requested_profile_id)
         access_role = str(access.get("role") or "").lower()
         requested_perfil = requested_profile_id or int(access.get("perfil_id") or 0)
         owner_write = (
@@ -330,14 +330,53 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
         perfil_id = requested_perfil
         if not perfil_id:
             raise HTTPException(400, "Selecciona una empresa activa.")
-        from routes.auth import require_profile_access
-        require_profile_access(str(uid), module, perfil_id, access_token=access_token)
         return {
             "sb": sb, "tenant_id": str(access["tenant_id"]), "perfil_id": perfil_id,
             "allowed_group_ids": None, "is_manager": False, "is_admin": True,
             "actor_id": str(uid), "actor_name": "Administración", "expense_module": module,
         }
     raise HTTPException(401, "Sesión requerida.")
+
+
+def _server_module_access(sb: Any, user_id: str, module: str, perfil_id: int = 0) -> dict[str, Any]:
+    """Resolve expense administration from server-side authorization rows.
+
+    The JWT has already been verified before this function runs. Reading the
+    role again through a user-scoped PostgREST client made valid admins appear
+    as ordinary users whenever that secondary RLS read returned no rows. Use
+    the service client already required by the expenses backend, while keeping
+    the lookup constrained to the verified user, active module, tenant and
+    selected company.
+    """
+    if not user_id or module not in {"gas_lp", "transporte", "control_administrativo"}:
+        return {}
+    rows = (sb.table("user_sections")
+            .select("role,status,tenant_id,perfil_id,display_name")
+            .eq("user_id", user_id).eq("section", module).eq("status", "active")
+            .execute().data or [])
+    if not rows:
+        return {}
+
+    def priority(row: dict[str, Any]) -> tuple[int, int]:
+        assigned = int(row.get("perfil_id") or 0)
+        return (2 if perfil_id and assigned == perfil_id else 1 if assigned == 0 else 0,
+                1 if str(row.get("role") or "").lower() == "admin" else 0)
+
+    access = max(rows, key=priority)
+    tenant_id = str(access.get("tenant_id") or "")
+    assigned_profile = int(access.get("perfil_id") or 0)
+    role = str(access.get("role") or "user").lower()
+    if perfil_id:
+        profiles = (sb.table("perfiles_empresa").select("id,user_id,tenant_id,activo")
+                    .eq("id", perfil_id).eq("tenant_id", tenant_id).eq("activo", True)
+                    .limit(1).execute().data or [])
+        if not profiles:
+            return {}
+        if assigned_profile and assigned_profile != perfil_id:
+            return {}
+        if role != "admin" and str(profiles[0].get("user_id") or "") != user_id:
+            return {}
+    return access
 
 
 def _profile(ctx: dict[str, Any]) -> dict[str, Any]:
