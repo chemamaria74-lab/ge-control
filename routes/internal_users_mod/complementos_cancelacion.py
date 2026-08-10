@@ -1,5 +1,61 @@
 from .core import *
 
+
+def _gas_lp_reabrir_facturas_complemento_cancelado(sb, complemento_id: int, factura_ids: list[int]) -> None:
+    """Invalida las aplicaciones canceladas y reconstruye el saldo PPD vigente."""
+    now = _now_iso()
+    ids = list(dict.fromkeys(_safe_int_id(fid) for fid in factura_ids if _safe_int_id(fid)))
+    if not ids:
+        return
+    (
+        sb.table("gas_lp_complementos_pago_facturas")
+        .update({"status": "cancelado", "updated_at": now})
+        .eq("complemento_id", complemento_id)
+        .execute()
+    )
+    active_rows = (
+        sb.table("gas_lp_complementos_pago_facturas")
+        .select(GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT)
+        .in_("factura_id", ids)
+        .eq("status", "timbrado")
+        .execute()
+        .data
+        or []
+    )
+    paid_by_invoice: dict[int, Decimal] = {fid: Decimal("0") for fid in ids}
+    latest_by_invoice: dict[int, dict] = {}
+    for rel in active_rows:
+        fid = _safe_int_id(rel.get("factura_id"))
+        if fid not in paid_by_invoice:
+            continue
+        paid_by_invoice[fid] += _money(rel.get("monto"))
+        if fid not in latest_by_invoice or str(rel.get("created_at") or "") > str(latest_by_invoice[fid].get("created_at") or ""):
+            latest_by_invoice[fid] = rel
+    invoices = sb.table("gas_lp_facturas").select("*").in_("id", ids).execute().data or []
+    for factura in invoices:
+        fid = _safe_int_id(factura.get("id"))
+        info = _factura_payment_info(factura)
+        total = _money(info.get("total"))
+        saldo = max(Decimal("0"), total - paid_by_invoice.get(fid, Decimal("0")))
+        status = "pagado_con_complemento" if saldo <= 0 else ("pago_parcial" if paid_by_invoice.get(fid, Decimal("0")) > 0 else "pendiente_complemento")
+        md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+        latest = latest_by_invoice.get(fid) or {}
+        md = {
+            **md,
+            "payment_status": status,
+            "saldo_insoluto": float(saldo),
+            "ultimo_complemento_pago_id": latest.get("complemento_id"),
+            # La relación guarda el UUID de la factura, no el UUID del
+            # complemento. Evitamos conservar como vigente el UUID cancelado.
+            "ultimo_complemento_pago_uuid": "",
+        }
+        sb.table("gas_lp_facturas").update({
+            "metadata": md,
+            "payment_status": status,
+            "saldo_insoluto": float(saldo),
+            "updated_at": now,
+        }).eq("id", fid).execute()
+
 @router.get("/internal-auth/gas-lp/complementos-pago")
 async def gas_lp_complementos_pago_list(token: str, mes: str | None = None, perfil_id: int | None = None):
     ctx = _gas_lp_conciliacion_context(token, perfil_id=perfil_id)
@@ -408,6 +464,20 @@ async def gas_lp_conciliacion_cancelar_complemento(complemento_id: int, payload:
     md = complemento.get("metadata") if isinstance(complemento.get("metadata"), dict) else {}
     cancel_md = {**md, "estado_fiscal": "cancelada_fiscalmente" if acuse else "cancelacion_solicitada", "motivo_cancelacion": motivo, "uuid_sustitucion": uuid_sustitucion, "cancelacion_acuse": acuse, "cancelacion_solicitada_por": user.get("display_name") or user.get("id"), "cancelacion_solicitada_at": _now_iso()}
     data = sb.table("gas_lp_complementos_pago").update({"status": status_label, "metadata": cancel_md, "updated_at": _now_iso()}).eq("id", complemento_id).execute().data or []
+    if acuse:
+        rel_rows = (
+            sb.table("gas_lp_complementos_pago_facturas")
+            .select("factura_id")
+            .eq("complemento_id", complemento_id)
+            .execute()
+            .data
+            or []
+        )
+        _gas_lp_reabrir_facturas_complemento_cancelado(
+            sb,
+            complemento_id,
+            [_safe_int_id(rel.get("factura_id")) for rel in rel_rows],
+        )
     return JSONResponse({"ok": True, "complemento": data[0] if data else complemento, "cancelacion": {"status": status_label, "acuse": acuse}})
 
 
