@@ -38,7 +38,7 @@ from services.cfdi_cancellation import cancel_cfdi_universal
 from services.fiscal_audit import version_xml
 from services.sw_sapien import emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte, build_cfdi_transporte_xml
-from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_product_key, transport_covol_subproduct_key, transport_product_family, transport_products_match_permit
+from services.transport_transformer import build_transport_covol, save_transport_covol, transport_covol_permit_identity, transport_covol_product_key, transport_covol_subproduct_key, transport_product_family, transport_products_match_permit
 from services.observability import set_scope
 from services.security import client_ip, enforce_rate_limit
 
@@ -6505,6 +6505,14 @@ def _covol_movements_from_ingreso_xml(
     return movements
 
 
+def _covol_permit_identity(permit_number: str) -> tuple[str, str, str]:
+    """HTTP adapter for the shared SAT permit identity validator."""
+    try:
+        return transport_covol_permit_identity(permit_number)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 def _covol_external_ingreso_from_xml(content: bytes, filename: str) -> dict[str, Any]:
     root = ET.fromstring(content)
     detected = _detect_xml_document(content).get("detected") or {}
@@ -6846,41 +6854,74 @@ async def transporte_v2_generar_control_volumetrico(
 
     viajes_para_covol: list[dict[str, Any]] = []
     seen_movements: set[tuple[str, str]] = set()
-    try:
-        invoice_rows = (
-            sb.table(TBL_FACT_SERV)
-            .select("id,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at,xml_content")
-            .eq("user_id", uid)
-            .eq("perfil_id", pid)
-            .execute()
-            .data
-            or []
-        )
-        for invoice in invoice_rows:
-            if _status_cancelado(invoice.get("status")):
-                continue
-            xml_content = invoice.get("xml_content") or ""
-            if not xml_content or not _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")):
-                continue
-            try:
-                invoice_movements = _covol_movements_from_ingreso_xml(
-                    xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content,
-                    f"Carta Ingreso {invoice.get('id')}",
-                    periodo,
-                    selected_permiso,
-                    selected_permiso_row,
-                )
-            except Exception as exc:
-                logger.info("COVOL Transporte omitió Carta Ingreso %s inválida: %s", invoice.get("id"), exc)
-                continue
-            for movement in invoice_movements:
-                key = (_first_text(movement.get("uuid_cfdi")).upper(), _first_text(movement.get("tipo_movimiento")).lower())
-                if key in seen_movements:
+    eligible_trip_ids = []
+    for row in rows:
+        row_meta = _meta(row)
+        if _status_cancelado(row.get("status"), row.get("estatus"), row_meta.get("carta_porte_status")) and _cancelacion_fiscal_confirmada(row, row_meta):
+            continue
+        row_permit = _first_text(row.get("num_permiso_cne"), row_meta.get("num_permiso_cne"), row_meta.get("permiso_transportista"))
+        if row_permit == selected_permiso and row.get("id") is not None:
+            eligible_trip_ids.append(row.get("id"))
+
+    if eligible_trip_ids:
+        try:
+            link_rows = (
+                sb.table(TBL_FACT_SERV_CARTAS)
+                .select("factura_servicio_id,viaje_id")
+                .eq("user_id", uid)
+                .eq("perfil_id", pid)
+                .in_("viaje_id", eligible_trip_ids)
+                .execute()
+                .data
+                or []
+            )
+            linked_invoice_ids = sorted({
+                int(link.get("factura_servicio_id"))
+                for link in link_rows
+                if link.get("factura_servicio_id") is not None
+            })
+        except Exception as exc:
+            raise HTTPException(500, f"No se pudieron consultar los vínculos de Cartas Ingreso: {exc}") from exc
+    else:
+        linked_invoice_ids = []
+
+    if linked_invoice_ids:
+        try:
+            invoice_rows = (
+                sb.table(TBL_FACT_SERV)
+                .select("id,status,uuid_carta_ingreso,uuid_sat,created_at,xml_content")
+                .eq("user_id", uid)
+                .eq("perfil_id", pid)
+                .in_("id", linked_invoice_ids)
+                .execute()
+                .data
+                or []
+            )
+            for invoice in invoice_rows:
+                if _status_cancelado(invoice.get("status")):
                     continue
-                seen_movements.add(key)
-                viajes_para_covol.append(movement)
-    except Exception as exc:
-        logger.info("COVOL Transporte sin Cartas Ingreso emitidas: %s", exc)
+                xml_content = invoice.get("xml_content") or ""
+                if not xml_content or not _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")):
+                    continue
+                try:
+                    invoice_movements = _covol_movements_from_ingreso_xml(
+                        xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content,
+                        f"Carta Ingreso {invoice.get('id')}",
+                        periodo,
+                        selected_permiso,
+                        selected_permiso_row,
+                    )
+                except Exception as exc:
+                    logger.info("COVOL Transporte omitió Carta Ingreso %s inválida: %s", invoice.get("id"), exc)
+                    continue
+                for movement in invoice_movements:
+                    key = (_first_text(movement.get("uuid_cfdi")).upper(), _first_text(movement.get("tipo_movimiento")).lower())
+                    if key in seen_movements:
+                        continue
+                    seen_movements.add(key)
+                    viajes_para_covol.append(movement)
+        except Exception as exc:
+            raise HTTPException(500, f"No se pudieron consultar las Cartas Ingreso timbradas: {exc}") from exc
 
     permisos_detectados: set[str] = set()
     for row in rows:
@@ -6940,16 +6981,16 @@ async def transporte_v2_generar_control_volumetrico(
         detalle = f" Permisos detectados: {', '.join(sorted(permisos_detectados))}." if permisos_detectados else ""
         raise HTTPException(404, f"No hay Cartas Ingreso timbradas para el permiso {selected_permiso} en {periodo}.{detalle}")
 
+    modalidad_permiso, clave_instalacion_default, descripcion_instalacion_default = _covol_permit_identity(selected_permiso)
     covol_settings = {
         "RfcContribuyente": rfc_contribuyente,
         "NombreContribuyente": _first_text(fiscal.get("nombre_fiscal")),
         "RfcProveedor": "ATI9404219D5",
         "NumPermiso": selected_permiso,
-        "ClaveInstalacion": payload.clave_instalacion or cierre.get("clave_instalacion") or fiscal.get("clave_instalacion") or "",
-        "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or "",
-        "ModalidadPermiso": _first_text(fiscal.get("modalidad_permiso"), "PER51"),
+        "ClaveInstalacion": payload.clave_instalacion or cierre.get("clave_instalacion") or fiscal.get("clave_instalacion") or clave_instalacion_default,
+        "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or descripcion_instalacion_default,
+        "ModalidadPermiso": modalidad_permiso,
         "display_name": _first_text(fiscal.get("nombre_fiscal"), "GE Control Transporte"),
-        "ProductosAutorizados": _parse_json_value(selected_permiso_row.get("productos_permitidos"), []) or [],
     }
     try:
         sat_dict, meta = build_transport_covol(
