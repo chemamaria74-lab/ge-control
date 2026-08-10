@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from pypdf import PdfReader
 
 from services.fiscal_pdf import (
@@ -64,6 +66,32 @@ def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():
     assert info.serie_folio == "P7U22-000054"
     assert info.filename == "GAS_LUX_P7U22-000054.pdf"
     assert _amount_to_spanish_mxn(4788.00, "MXN") == "CUATRO MIL SETECIENTOS OCHENTA Y OCHO PESOS 00/100 MXN"
+
+
+def test_payment_complement_pdf_lists_every_related_invoice_with_folio():
+    doctos = "".join(
+        f'<pago20:DoctoRelacionado IdDocumento="00000000-0000-0000-0000-{index:012d}" '
+        f'Serie="F" Folio="{index}" MonedaDR="MXN" NumParcialidad="1" '
+        f'ImpSaldoAnt="272.99" ImpPagado="272.99" ImpSaldoInsoluto="0.00"/>'
+        for index in range(101, 108)
+    )
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="P" Folio="20" Fecha="2026-08-10T12:00:00" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P" Exportacion="01" LugarExpedicion="99300">
+      <cfdi:Emisor Rfc="GLU760309457" Nombre="GAS LUX" RegimenFiscal="601"/>
+      <cfdi:Receptor Rfc="CEM040220RL9" Nombre="CEMOZAC" DomicilioFiscalReceptor="99300" RegimenFiscalReceptor="601" UsoCFDI="CP01"/>
+      <cfdi:Conceptos><cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/></cfdi:Conceptos>
+      <cfdi:Complemento>
+        <pago20:Pagos Version="2.0"><pago20:Pago FechaPago="2026-08-10T12:00:00" FormaDePagoP="03" MonedaP="MXN" Monto="1910.93">{doctos}</pago20:Pago></pago20:Pagos>
+        <tfd:TimbreFiscalDigital UUID="cccccccc-1111-2222-3333-dddddddddddd" FechaTimbrado="2026-08-10T12:00:00"/>
+      </cfdi:Complemento>
+    </cfdi:Comprobante>"""
+
+    pdf = generar_pdf_gas_lp_desde_xml(xml)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    for index in range(101, 108):
+        assert f"Folio F-{index}" in text
+        assert f"00000000-0000-0000-0000-{index:012d}" in text
 
 
 def test_carta_ingreso_pdf_filename_uses_business_label():
