@@ -3,7 +3,6 @@
         <button class="subtab-btn active" id="billing-tab-facturar" type="button" onclick="switchBillingTab('facturar')"><i class="fa-solid fa-stamp"></i> Facturar</button>
         <button class="subtab-btn" id="billing-tab-facturas" type="button" onclick="switchBillingTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
         <button class="subtab-btn" id="billing-tab-complementos" type="button" onclick="switchBillingTab('complementos')"><i class="fa-solid fa-receipt"></i> Complementos de pago</button>
-        <button class="subtab-btn" id="billing-tab-estaciones" type="button" onclick="switchBillingTab('estaciones')"><i class="fa-solid fa-gas-pump"></i> Control de estaciones</button>
       </nav>
     <div id="billing-panel-facturar" class="billing-subpanel active">
     <div id="facturacion" class="work-grid">
@@ -46,43 +45,27 @@
               <span id="previewRfc">XAXX010101000</span> · CP <span id="previewCp">—</span> · Régimen <span id="previewRegimen">616</span> · Uso CFDI <span id="previewUso">S01</span> · <span id="previewEmail">Sin correo</span>
             </div>
           </div>
-          <div id="transferPanel" class="client-preview form-span hide">
-            <div class="client-preview-head"><span class="muted">Datos del traspaso</span><strong>CFDI interno sin efectos fiscales</strong></div>
+          <div id="transferPanel" class="client-preview form-span hide" style="order:6">
+            <div class="client-preview-head"><span class="muted">Traspaso interno</span><strong>CFDI sin efectos fiscales</strong></div>
             <div class="client-tax-line" id="transferInternalReceiver">Receptor interno: —</div>
-            <div class="client-tax-line" id="transferInternalPrice">Precio interno precargado: —</div>
-            <div style="margin-top:8px">
-              <label>Correo para enviar CFDI de traspaso</label>
-              <input id="transferEmail" type="text" placeholder="correo@empresa.com, operaciones@empresa.com">
-              <div class="transfer-default-row">
-                <label class="checkline"><input id="saveTransferEmailDefault" type="checkbox"> Guardar como correo predeterminado para traspasos</label>
-                <button class="btn ghost sm" type="button" onclick="saveTransferEmailDefaultNow()">Actualizar predeterminado</button>
-              </div>
-              <div class="muted" style="font-size:12px;margin-top:4px">Se enviará PDF y XML del traspaso a este correo.</div>
-            </div>
-            <div class="muted" style="font-size:12px;margin-top:5px">Fiscalmente el receptor es la misma empresa. Operativamente se guardan origen y destino para inventario, JSON y reportes.</div>
-            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #e5e7eb">
-              <b>Control físico de descarga <span class="muted" style="font-size:12px">(opcional por ahora)</span></b>
-              <div class="form-grid" style="margin-top:8px">
-                <div><label>Tanque antes de descargar (%)</label><input id="transferTankBeforePct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
-                <div><label>Tanque después de descargar (%)</label><input id="transferTankAfterPct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
-                <div><label>Litros que declara el chofer</label><input id="transferDriverLiters" type="number" min="0" step="0.01" oninput="previewTransferPhysicalControl()"></div>
-              </div>
-              <div id="transferPhysicalHint" class="muted" style="font-size:12px;margin-top:7px">Registra ambos porcentajes para comparar la descarga física contra el CFDI.</div>
-            </div>
+            <div class="client-tax-line" id="transferInternalPrice">Precio simbólico CFDI: —</div>
+            <div class="muted" style="font-size:12px;margin-top:6px">Se enviará el CFDI al correo predeterminado de la empresa.</div>
+            <input id="transferEmail" type="hidden" value="">
+            <input id="saveTransferEmailDefault" type="checkbox" class="hide">
           </div>
           <div id="cartaPorteNotice" class="client-preview form-span hide">
             <b>Carta Porte Gas LP</b>
             <div class="muted" style="font-size:12px;margin-top:4px">Preparación y vista previa sin timbrado. Revisa catálogos antes de preparar.</div>
           </div>
-          <div id="destinoField" class="hide"><label>Estación destino *</label><select id="destinoFacilitySelect" required onchange="filterRutasForTransfer();refreshTransferInventoryHint()"><option value="">Selecciona estación destino</option></select></div>
+          <div id="destinoField" class="hide" style="order:3"><label>Estación destino *</label><select id="destinoFacilitySelect" required onchange="filterRutasForTransfer();refreshTransferInventoryHint()"><option value="">Selecciona estación destino</option></select></div>
           <div id="cartaPorteField" class="hide"><label>Carta Porte</label><select id="generarCartaPorte" onchange="updateOperacionUI()"><option value="0">Traspaso a estación</option><option value="1">Preparar Carta Porte</option></select></div>
           <div id="vehiculoField" class="hide"><label>Vehículo</label><select id="vehiculoSelect"><option value="">Selecciona vehículo</option></select></div>
           <div id="choferField" class="hide"><label>Chofer</label><select id="choferSelect"><option value="">Selecciona chofer</option></select></div>
           <div id="rutaField" class="hide"><label>Ruta</label><select id="rutaSelect"><option value="">Selecciona ruta</option></select></div>
           <div id="conceptoField"><label>Concepto</label><select id="conceptoCatalogo" class="locked-field" disabled><option value="gas_lp_litro">Gas licuado de petróleo</option></select></div>
           <input id="concepto" type="hidden" value="Gas licuado de petróleo">
-          <div id="litrosField"><label>Litros</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals();refreshTransferInventoryHint()"></div>
-          <div id="transferInventoryHint" class="form-span hide" aria-live="polite"></div>
+          <div id="litrosField" style="order:4"><label>Litros a timbrar *</label><input id="litros" type="number" min="0" step="0.0001" value="0" oninput="updateTotals();refreshTransferInventoryHint()"></div>
+          <div id="transferInventoryHint" class="form-span hide" style="order:5" aria-live="polite"></div>
           <div id="precioField"><label for="precioUnitario">Precio por litro con IVA</label><input id="precioUnitario" type="number" min="0" step="0.000001" placeholder="Selecciona instalación" oninput="markManualPrice();updateTotals()"></div>
           <div id="descuentoTipoField"><label>Tipo de descuento</label><select id="descuentoTipo" onchange="markManualDiscount();updateDiscountMode()"><option value="sin_descuento" selected>Sin descuento</option><option value="por_litro">Descuento por litro</option><option value="total_pesos">Descuento total en pesos</option></select></div>
           <div id="descuentoField" class="hide"><label id="descuentoLabel">Descuento por litro a restar</label><input id="descuento" type="number" min="0" step="0.000001" value="0" oninput="markManualDiscount();updateTotals()"><div id="descuentoHelp" class="muted" style="font-size:12px;margin-top:5px"></div></div>
@@ -94,8 +77,17 @@
           <div class="system-field"><label>Clave SAT producto</label><input id="claveProdServ" class="locked-field" value="15111510" maxlength="8" readonly></div>
           <div class="system-field"><label>No. identificación</label><input id="noIdentificacion" class="locked-field" value="GLP-LTR" maxlength="100" readonly></div>
           <div class="system-field"><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
-          <div id="fechaField"><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"><div id="fechaEmisionHelp" class="muted" style="font-size:12px;margin-top:5px"></div></div>
-          <div class="form-span"><label id="comentariosLabel">Comentarios para el cliente</label><textarea id="comentarios" maxlength="500" placeholder="Observaciones, indicaciones o referencia que el cliente necesita ver"></textarea></div>
+          <div id="fechaField" style="order:7"><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"><div id="fechaEmisionHelp" class="muted" style="font-size:12px;margin-top:5px"></div></div>
+          <div id="transferPhysicalPanel" class="client-preview form-span hide" style="order:8">
+            <div class="client-preview-head"><span class="muted">Control físico de descarga</span><strong>Solo para comparar; no cambia los litros del CFDI</strong></div>
+            <div class="form-grid" style="margin-top:8px">
+              <div><label>Tanque antes de descargar (%)</label><input id="transferTankBeforePct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              <div><label>Tanque después de descargar (%)</label><input id="transferTankAfterPct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              <div><label>Litros declarados por el chofer <span class="muted">(pueden ser distintos)</span></label><input id="transferDriverLiters" type="number" min="0" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+            </div>
+            <div id="transferPhysicalHint" class="muted" style="font-size:12px;margin-top:7px">Registra ambos porcentajes para comparar la descarga física contra los litros timbrados.</div>
+          </div>
+          <div class="form-span" style="order:9"><label id="comentariosLabel">Comentarios para el cliente</label><textarea id="comentarios" maxlength="500" placeholder="Observaciones, indicaciones o referencia que el cliente necesita ver"></textarea></div>
         </div>
         <div class="invoice-summary" style="margin-top:12px">
           <div><span>Subtotal</span><b id="sumSubtotal">$0.00</b></div>
@@ -122,17 +114,6 @@
     </div>
     </div>
     <!-- ge-include: gas_lp/asistente/_facturas.html -->
-    <div id="billing-panel-estaciones" class="billing-subpanel card">
-      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
-        <div><label for="assistantStationMonth">Mes</label><input id="assistantStationMonth" type="month"></div>
-        <button class="btn" type="button" onclick="loadAssistantStationControl()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
-      </div>
-      <div class="subtabs" style="margin-bottom:12px">
-        <button class="subtab active" type="button" data-station-view="grafica" onclick="setAssistantStationView('grafica')"><i class="fa-solid fa-chart-line"></i> Gráfica de inventario</button>
-        <button class="subtab" type="button" data-station-view="fisico" onclick="setAssistantStationView('fisico')"><i class="fa-solid fa-clipboard-check"></i> Control físico</button>
-      </div>
-      <div id="assistantStationControl" class="muted">Presiona Buscar para consultar el inventario estimado de las estaciones.</div>
-    </div>
     <div id="billing-panel-complementos" class="billing-subpanel">
       <div class="card">
         <div class="section-title">

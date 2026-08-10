@@ -1,0 +1,19 @@
+    <section id="panel-inventario" class="tab-panel">
+      <nav class="subtabs" aria-label="Inventario">
+        <button class="subtab-btn active" id="inventory-tab-estaciones" type="button" onclick="switchInventoryTab('estaciones')"><i class="fa-solid fa-chart-line"></i> Control de estaciones</button>
+        <button class="subtab-btn" id="inventory-tab-fisico" type="button" onclick="switchInventoryTab('fisico')"><i class="fa-solid fa-clipboard-check"></i> Control físico</button>
+      </nav>
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2 id="assistantInventoryTitle">Control de estaciones</h2>
+            <p class="muted" id="assistantInventoryDescription">Consulta por mes el inventario estimado, ventas y traspasos recibidos.</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div><label for="assistantStationMonth">Mes</label><input id="assistantStationMonth" type="month"></div>
+          <button class="btn" type="button" onclick="loadAssistantStationControl()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+        </div>
+        <div id="assistantStationControl" class="muted">Selecciona el mes y presiona Buscar para consultar la información.</div>
+      </div>
+    </section>
