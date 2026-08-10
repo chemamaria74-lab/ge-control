@@ -140,6 +140,38 @@ def test_expense_context_resolves_admin_role_with_server_client(monkeypatch, mod
     assert result["expense_module"] == module
 
 
+@pytest.mark.parametrize("module", ["control_administrativo", "transporte"])
+def test_expense_context_prefers_tenant_admin_over_profile_user(monkeypatch, module):
+    class Query:
+        def __init__(self, table): self.table_name = table
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self):
+            if self.table_name == "company_module_memberships":
+                rows = [{"module": module}]
+            elif self.table_name == "user_sections":
+                rows = [
+                    {"role": "user", "status": "active", "tenant_id": "t1", "perfil_id": 410},
+                    {"role": "admin", "status": "active", "tenant_id": "t1", "perfil_id": None},
+                ]
+            else:
+                rows = [{"id": 410, "user_id": "owner", "tenant_id": "t1", "activo": True}]
+            return type("Result", (), {"data": rows})()
+
+    class Supabase:
+        def table(self, name): return Query(name)
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: Supabase())
+    monkeypatch.setattr(gastos_gas_lp, "verify_token", lambda _token: "u1")
+
+    result = gastos_gas_lp._ctx("Bearer jwt", "", "", f"410|{module}")
+
+    assert result["is_admin"] is True
+    assert result["perfil_id"] == 410
+    assert result["expense_module"] == module
+
+
 def test_gas_lp_supervision_jwt_uses_conciliation_permissions(monkeypatch):
     captured = {}
     jwt = "header.payload.signature"
@@ -564,6 +596,24 @@ def test_paid_invoices_allow_only_documentary_date_correction():
     assert "correctPaidDate" in script
 
 
+def test_without_folio_is_not_treated_as_a_repeated_invoice_number():
+    assert gastos_gas_lp._is_without_folio("S/F") is True
+    assert gastos_gas_lp._is_without_folio("sin folio") is True
+    assert gastos_gas_lp._is_without_folio("F-1048") is False
+
+
+def test_paid_view_has_visible_edit_and_safe_payment_reversal_actions():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
+
+    assert '@router.delete("/gastos/payments/{payment_id}")' in route
+    assert '"deleted_payment_error"' in route
+    assert 'data-delete-payment' in script and 'Eliminar pago' in script
+    assert 'data-edit-paid-date' in script and 'Editar fecha' in script
+    assert '.paid-edit-action' in css and '.paid-delete-action' in css
+
+
 def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
@@ -649,7 +699,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "invoice-idempotency-20260807" in html
+    assert "expense-paid-actions-20260810" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html

@@ -21,6 +21,8 @@ def test_invite_completion_page_uses_public_auth_api_and_clears_fragment():
     assert "history.replaceState" in html
     assert "'/auth/v1/user'" in html
     assert "method:'PUT'" in html
+    assert "'/auth/v1/logout?scope=local'" in html
+    assert "window.location.replace('/login/control-administrativo?portal=gastos&password_set=1')" in html
     assert "localStorage.setItem" not in html
 
 

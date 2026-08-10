@@ -20,6 +20,16 @@ def test_flotilla_role_always_requires_its_own_login():
     assert 'href="/gas-lp/flotilla/acceso?lang=es"' in response.text
 
 
+def test_transport_expenses_login_identifies_the_requested_portal():
+    expenses = client.get("/transporte-v2/login-admin?next=/transporte-v2/gastos")
+    admin = client.get("/transporte-v2/login-admin?next=/transporte-v2/admin")
+
+    assert expenses.status_code == 200
+    assert "Gastos y pagos de Transporte" in expenses.text
+    assert "Acceso al control de gastos y pagos" in expenses.text
+    assert "Administrador Transporte" in admin.text
+
+
 def test_flotilla_dashboard_is_hidden_until_session_validation():
     response = client.get("/gas-lp/flotilla")
 
