@@ -1224,7 +1224,7 @@ async function trv2ConfirmServiceInvoice(tripId) {
     trv2CloseServiceReview();
     await trv2LoadServiceInvoices({force: true});
     trv2SetServiceInvoiceTab('facturadas');
-    trv2Toast(`Carta Ingreso timbrada. UUID ${data.uuid_sat || ''}`, 'success');
+    trv2Toast(`Carta Ingreso timbrada y relacionada. UUID ${data.uuid_sat || ''}`, 'success');
   } finally {
     TRV2_SERVICE_INVOICE_BUSY = false;
     if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso'; }
