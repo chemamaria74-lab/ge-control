@@ -125,9 +125,13 @@
     <div id="billing-panel-estaciones" class="billing-subpanel card">
       <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
         <div><label for="assistantStationMonth">Mes</label><input id="assistantStationMonth" type="month"></div>
-        <button class="btn" type="button" onclick="loadAssistantStationControl()"><i class="fa-solid fa-arrows-rotate"></i> Actualizar</button>
+        <button class="btn" type="button" onclick="loadAssistantStationControl()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
       </div>
-      <div id="assistantStationControl" class="muted">Presiona Actualizar para consultar el inventario estimado de las estaciones.</div>
+      <div class="subtabs" style="margin-bottom:12px">
+        <button class="subtab active" type="button" data-station-view="grafica" onclick="setAssistantStationView('grafica')"><i class="fa-solid fa-chart-line"></i> Gráfica de inventario</button>
+        <button class="subtab" type="button" data-station-view="fisico" onclick="setAssistantStationView('fisico')"><i class="fa-solid fa-clipboard-check"></i> Control físico</button>
+      </div>
+      <div id="assistantStationControl" class="muted">Presiona Buscar para consultar el inventario estimado de las estaciones.</div>
     </div>
     <div id="billing-panel-complementos" class="billing-subpanel">
       <div class="card">
