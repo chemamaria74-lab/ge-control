@@ -1,6 +1,17 @@
 <!doctype html>
 <html lang="es-MX">
 <head>
+  <script>
+    // Supabase implicit invite/recovery sessions arrive in the URL fragment.
+    // Keep the fragment client-side and move it immediately to the password page.
+    (function () {
+      var hash = window.location.hash || '';
+      if (/(?:^|[&#])(?:access_token|refresh_token)=/.test(hash) &&
+          /(?:^|[&#])type=(?:invite|recovery)(?:&|$)/.test(hash)) {
+        window.location.replace('/auth/complete-invite' + hash);
+      }
+    })();
+  </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Genera y timbra Carta Porte 3.1, CFDI de Ingreso y controla viajes, operadores, unidades y expedientes desde una sola plataforma.">
