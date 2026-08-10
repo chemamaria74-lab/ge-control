@@ -138,7 +138,7 @@ def test_carta_ingreso_folio_sequence_works_without_optional_schema_columns():
     assert "(max_num + 1) if max_num else (max_row_id + 1)" in folio_helper
     assert "function trv2ServiceInvoiceFiscalFolio" in frontend
     assert "`${folio} · Reg. ${Number(item.id)}`" in frontend
-    assert "unique-carta-ingreso-folio-20260722" in shell
+    assert "carta-ingreso-trip-link-20260810" in shell
 
 
 def test_destination_permission_belongs_only_to_installation():
