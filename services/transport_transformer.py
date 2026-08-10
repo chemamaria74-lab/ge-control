@@ -664,19 +664,25 @@ def transport_covol_to_xml(sat_dict: dict) -> str:
             child.text = str(value)
         return child
 
-    def add_volume(parent: ET.Element, name: str, volume: dict | float | int | str | None) -> ET.Element:
+    def add_volume(
+        parent: ET.Element,
+        name: str,
+        volume: dict | float | int | str | None,
+        *,
+        include_unit: bool = True,
+    ) -> ET.Element:
         node = add(parent, name)
         if isinstance(volume, dict):
             add(node, "ValorNumerico", _smart_num(volume.get("ValorNumerico", 0)))
-            add(node, "UM", "UM03")
         else:
             add(node, "ValorNumerico", _smart_num(volume or 0))
+        if include_unit:
             add(node, "UM", "UM03")
         return node
 
     def add_transport_complement(parent: ET.Element, complementos: list[dict], empty_text: str) -> None:
         comp_node = add(parent, "Complemento")
-        tr_root = add(comp_node, "Complemento_Transporte", tr=True)
+        tr_root = add(comp_node, "Complemento_Transporte")
         if not complementos:
             acl = add(tr_root, "ACLARACION", tr=True)
             add(acl, "Aclaracion", empty_text, tr=True)
@@ -687,16 +693,15 @@ def transport_covol_to_xml(sat_dict: dict) -> str:
                 nac = add(tr_root, "NACIONAL", tr=True)
                 add(nac, "RfcCliente", nacional.get("RfcClienteOProveedor", ""), tr=True)
                 add(nac, "NombreCliente", nacional.get("NombreClienteOProveedor", ""), tr=True)
-                cfdis = add(nac, "CFDIs", tr=True)
                 for cfdi_data in nacional.get("CFDIs") or []:
-                    cfdi = add(cfdis, "CFDI", tr=True)
-                    add(cfdi, "Cfdi", cfdi_data.get("Cfdi", ""), tr=True)
-                    add(cfdi, "TipoCFDI", cfdi_data.get("TipoCfdi", ""), tr=True)
+                    cfdis = add(nac, "CFDIs", tr=True)
+                    add(cfdis, "CFDI", cfdi_data.get("Cfdi", ""), tr=True)
+                    add(cfdis, "TipoCFDI", cfdi_data.get("TipoCfdi", ""), tr=True)
                     contraprestacion = _smart_num(cfdi_data.get("PrecioVentaOCompraOContrap", 0))
-                    add(cfdi, "Contraprestacion", contraprestacion, tr=True)
-                    add(cfdi, "TarifaDeTransporte", contraprestacion, tr=True)
-                    add(cfdi, "FechaYHoraTransaccion", cfdi_data.get("FechaYHoraTransaccion", ""), tr=True)
-                    vol_doc = add(cfdi, "VolumenDocumentado", tr=True)
+                    add(cfdis, "Contraprestacion", contraprestacion, tr=True)
+                    add(cfdis, "TarifaDeTransporte", contraprestacion, tr=True)
+                    add(cfdis, "FechaYHoraTransaccion", cfdi_data.get("FechaYHoraTransaccion", ""), tr=True)
+                    vol_doc = add(cfdis, "VolumenDocumentado", tr=True)
                     volumen = cfdi_data.get("VolumenDocumentado") or {}
                     add(vol_doc, "ValorNumerico", _smart_num(volumen.get("ValorNumerico", 0)), tr=True)
                     add(vol_doc, "UM", "UM03", tr=True)
@@ -739,7 +744,12 @@ def transport_covol_to_xml(sat_dict: dict) -> str:
         reporte_node = add(prod_node, "REPORTEDEVOLUMENMENSUAL")
         control = reporte.get("ControlDeExistencias") or {}
         control_node = add(reporte_node, "CONTROLDEEXISTENCIAS")
-        add_volume(control_node, "VolumenExistenciasMes", control.get("VolumenExistenciasMes", 0))
+        add_volume(
+            control_node,
+            "VolumenExistenciasMes",
+            control.get("VolumenExistenciasMes", 0),
+            include_unit=False,
+        )
         add(control_node, "FechaYHoraEstaMedicionMes", control.get("FechaYHoraEstaMedicionMes", sat_dict.get("FechaYHoraReporteMes", "")))
 
         recepciones = reporte.get("Recepciones") or {}
@@ -758,12 +768,11 @@ def transport_covol_to_xml(sat_dict: dict) -> str:
         add(ent_node, "ImporteTotalEntregasMes", _smart_num(entregas.get("ImporteTotalEntregasMes", 0)))
         add_transport_complement(ent_node, entregas.get("Complemento") or [], "Sin Entregas en el periodo")
 
-    bitacora_node = add(root, "BITACORAMENSUAL")
     for evento_data in sat_dict.get("BitacoraMensual") or []:
-        evento = add(bitacora_node, "EVENTO")
+        bitacora = add(root, "BITACORA")
+        evento = add(bitacora, "BITACORAMENSUAL")
         add(evento, "NumeroRegistro", evento_data.get("NumeroRegistro", 0))
         add(evento, "FechaYHoraEvento", evento_data.get("FechaYHoraEvento", ""))
-        add(evento, "UsuarioResponsable", evento_data.get("UsuarioResponsable", ""))
         add(evento, "TipoEvento", evento_data.get("TipoEvento", ""))
         add(evento, "DescripcionEvento", evento_data.get("DescripcionEvento", ""))
 
