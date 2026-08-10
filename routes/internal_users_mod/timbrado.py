@@ -133,6 +133,13 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
                 "inventory": inventory_check,
             })
         transfer_physical_control = _gas_lp_transfer_physical_control(destino, payload)
+        if transfer_physical_control:
+            transfer_physical_control = {
+                **transfer_physical_control,
+                "disponible_antes_traspaso": inventory_check.get("available"),
+                "inventario_antes_traspaso": inventory_check.get("current"),
+                "capacidad_operativa": inventory_check.get("capacity"),
+            }
         folio_factura, transfer_folio_reservation = _gas_lp_next_invoice_folio(
             sb,
             user,
@@ -736,6 +743,8 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
                     pdf_bytes=pdf_bytes,
                     pdf_filename=info.filename,
                     serie_folio=_gas_lp_factura_folio_label(factura_row),
+                    volume_liters=payload.litros,
+                    transfer_physical_control=transfer_physical_control if is_transfer else None,
                 )
                 email_results.append({"to": email_to, **email_result.as_metadata()})
             now_email = _now_iso()
