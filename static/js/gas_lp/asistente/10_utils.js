@@ -285,6 +285,7 @@ async function loadAssistantStationControl(options={}){
 }
 
 let TRANSFER_INVENTORY_STATIONS = null;
+let TRANSFER_INVENTORY_LOADING = null;
 let ASSISTANT_STATION_VIEW = 'grafica';
 
 function assistantStationPhysicalTable(station){
@@ -292,10 +293,18 @@ function assistantStationPhysicalTable(station){
     .filter(({transfer}) => transfer.control_fisico && Object.keys(transfer.control_fisico).length);
   if(!rows.length) return '<div class="muted" style="padding:12px 0">No hay controles físicos capturados para esta estación en el mes seleccionado.</div>';
   const value = (raw, suffix=' L') => raw === null || raw === undefined || raw === '' ? '—' : `${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}${suffix}`;
-  return `<div style="overflow:auto"><table style="width:100%;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>Lectura tanque</th><th>CFDI</th><th>Disponible operativo</th><th>Diferencia</th><th>Resultado</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
+  return `<div class="muted" style="font-size:12px;margin:10px 0 7px">El inventario real se calcula con el nivel final del tanque; se compara contra el inventario teórico al cierre del día.</div><div style="overflow:auto"><table style="width:100%;min-width:1250px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>CFDI</th><th>Capacidad tanque</th><th>Inventario teórico</th><th>Inventario real</th><th>Dif. litros</th><th>Dif. %</th><th>Resultado</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
     const c = transfer.control_fisico;
-    const alert = Boolean(c.alerta);
-    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(c.despues_pct, '%')}</td><td>${value(c.litros_declarados)}</td><td>${value(c.litros_medidos)}</td><td>${value(c.litros_cfdi)}</td><td>${value(c.disponible_antes_traspaso)}</td><td style="font-weight:800;color:${alert?'#b91c1c':'#166534'}">${value(c.diferencia_litros)}</td><td style="color:${alert?'#b91c1c':'#166534'}">${alert ? 'Revisar diferencia' : 'Dentro de tolerancia'}</td></tr>`;
+    const capacity = Number(c.capacidad_litros || station.capacidad || 0);
+    const theoretical = Number(day.inventario_final || 0);
+    const real = capacity > 0 && c.despues_pct !== null && c.despues_pct !== undefined ? capacity * Number(c.despues_pct) / 100 : null;
+    const inventoryDifference = real === null ? null : real - theoretical;
+    const inventoryDifferencePct = inventoryDifference === null || capacity <= 0 ? null : inventoryDifference / capacity * 100;
+    const inventoryAlert = inventoryDifference !== null && Math.abs(inventoryDifference) > capacity * Number(station.incertidumbre_medidor || 0.05);
+    const alert = Boolean(c.alerta || inventoryAlert);
+    const differenceColor = alert ? '#b91c1c' : '#166534';
+    const signed = raw => raw === null || raw === undefined ? '—' : `${raw > 0 ? '+' : ''}${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}`;
+    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(c.despues_pct, '%')}</td><td>${value(c.litros_declarados)}</td><td>${value(c.litros_cfdi)}</td><td>${value(capacity)}</td><td>${value(theoretical)}</td><td>${value(real)}</td><td style="font-weight:800;color:${differenceColor}">${signed(inventoryDifference)} L</td><td style="font-weight:800;color:${differenceColor}">${signed(inventoryDifferencePct)}%</td><td style="color:${differenceColor}">${alert ? 'Revisar diferencia' : 'Dentro de tolerancia'}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -312,8 +321,11 @@ async function refreshTransferInventoryHint(){
     if(!TRANSFER_INVENTORY_STATIONS){
       hint.classList.remove('hide');
       hint.style.cssText = 'border:1px solid #cbd5e1;background:#f8fafc;color:#475569;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800';
-      hint.textContent = 'Presiona Buscar en Control de estaciones para consultar el inventario estimado antes de timbrar.';
-      return;
+      hint.textContent = 'Consultando inventario estimado de la estación…';
+      TRANSFER_INVENTORY_LOADING ||= api(`/api/internal-auth/gas-lp/inventario-estaciones?mes=${encodeURIComponent(todayKey().slice(0,7))}`)
+        .then(data => data.stations || [])
+        .finally(() => { TRANSFER_INVENTORY_LOADING = null; });
+      TRANSFER_INVENTORY_STATIONS = await TRANSFER_INVENTORY_LOADING;
     }
     const station = TRANSFER_INVENTORY_STATIONS.find(s => String(s.id) === String(destination.value));
     if(!station){ hint.classList.add('hide'); return; }
