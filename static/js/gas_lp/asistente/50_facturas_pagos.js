@@ -228,7 +228,9 @@ function selectedFacturaClientRfc(){
   return String(option?.dataset?.rfc || '').trim().toUpperCase();
 }
 function loadFacturasSelectedMonth(opts={}){
-  return loadFacturas(facturaMes?.value || '', {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc(), ...opts});
+  // Una carga solicitada por el usuario debe reflejar siempre el estado fiscal
+  // actual. La caché queda reservada para restaurar la vista al iniciar.
+  return loadFacturas(facturaMes?.value || '', {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc(), force:true, ...opts});
 }
 async function refreshComplementosPagoData(){
   COMP_SEL = {};
