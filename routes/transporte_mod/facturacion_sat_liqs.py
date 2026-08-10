@@ -3,6 +3,7 @@ from __future__ import annotations
 from .core import *
 from fastapi import File, Form, UploadFile
 from models.transport_schemas import FacturaServicioCreate, GenerarCovolRequest
+from services.transport_transformer import transport_covol_permit_identity
 
 @router.get("/tr/cartas-porte-facturables")
 async def listar_cartas_porte_facturables(
@@ -828,12 +829,13 @@ async def generar_covol_transporte(
         })
 
     # Preparar settings para el transformer
+    modalidad_permiso, clave_instalacion_default, descripcion_instalacion_default = transport_covol_permit_identity(selected_permiso)
     covol_settings = {
         **settings,
         "NumPermiso":          selected_permiso,
-        "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion", ""),
-        "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion", ""),
-        "ModalidadPermiso":    settings.get("ModalidadPermiso", "PER51"),
+        "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion") or clave_instalacion_default,
+        "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion") or descripcion_instalacion_default,
+        "ModalidadPermiso":    modalidad_permiso,
     }
 
     try:
