@@ -121,6 +121,8 @@ def send_gas_lp_invoice_email(
     pdf_bytes: bytes,
     pdf_filename: str,
     serie_folio: str = "",
+    volume_liters: float | int | str | None = None,
+    transfer_physical_control: dict[str, Any] | None = None,
 ) -> EmailDeliveryResult:
     recipient = _clean_email(to_email)
     if not recipient:
@@ -139,6 +141,31 @@ def send_gas_lp_invoice_email(
     safe_uuid = html.escape(uuid_sat or "")
     safe_total = html.escape(str(total or "0"))
     safe_serie_folio = html.escape(serie_folio or "")
+    safe_liters = html.escape(str(volume_liters or "0"))
+    physical = transfer_physical_control if isinstance(transfer_physical_control, dict) else {}
+    physical_rows = []
+    if physical:
+        labels = (
+            ("Tanque antes", physical.get("antes_pct"), "%"),
+            ("Tanque después", physical.get("despues_pct"), "%"),
+            ("Litros declarados por chofer", physical.get("litros_declarados"), " L"),
+            ("Litros medidos por lectura", physical.get("litros_medidos"), " L"),
+            ("Litros CFDI", physical.get("litros_cfdi"), " L"),
+            ("Disponible antes de traspaso", physical.get("disponible_antes_traspaso"), " L"),
+            ("Diferencia física", physical.get("diferencia_litros"), " L"),
+        )
+        for label, value, unit in labels:
+            if value is not None:
+                physical_rows.append(
+                    f"<tr><td style=\"padding:6px 10px;border:1px solid #e5e7eb\">{html.escape(label)}</td>"
+                    f"<td style=\"padding:6px 10px;border:1px solid #e5e7eb;text-align:right\"><b>{html.escape(str(value))}{unit}</b></td></tr>"
+                )
+    physical_html = (
+        "<p><b>Control físico de descarga reportado</b></p>"
+        "<table style=\"border-collapse:collapse;min-width:320px\">"
+        "<tbody>" + "".join(physical_rows) + "</tbody></table>"
+        + ("<p><b>Resultado:</b> revisa la diferencia física reportada.</p>" if physical.get("alerta") else "<p><b>Resultado:</b> lectura física dentro de tolerancia.</p>")
+    ) if physical_rows else ""
     subject_parts = ["CFDI GAS LUX"]
     if serie_folio:
         subject_parts.append(serie_folio)
@@ -152,7 +179,8 @@ def send_gas_lp_invoice_email(
         "html": (
             f"<p>Hola {safe_customer},</p>"
             f"<p>Adjuntamos su CFDI de {safe_issuer}.</p>"
-            f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}<br><b>Total:</b> ${safe_total}</p>"
+            f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}<br><b>Litros:</b> {safe_liters} L<br><b>Total:</b> ${safe_total}</p>"
+            f"{physical_html}"
             "<p>El XML y PDF fiscal se incluyen como archivos adjuntos.</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
         ),
