@@ -1,4 +1,68 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GE CONTROL | Facturación</title><link rel="icon" href="/static/img/favicon.svg"><link rel="stylesheet" href="/static/css/ge-brand.css"><style>body{margin:0;background:#f7f6f3;color:#111;font-family:var(--ge-font,Inter,system-ui,sans-serif)}header{display:flex;align-items:center;gap:18px;padding:16px 28px;background:#7a1e2c;color:#fff}header img{height:28px}header h1{font-size:1.1rem;margin:0}nav{display:flex;gap:8px;margin-left:auto}nav a{color:#fff;text-decoration:none;padding:9px 12px;border-radius:7px;font-weight:800}nav a.active,nav a:hover{background:#5b0f1d}.shell{width:min(1120px,calc(100% - 36px));margin:34px auto}.hero{background:#fff;border:1px solid #e3ddd4;border-radius:12px;padding:28px;box-shadow:0 14px 34px #17110d0d}.eyebrow{color:#7a1e2c;font-size:.78rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}.hero h2{margin:8px 0;color:#5b0f1d}.hero p{color:#756f68}.tabs{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}.tabs button{border:1px solid #ded6ca;background:#fff;color:#5b0f1d;border-radius:8px;padding:12px 16px;font:inherit;font-weight:850}.tabs button.active{background:#7a1e2c;color:#fff;border-color:#7a1e2c}.notice{padding:18px;background:#fffaf0;border:1px solid #e3d4b4;border-radius:10px;color:#5f4b2f}</style></head>
-<body><header><img src="/static/img/ge-isotype-light.svg" alt="GE"><h1>Facturación</h1><nav><a class="active" href="/control-administrativo/facturacion">Facturación</a><a href="/control-administrativo">Gastos y pagos</a><a href="/choice">Cambiar módulo</a></nav></header><main class="shell"><section class="hero"><span class="eyebrow">Portal de facturación</span><h2>Facturación general</h2><p>Genera y timbra facturas para mercancías, arrendamientos, vehículos, servicios y operaciones generales.</p><div class="tabs"><button class="active">Facturas</button><button>Programadas</button><button>Clientes</button><button>Productos y servicios</button><button>Configuración fiscal</button></div><div class="notice">El espacio de facturación general está preparado para integrar timbrado directo, programación automática y envío por Ricent.</div></section></main><script src="/static/js/session_timeout.js?v=two-hour-control-20260807"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GE CONTROL | Facturación</title>
+  <link rel="icon" href="/static/img/favicon.svg">
+  <link rel="stylesheet" href="/static/css/ge-brand.css">
+  <link rel="stylesheet" href="/static/css/control_facturacion.css?v=20260810-1">
+</head>
+<body>
+  <script>if(!(localStorage.getItem('sat_token')||localStorage.getItem('zc_token'))&&!['localhost','127.0.0.1'].includes(location.hostname))location.replace('/login/control-administrativo?portal=facturacion');</script>
+  <header class="topbar">
+    <a class="brand" href="/control-administrativo/facturacion"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span><b>Administrador de empresas</b><small>Facturación</small></span></a>
+    <label class="company-control"><span>Empresa</span><select id="companySelect"><option value="">Cargando…</option></select></label>
+    <div class="top-actions"><button class="ghost-light" id="goExpenses" type="button">Gastos y pagos</button><button class="ghost-light" id="logout" type="button">Salir</button></div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Secciones de facturación">
+      <button class="nav-item active" data-view="dashboard"><span>▦</span>Resumen</button>
+      <button class="nav-item" data-view="new"><span>+</span>Nueva factura</button>
+      <button class="nav-item" data-view="invoices"><span>☷</span>Facturas</button>
+      <button class="nav-item" data-view="schedules"><span>◷</span>Programadas</button>
+      <button class="nav-item" data-view="clients"><span>○</span>Clientes</button>
+      <button class="nav-item" data-view="products"><span>□</span>Productos y servicios</button>
+      <button class="nav-item" data-view="config"><span>⚙</span>Configuración fiscal</button>
+    </aside>
+
+    <main class="content">
+      <div id="globalMessage" class="message" hidden></div>
+      <section class="view active" data-panel="dashboard">
+        <div class="page-head"><div><span class="eyebrow">Facturación general</span><h1>Resumen</h1><p id="companySubtitle">Selecciona una empresa para comenzar.</p></div><button class="primary" data-open="new">Nueva factura</button></div>
+        <div class="kpi-grid"><article class="kpi"><span>Facturas</span><strong id="kpiInvoices">—</strong><small>historial de la empresa</small></article><article class="kpi"><span>Timbradas</span><strong id="kpiStamped">—</strong><small>con UUID fiscal</small></article><article class="kpi"><span>Clientes</span><strong id="kpiClients">—</strong><small>receptores activos</small></article><article class="kpi"><span>Programaciones</span><strong id="kpiSchedules">—</strong><small>activas</small></article></div>
+        <article class="card"><div class="card-head"><div><h2>Facturas recientes</h2><p>Los últimos CFDI generados para esta empresa.</p></div><button class="secondary" data-open="invoices">Ver todas</button></div><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Serie / folio</th><th>Receptor</th><th>Total</th><th>Estado</th></tr></thead><tbody id="recentInvoices"></tbody></table></div></article>
+      </section>
+
+      <section class="view" data-panel="new">
+        <div class="page-head"><div><span class="eyebrow">CFDI 4.0</span><h1>Nueva factura</h1><p>Captura los conceptos, valida y timbra cuando todo esté correcto.</p></div></div>
+        <form id="invoiceForm">
+          <div class="two-col">
+            <article class="card"><h2>Receptor</h2><label>Cliente<select id="invoiceClient" required><option value="">Selecciona un cliente</option></select></label><div id="receiverSummary" class="summary-box">Selecciona un cliente del catálogo.</div></article>
+            <article class="card"><h2>Comprobante</h2><div class="form-grid"><label>Serie<input id="invoiceSerie" maxlength="25"></label><label>Folio<input id="invoiceFolio" maxlength="40"></label><label>Método de pago<select id="invoiceMethod"><option value="PPD">PPD · Pago diferido</option><option value="PUE">PUE · Una exhibición</option></select></label><label>Forma de pago<select id="invoicePayment"><option value="99">99 · Por definir</option><option value="01">01 · Efectivo</option><option value="02">02 · Cheque</option><option value="03">03 · Transferencia</option><option value="04">04 · Tarjeta de crédito</option><option value="28">28 · Tarjeta de débito</option></select></label><label>Moneda<select id="invoiceCurrency"><option>MXN</option><option>USD</option><option>EUR</option></select></label><label>Tipo de cambio<input id="invoiceExchange" type="number" min="0.000001" step="0.000001" placeholder="Sólo moneda extranjera"></label></div></article>
+          </div>
+          <article class="card"><div class="card-head"><div><h2>Conceptos</h2><p>Agrega uno o más productos o servicios.</p></div><button class="secondary" id="addConcept" type="button">Agregar concepto</button></div><div id="conceptRows" class="concept-list"></div><div class="totals"><div><span>Subtotal</span><b id="subtotal">$0.00</b></div><div><span>IVA</span><b id="taxTotal">$0.00</b></div><div class="grand"><span>Total</span><strong id="grandTotal">$0.00</strong></div></div></article>
+          <div class="form-actions"><button class="secondary" id="validateInvoice" type="button">Validar factura</button><button class="primary danger-safe" id="stampInvoice" type="button" disabled>Timbrar CFDI</button></div>
+          <div id="validationResult" class="validation" hidden></div>
+        </form>
+      </section>
+
+      <section class="view" data-panel="invoices"><div class="page-head"><div><span class="eyebrow">Documentos fiscales</span><h1>Facturas</h1><p>Consulta el historial, UUID y archivos fiscales disponibles.</p></div><button class="primary" data-open="new">Nueva factura</button></div><article class="card"><div class="toolbar"><input id="invoiceSearch" type="search" placeholder="Buscar UUID, receptor, serie o folio"><button class="secondary" id="refreshInvoices">Actualizar</button></div><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Serie / folio</th><th>Receptor</th><th>Total</th><th>UUID</th><th>Estado</th><th>Archivos</th></tr></thead><tbody id="invoiceRows"></tbody></table></div></article></section>
+
+      <section class="view" data-panel="schedules"><div class="page-head"><div><span class="eyebrow">Automatización</span><h1>Facturas programadas</h1><p>Guarda una factura recurrente y controla su estado.</p></div><button class="primary" id="openSchedule">Nueva programación</button></div><article class="card"><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Calendario</th><th>Receptor</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="scheduleRows"></tbody></table></div></article></section>
+
+      <section class="view" data-panel="clients"><div class="page-head"><div><span class="eyebrow">Catálogo</span><h1>Clientes</h1><p>Datos fiscales de los receptores.</p></div><button class="primary" id="newClient">Nuevo cliente</button></div><article class="card"><div class="toolbar"><input id="clientSearch" type="search" placeholder="Buscar nombre o RFC"></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>RFC</th><th>CP</th><th>Régimen</th><th>Uso CFDI</th><th>Correo</th><th></th></tr></thead><tbody id="clientRows"></tbody></table></div></article></section>
+
+      <section class="view" data-panel="products"><div class="page-head"><div><span class="eyebrow">Catálogo</span><h1>Productos y servicios</h1><p>Conceptos reutilizables para facturar más rápido.</p></div><button class="primary" id="newProduct">Nuevo producto o servicio</button></div><article class="card"><div class="toolbar"><input id="productSearch" type="search" placeholder="Buscar descripción o clave SAT"></div><div class="table-wrap"><table><thead><tr><th>Descripción</th><th>Clave SAT</th><th>Unidad</th><th>Precio</th><th>IVA</th><th></th></tr></thead><tbody id="productRows"></tbody></table></div></article></section>
+
+      <section class="view" data-panel="config"><div class="page-head"><div><span class="eyebrow">Emisor</span><h1>Configuración fiscal</h1><p>Estos datos se usarán al construir cada CFDI.</p></div></div><form id="configForm" class="card form-grid config-grid"><label>RFC<input id="configRfc" minlength="12" maxlength="13" required></label><label>Nombre o razón social<input id="configName" maxlength="254" required></label><label>Código postal<input id="configZip" inputmode="numeric" pattern="\d{5}" maxlength="5" required></label><label>Régimen fiscal<input id="configRegime" inputmode="numeric" pattern="\d{3}" maxlength="3" placeholder="601" required></label><label>Serie predeterminada<input id="configSerie" maxlength="25"></label><label>Método predeterminado<select id="configMethod"><option value="PPD">PPD</option><option value="PUE">PUE</option></select></label><label>Forma de pago predeterminada<select id="configPayment"><option value="99">99 · Por definir</option><option value="01">01 · Efectivo</option><option value="02">02 · Cheque</option><option value="03">03 · Transferencia</option><option value="04">04 · Tarjeta de crédito</option><option value="28">28 · Tarjeta de débito</option></select></label><label>Correo del emisor<input id="configEmail" type="email"></label><div class="full form-actions"><button class="primary" type="submit">Guardar configuración</button></div></form></section>
+    </main>
+  </div>
+
+  <dialog id="editorDialog"><form class="dialog-card" id="editorForm"><div class="dialog-head"><div><span class="eyebrow" id="dialogEyebrow">Catálogo</span><h2 id="dialogTitle">Editar</h2></div><button class="icon-btn" id="editorClose" type="button" aria-label="Cerrar">×</button></div><div id="dialogFields" class="form-grid"></div><div class="form-actions"><button class="secondary" id="editorCancel" type="button">Cancelar</button><button class="primary" id="dialogSave" type="submit">Guardar</button></div></form></dialog>
+  <dialog id="stampDialog"><form class="dialog-card" id="stampForm"><div class="dialog-head"><div><span class="eyebrow">Acción fiscal definitiva</span><h2>Confirmar timbrado</h2></div><button class="icon-btn" id="stampClose" type="button" aria-label="Cerrar">×</button></div><p>Esta acción enviará el CFDI al PAC. Revisa receptor, conceptos y total antes de continuar.</p><div id="stampSummary" class="summary-box"></div><label>Escribe <b>TIMBRAR</b> para confirmar<input id="stampConfirm" autocomplete="off"></label><div class="form-actions"><button class="secondary" id="stampCancel" type="button">Cancelar</button><button class="primary" id="stampConfirmButton" type="submit" disabled>Timbrar ahora</button></div></form></dialog>
+  <script src="/static/js/session_timeout.js?v=two-hour-control-20260810-facturacion"></script>
+  <script src="/static/js/control_facturacion.js?v=20260810-1"></script>
+</body>
+</html>
