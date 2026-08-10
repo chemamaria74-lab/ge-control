@@ -4,6 +4,7 @@ const TRV2_MONTHS = [
   ['9', 'Septiembre'], ['10', 'Octubre'], ['11', 'Noviembre'], ['12', 'Diciembre'],
 ];
 let TRV2_CV_EXTERNAL = [];
+let TRV2_CV_INTERNAL_INGRESOS = [];
 const TRV2_CV_EXTERNAL_DOCUMENT_TYPE = 'carta_ingreso';
 const TRV2_CV_VIEW_CACHE_MS = 5 * 60 * 1000;
 let TRV2_CV_LAST_SEARCH = null;
@@ -212,15 +213,23 @@ function trv2BuildCvMovements() {
   const monthFilter = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const sourceFilter = document.getElementById('trv2-cv-source')?.value || '';
 
-  const systemMovements = (TRV2_TRIPS || []).map(row => {
+  const tripsById = new Map((TRV2_TRIPS || []).map(row => [Number(row.id), row]));
+  const systemMovements = (TRV2_CV_INTERNAL_INGRESOS || []).map(ingreso => {
+    const baseRow = (ingreso.viaje_ids || []).map(id => tripsById.get(Number(id))).find(Boolean);
+    if (!baseRow) return null;
+    const row = {
+      ...baseRow,
+      productos_json: Array.isArray(ingreso.productos) ? JSON.stringify(ingreso.productos) : baseRow.productos_json,
+      fecha_hora_salida: ingreso.fecha_hora_salida || baseRow.fecha_hora_salida,
+    };
     const productName = trv2TripRelatedLabel(row, 'productos', 'producto_descripcion') || 'Producto pendiente';
     const vehicleName = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Vehículo pendiente';
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
     const date = trv2CvTripDate(row);
     const status = trv2CvStatus(row, productName);
     const permiso = trv2CvMovementPermit(row);
-    const uuid = trv2CvCartaPorteUuid(row);
-    const exportable = trv2CvIsStamped(row, uuid);
+    const uuid = ingreso.uuid_carta_ingreso || '';
+    const exportable = true;
     return {
       row,
       date,
@@ -234,7 +243,7 @@ function trv2BuildCvMovements() {
       hydrocarbon: trv2IsHydrocarbonProduct(productName),
       source: 'sistema',
     };
-  }).filter(item => {
+  }).filter(Boolean).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
     if (permisoFilter && item.permiso !== permisoFilter) return false;
     if (permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
@@ -362,7 +371,7 @@ function trv2RenderCvKpis(movements) {
   const loadVolume = loads.reduce((sum, item) => sum + item.volume, 0);
   const deliveryVolume = deliveries.reduce((sum, item) => sum + item.volume, 0);
   const finalVolume = Math.max(0, loadVolume - deliveryVolume);
-  const uniqueCartaPorte = new Set(movements.filter(item => item.source === 'sistema' && item.uuid).map(item => item.uuid)).size;
+  const uniqueCartaIngreso = new Set(movements.filter(item => item.source === 'sistema' && item.uuid).map(item => item.uuid)).size;
   const externals = new Set(
     movements
       .filter(item => item.source === 'externo')
@@ -376,7 +385,7 @@ function trv2RenderCvKpis(movements) {
     <article><span>Cargas</span><strong>${trv2CvNumber(loadVolume)} L</strong><small>${loads.length} registros</small></article>
     <article><span>Entregas</span><strong>${trv2CvNumber(deliveryVolume)} L</strong><small>${deliveries.length} registros</small></article>
     <article><span>En tránsito / final</span><strong>${trv2CvNumber(finalVolume)} L</strong><small>${finalVolume ? 'Viajes sin descarga equivalente' : 'Existencia conciliada'}</small></article>
-    <article><span>Cartas Porte</span><strong>${uniqueCartaPorte}</strong><small>UUID únicos del sistema</small></article>
+    <article><span>Cartas Ingreso</span><strong>${uniqueCartaIngreso}</strong><small>UUID timbrados incluidos en el ZIP</small></article>
     <article><span>Externos</span><strong>${externals}</strong><small>XML de otras plataformas</small></article>
   `;
 }
@@ -523,6 +532,7 @@ async function trv2LoadControlVolumetrico(options = {}) {
   if (!options.search) {
     if (cachedViewIsFresh) {
       TRV2_CV_EXTERNAL = TRV2_CV_LAST_SEARCH.external || [];
+      TRV2_CV_INTERNAL_INGRESOS = TRV2_CV_LAST_SEARCH.internal || [];
       TRV2_CV_MOVEMENTS = TRV2_CV_LAST_SEARCH.movements || [];
       trv2RenderCvContext(TRV2_CV_MOVEMENTS);
       trv2RenderCvKpis(TRV2_CV_MOVEMENTS);
@@ -543,13 +553,18 @@ async function trv2LoadControlVolumetrico(options = {}) {
   const year = Number(document.getElementById('trv2-cv-anio')?.value || new Date().getFullYear());
   const month = Number(document.getElementById('trv2-cv-mes')?.value || (new Date().getMonth() + 1));
   const periodo = `${year}-${String(month).padStart(2, '0')}`;
-  const external = await trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true});
+  const [external, internal] = await Promise.all([
+    trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true}),
+    trv2Api('GET', `/api/tr-v2/control-volumetrico/cartas-ingreso?periodo=${encodeURIComponent(periodo)}&num_permiso_cne=${encodeURIComponent(trv2CvSelectedPermitValue())}`, undefined, {silent: true, allowError: true}),
+  ]);
   TRV2_CV_EXTERNAL = external?.movimientos || [];
+  TRV2_CV_INTERNAL_INGRESOS = internal?.cartas_ingreso || [];
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
   TRV2_CV_LAST_SEARCH = {
     at: Date.now(),
     key: trv2CvFilterKey(),
     external: TRV2_CV_EXTERNAL,
+    internal: TRV2_CV_INTERNAL_INGRESOS,
     movements: TRV2_CV_MOVEMENTS,
   };
   trv2RenderCvContext(TRV2_CV_MOVEMENTS);
@@ -562,7 +577,7 @@ async function trv2LoadControlVolumetrico(options = {}) {
     const invalid = TRV2_CV_MOVEMENTS.filter(item => !item.exportable).length;
     alert.textContent = invalid
       ? `${invalid} movimiento(s) requieren UUID timbrado antes de cerrar el mes.`
-      : 'Mes revisado. Cada Carta Porte del sistema genera una carga y su entrega por el mismo volumen; la existencia final debe ser 0 L.';
+      : 'Mes revisado. Cada Carta Ingreso timbrada incluida en el ZIP genera una carga y su entrega por el mismo volumen; la existencia final debe ser 0 L.';
   }
 }
 
