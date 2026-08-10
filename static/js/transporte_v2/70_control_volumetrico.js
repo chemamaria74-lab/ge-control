@@ -623,11 +623,6 @@ async function trv2UploadCvExternal(event) {
   await trv2LoadControlVolumetrico({search: true});
 }
 
-async function trv2CloseAndDownloadCvMonth() {
-  const closed = await trv2CloseCvMonth();
-  if (closed) await trv2GenerateCvReport('zip');
-}
-
 function trv2DownloadTextFile(filename, content, mime = 'application/json') {
   const blob = new Blob([content || ''], {type: `${mime};charset=utf-8`});
   const url = URL.createObjectURL(blob);
@@ -664,16 +659,24 @@ async function trv2GenerateCvReport(format = 'zip') {
     trv2Toast('Selecciona permiso, año y mes para generar el paquete SAT.', 'error');
     return;
   }
-  if (alert) alert.textContent = 'Generando ZIP con JSON y XML SAT Transporte…';
-  const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/generar', {
-    perfil_id: TRV2_PERFIL?.id || null,
-    anio,
-    mes,
-    inventario_inicial_litros: 0,
-    num_permiso_cne: permiso,
-    clave_instalacion: '',
-    descripcion_instalacion: '',
-  }, {allowError: true});
+  if (alert) alert.textContent = 'Generando ZIP con XML SAT Transporte…';
+  let response;
+  try {
+    response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/generar', {
+      perfil_id: TRV2_PERFIL?.id || null,
+      anio,
+      mes,
+      inventario_inicial_litros: 0,
+      num_permiso_cne: permiso,
+      clave_instalacion: '',
+      descripcion_instalacion: '',
+    }, {allowError: true});
+  } catch (error) {
+    const message = error?.message || 'No se pudo conectar con el generador del ZIP SAT Transporte.';
+    if (alert) alert.textContent = message;
+    trv2Toast(message, 'error');
+    return;
+  }
   if (!response?.ok) {
     const detail = response?.detail || response?.message || 'No se pudo generar el paquete SAT Transporte.';
     const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
@@ -687,57 +690,6 @@ async function trv2GenerateCvReport(format = 'zip') {
   else trv2DownloadBase64File(response.zip_name, response.zip_b64, 'application/zip');
   if (alert) alert.textContent = `Reporte ${response.periodo} generado para permiso ${response.num_permiso_cne}.`;
   trv2Toast('ZIP SAT Transporte generado.', 'success');
-}
-
-async function trv2CloseCvMonth() {
-  const permiso = trv2CvSelectedPermitValue();
-  const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
-  const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
-  const alert = document.getElementById('trv2-cv-alert');
-  if (!permiso || !anio || !mes) {
-    trv2OpenCvReview();
-    trv2Toast('Selecciona permiso, año y mes para cerrar el mes.', 'error');
-    return false;
-  }
-  const currentKey = trv2CvFilterKey();
-  if (!TRV2_CV_LAST_SEARCH || TRV2_CV_LAST_SEARCH.key !== currentKey) {
-    trv2Toast('Primero revisa los movimientos con los filtros actuales.', 'error');
-    return false;
-  }
-  const invalid = TRV2_CV_MOVEMENTS.filter(item => (
-    !item.exportable
-    || item.permiso !== permiso
-    || !trv2CvProductMatchesPermit(item.productName, trv2CvSelectedPermitItem())
-  ));
-  if (!TRV2_CV_MOVEMENTS.length || invalid.length) {
-    trv2Toast(
-      !TRV2_CV_MOVEMENTS.length
-        ? 'No hay movimientos válidos para cerrar este permiso y periodo.'
-        : `${invalid.length} movimiento(s) tienen errores de UUID, permiso o producto.`,
-      'error',
-    );
-    return false;
-  }
-  if (!confirm(`Cerrar mes ${anio}-${String(mes).padStart(2, '0')} para el permiso ${permiso}?`)) return false;
-  if (alert) alert.textContent = 'Cerrando mes Transporte...';
-  const response = await trv2Api('POST', '/api/tr-v2/control-volumetrico/cerrar-mes', {
-    perfil_id: TRV2_PERFIL?.id || null,
-    anio,
-    mes,
-    num_permiso_cne: permiso,
-    clave_instalacion: '',
-    descripcion_instalacion: '',
-  }, {allowError: true});
-  if (!response?.ok) {
-    const detail = response?.detail || response?.message || 'No se pudo cerrar el mes.';
-    const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
-    if (alert) alert.textContent = message;
-    trv2Toast(message, 'error');
-    return false;
-  }
-  if (alert) alert.textContent = `Mes ${response.periodo} cerrado para permiso ${response.num_permiso_cne}. Ya puedes descargar el ZIP JSON/XML.`;
-  trv2Toast('Mes cerrado.', 'success');
-  return true;
 }
 
 function trv2ValidateCvDraft() {
