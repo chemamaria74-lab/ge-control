@@ -40,6 +40,7 @@ RFC_PROVEEDOR_DEFAULT = "XAX010101000"
 
 _PRODUCTO_FAMILY_BY_CLAVE = {
     "PR12": "gas_lp",
+    "PR14": "gas_lp",
     "15111510": "gas_lp",
     "PR03": "petroliferos",
     "PR05": "petroliferos",
@@ -87,13 +88,13 @@ def transport_covol_permit_identity(permit_number: str) -> tuple[str, str, str]:
     raise ValueError(f"El permiso {permit_number} no tiene una modalidad SAT de transporte configurada.")
 
 _CFDI_TO_COVOL_PRODUCT = {
-    "15111510": "PR12",
-    "15111501": "PR12",
-    "15101505": "PR05",
-    "15101507": "PR05",
-    "15101514": "PR06",
+    "15111510": "PR14",
+    "15111501": "PR14",
+    "15101505": "PR03",
+    "15101507": "PR03",
+    "15101514": "PR07",
     "15101515": "PR07",
-    "15101516": "PR03",
+    "15101516": "PR13",
     "15101517": "PR10",
     "15101511": "PR17",
     "15101512": "PR09",
@@ -163,26 +164,25 @@ def transport_covol_product_key(value: Any, description: Any = "") -> str:
     norm = _normalize_product_text(value)
     desc = _normalize_product_text(description)
     if norm.startswith("PR") and norm[2:].isdigit():
+        # Normaliza claves del catálogo interno anterior al catálogo COVOL
+        # vigente confirmado por un acuse SAT y un XML previamente aceptado.
+        if norm == "PR06":
+            return "PR07"
+        if norm == "PR05":
+            return "PR03"
+        if norm == "PR12" and ("GASLP" in desc or "GASLICUADODEPETROLEO" in desc):
+            return "PR14"
         return norm
     if norm in _CFDI_TO_COVOL_PRODUCT:
-        if norm in {"15101505", "15101507"}:
-            if "MARINO" in desc:
-                return "PR08"
-            if "INDUSTRIAL" in desc:
-                return "PR13"
         return _CFDI_TO_COVOL_PRODUCT[norm]
     if "GASLP" in desc or "GASLICUADODEPETROLEO" in desc:
-        return "PR12"
+        return "PR14"
     if "PREMIUM" in desc:
         return "PR07"
     if "MAGNA" in desc or "REGULAR" in desc or "GASOLINA" in desc:
-        return "PR06"
+        return "PR07"
     if "DIESEL" in desc:
-        if "MARINO" in desc:
-            return "PR08"
-        if "INDUSTRIAL" in desc:
-            return "PR13"
-        return "PR05"
+        return "PR03"
     if "NAFTA" in desc:
         return "PR03"
     if "QUEROSENO" in desc:
@@ -194,24 +194,22 @@ def transport_covol_product_key(value: Any, description: Any = "") -> str:
 
 def transport_covol_subproduct_key(clave_producto: Any, clave_subproducto: Any = "", description: Any = "") -> str:
     current = str(clave_subproducto or "").strip().upper()
-    if current.startswith("SP"):
-        return current
     clave = str(clave_producto or "").strip().upper()
     desc = _normalize_product_text(description)
-    if clave == "PR12":
+    if clave == "PR14":
         return ""
     if clave == "PR07":
-        return "SP16" if "PREMIUM" in desc else "SP2"
-    if clave == "PR06":
-        return "SP15" if "MAGNA" in desc else "SP1"
-    if clave == "PR05":
-        return "SP6"
+        if "PREMIUM" in desc or current in {"SP2", "SP17"}:
+            return "SP17"
+        return "SP16"
+    if clave == "PR03":
+        return "SP18"
+    if current.startswith("SP"):
+        return current
     if clave == "PR08":
         return "SP7"
     if clave == "PR13":
         return "SP9"
-    if clave == "PR03":
-        return "SP18" if "INDUSTRIAL" in desc else "SP12"
     if clave == "PR10":
         return "SP18" if "INDUSTRIAL" in desc else "SP17"
     if clave == "PR16":
@@ -364,9 +362,9 @@ def build_transport_covol(
     _rfc_prov  = (settings.get("RfcProveedor",     "") or RFC_PROVEEDOR_DEFAULT).strip().upper()
     _usuario   = (settings.get("display_name") or settings.get("user_display_name") or "Sistema")
 
-    # ── Agrupar viajes por ClaveProducto ──────────────────────────────────────
-    # Estructura: {clave_producto: {"cargas": [...], "descargas": [...]}}
-    por_producto: dict[str, dict] = {}
+    # Agrupa por producto y subproducto. Gasolina Magna y Premium comparten
+    # PR07, pero el SAT exige nodos PRODUCTO separados (SP16 y SP17).
+    por_producto: dict[tuple[str, str], dict] = {}
 
     for v in viajes:
         productos_viaje = v.get("productos", [])
@@ -389,8 +387,9 @@ def build_transport_covol(
             if not clave_pr or vol <= 0:
                 continue
 
-            if clave_pr not in por_producto:
-                por_producto[clave_pr] = {"cargas": [], "descargas": []}
+            product_key = (clave_pr, clave_sp)
+            if product_key not in por_producto:
+                por_producto[product_key] = {"cargas": [], "descargas": []}
 
             mov_item = {
                 "uuid_cfdi": uuid_cfdi,
@@ -403,12 +402,13 @@ def build_transport_covol(
                 "rfc_cont":  rfc_cont,
                 "nom_cont":  nom_cont,
                 "tipo_cfdi": tipo_cfdi if tipo_cfdi in {"Ingreso", "Traslado", "Egreso"} else "Traslado",
+                "descripcion": descripcion,
             }
 
             if tipo_mov in ("carga", "recepcion", "entrada"):
-                por_producto[clave_pr]["cargas"].append(mov_item)
+                por_producto[product_key]["cargas"].append(mov_item)
             else:
-                por_producto[clave_pr]["descargas"].append(mov_item)
+                por_producto[product_key]["descargas"].append(mov_item)
 
     # ── Construir nodos PRODUCTO para el JSON covol ───────────────────────────
     productos_sat: list[dict] = []
@@ -432,7 +432,7 @@ def build_transport_covol(
     inv_inicial_total = round(inventario_inicial_litros, 2)
     inv_final_total   = inv_inicial_total
 
-    for clave_pr, movs in por_producto.items():
+    for (clave_pr, clave_sp), movs in por_producto.items():
         cargas    = movs["cargas"]
         descargas = movs["descargas"]
 
@@ -529,7 +529,6 @@ def build_transport_covol(
             n_evento += 1
 
         # Nodo PRODUCTO del JSON covol para este ClaveProducto
-        prod_cat = get_producto(clave_pr)
         prod_dict: dict = {
             "ClaveProducto": clave_pr,
             "ReporteDeVolumenMensual": {
@@ -560,10 +559,19 @@ def build_transport_covol(
             },
         }
 
-        # ClaveSubProducto solo cuando es único para este producto en el periodo
-        sp_unicos = {m["clave_sp"] for m in (cargas + descargas) if m["clave_sp"]}
-        if len(sp_unicos) == 1:
-            prod_dict["ClaveSubProducto"] = sp_unicos.pop()
+        if clave_sp:
+            prod_dict["ClaveSubProducto"] = clave_sp
+        if clave_pr == "PR07":
+            prod_dict["Gasolina"] = {
+                "ComposOctanajeGasolina": 91 if clave_sp == "SP17" else 87,
+                "GasolinaConCombustibleNoFosil": "No",
+            }
+            prod_dict["MarcaComercial"] = "PREMIUM" if clave_sp == "SP17" else "MAGNA"
+        elif clave_pr == "PR03":
+            prod_dict["Diesel"] = {"DieselConCombustibleNoFosil": "No"}
+            prod_dict["MarcaComercial"] = "DIESEL"
+        elif clave_pr == "PR14":
+            prod_dict["MarcaComercial"] = "GAS LICUADO DE PETROLEO"
 
         productos_sat.append(prod_dict)
 
@@ -586,7 +594,7 @@ def build_transport_covol(
             f"Reporte mensual transporte generado. "
             f"Periodo: {periodo}. Cargas: {total_viajes_cargas}. "
             f"Descargas: {total_viajes_descargas}. "
-            f"Productos: {', '.join(por_producto.keys())}."
+            f"Productos: {', '.join('/'.join(key) for key in por_producto.keys())}."
         ),
     })
 
@@ -716,6 +724,17 @@ def transport_covol_to_xml(sat_dict: dict) -> str:
         add(prod_node, "ClaveProducto", producto.get("ClaveProducto", ""))
         if producto.get("ClaveSubProducto"):
             add(prod_node, "ClaveSubProducto", producto.get("ClaveSubProducto", ""))
+        if producto.get("Gasolina"):
+            gasolina_data = producto.get("Gasolina") or {}
+            gasolina = add(prod_node, "Gasolina")
+            add(gasolina, "ComposOctanajeGasolina", gasolina_data.get("ComposOctanajeGasolina", ""))
+            add(gasolina, "GasolinaConCombustibleNoFosil", gasolina_data.get("GasolinaConCombustibleNoFosil", "No"))
+        if producto.get("Diesel"):
+            diesel_data = producto.get("Diesel") or {}
+            diesel = add(prod_node, "Diesel")
+            add(diesel, "DieselConCombustibleNoFosil", diesel_data.get("DieselConCombustibleNoFosil", "No"))
+        if producto.get("MarcaComercial"):
+            add(prod_node, "MarcaComercial", producto.get("MarcaComercial"))
         reporte = producto.get("ReporteDeVolumenMensual") or {}
         reporte_node = add(prod_node, "REPORTEDEVOLUMENMENSUAL")
         control = reporte.get("ControlDeExistencias") or {}
