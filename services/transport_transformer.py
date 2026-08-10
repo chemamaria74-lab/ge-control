@@ -759,8 +759,11 @@ def save_transport_covol(
     output_dir: str = "storage/transporte",
 ) -> dict:
     """
-    Serializa y guarda los archivos XML + ZIP del covol de transporte.
-    Retorna dict con rutas y contenido base64 del ZIP.
+    Serializa JSON/XML y crea el ZIP SAT para carga en formato XML.
+
+    El ZIP contiene un solo archivo y ambos comparten exactamente el mismo
+    nombre base; el portal SAT rechaza paquetes mixtos JSON/XML porque el
+    nombre de alguno de los archivos internos no corresponde con el ZIP.
     """
     periodo    = sat_meta.get("periodo", "2026-01")
     first_uuid = sat_meta.get("first_uuid", "")
@@ -771,7 +774,6 @@ def save_transport_covol(
 
     json_content = transport_covol_to_json(sat_dict)
     xml_content  = transport_covol_to_xml(sat_dict)
-    xml_bytes    = xml_content.encode("utf-8")
     json_path    = os.path.join(output_dir, base_json + ".json")
     xml_path     = os.path.join(output_dir, base_xml + ".xml")
     zip_path     = os.path.join(output_dir, base_xml + ".zip")
@@ -782,8 +784,7 @@ def save_transport_covol(
         f.write(xml_content)
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(base_xml + ".xml", xml_bytes)
-        zf.writestr(base_json + ".json", json_content.encode("utf-8"))
+        zf.writestr(base_xml + ".xml", xml_content.encode("utf-8"))
 
     with open(zip_path, "rb") as f:
         zip_b64 = base64.b64encode(f.read()).decode("utf-8")
