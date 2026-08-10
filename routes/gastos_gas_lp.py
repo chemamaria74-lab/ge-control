@@ -359,8 +359,12 @@ def _server_module_access(sb: Any, user_id: str, module: str, perfil_id: int = 0
 
     def priority(row: dict[str, Any]) -> tuple[int, int]:
         assigned = int(row.get("perfil_id") or 0)
-        return (2 if perfil_id and assigned == perfil_id else 1 if assigned == 0 else 0,
-                1 if str(row.get("role") or "").lower() == "admin" else 0)
+        # A tenant-wide administrator must win over a profile-specific ordinary
+        # user row. Some accounts legitimately keep both rows after a module or
+        # company activation; preferring the exact profile first downgraded the
+        # request and made every expense write fail with the admin-only error.
+        return (1 if str(row.get("role") or "").lower() == "admin" else 0,
+                2 if perfil_id and assigned == perfil_id else 1 if assigned == 0 else 0)
 
     access = max(rows, key=priority)
     tenant_id = str(access.get("tenant_id") or "")
@@ -457,6 +461,12 @@ def _base_query(ctx: dict[str, Any], table: str):
     return ctx["sb"].table(table).select("*").eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"])
 
 
+def _is_without_folio(value: Any) -> bool:
+    """Return true for the conventional labels used when a receipt has no folio."""
+    compact = re.sub(r"[^A-Z0-9]", "", _normalize(str(value or "")))
+    return compact in {"SF", "SINFOLIO", "SINNUMERO", "NA"}
+
+
 def _invoice_alerts(ctx: dict[str, Any], *, supplier_id: int, invoice_number: str,
                     invoice_date: date, total_mxn: float, exclude_invoice_id: int | None = None) -> list[str]:
     rows = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
@@ -466,7 +476,11 @@ def _invoice_alerts(ctx: dict[str, Any], *, supplier_id: int, invoice_number: st
         and row.get("status") not in {"rejected", "cancelled"}
     ]
     alerts: list[str] = []
-    if any(_normalize(row.get("invoice_number")) == _normalize(invoice_number) for row in rows):
+    if not _is_without_folio(invoice_number) and any(
+        not _is_without_folio(row.get("invoice_number"))
+        and _normalize(row.get("invoice_number")) == _normalize(invoice_number)
+        for row in rows
+    ):
         alerts.append("Número de factura repetido en esta empresa.")
     if any(
         int(row.get("supplier_id") or 0) == int(supplier_id)
@@ -1213,7 +1227,11 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
     if not concept:
         raise HTTPException(400, "Concepto no disponible en esta empresa.")
 
-    normalized_numbers = [line.invoice_number.strip().casefold() for line in payload.invoices]
+    normalized_numbers = [
+        line.invoice_number.strip().casefold()
+        for line in payload.invoices
+        if not _is_without_folio(line.invoice_number)
+    ]
     if len(set(normalized_numbers)) != len(normalized_numbers):
         raise HTTPException(400, "Hay folios repetidos dentro de la captura múltiple.")
 
@@ -1490,6 +1508,55 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
             float(payment.get("amount_mxn") or 0) - payment["applied_amount_mxn"], 2
         )
     return {"items": payments}
+
+
+@router.delete("/gastos/payments/{payment_id}")
+def delete_expense_payment(payment_id: int, token: str = Query(default=""),
+                           authorization: str = Header(default=""),
+                           x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                           x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Reverse an erroneously captured payment and restore invoice balances."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede eliminar un pago.")
+    rows = _base_query(ctx, "gas_lp_expense_payments").eq("id", payment_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Pago no encontrado.")
+    payment = rows[0]
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                   .select("payment_id,invoice_id,amount_mxn").eq("payment_id", payment_id)
+                   .execute().data or [])
+    invoice_ids = sorted({int(row["invoice_id"]) for row in allocations})
+
+    ctx["sb"].table("gas_lp_expense_payment_allocations").delete().eq("payment_id", payment_id).execute()
+    ctx["sb"].table("gas_lp_expense_payments").delete().eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", payment_id).execute()
+
+    for invoice_id in invoice_ids:
+        invoice_rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
+        if not invoice_rows:
+            continue
+        invoice = invoice_rows[0]
+        remaining = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("amount_mxn")
+                     .eq("invoice_id", invoice_id).execute().data or [])
+        applied = round(sum(float(row.get("amount_mxn") or 0) for row in remaining), 2)
+        complete = abs(float(invoice.get("total_mxn") or 0) - applied) < PAYMENT_BALANCE_TOLERANCE
+        update = {
+            "paid_amount_mxn": applied,
+            "paid_on": invoice.get("paid_on") if applied else None,
+            "paid_at": invoice.get("paid_at") if complete else None,
+            "status": "paid" if complete else "sent_to_accountant",
+            "updated_at": _now(),
+        }
+        ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(
+            "tenant_id", ctx["tenant_id"]
+        ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
+
+    _audit(ctx, "payment", payment_id, "deleted_payment_error", before={
+        **payment, "allocations": allocations,
+    })
+    return {"ok": True, "deleted": True, "restored_invoice_ids": invoice_ids}
 
 
 @router.get("/gastos/payments/export.xlsx")
@@ -1973,7 +2040,8 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     signature_counts: defaultdict[tuple[str, str, float], int] = defaultdict(int)
     supplier_months: defaultdict[int, defaultdict[str, float]] = defaultdict(lambda: defaultdict(float))
     for row in active_invoices:
-        number_counts[_normalize(row["invoice_number"])] += 1
+        if not _is_without_folio(row.get("invoice_number")):
+            number_counts[_normalize(row["invoice_number"])] += 1
         signature_counts[(
             str(row["supplier_id"]), str(row.get("invoice_date") or ""),
             round(float(row.get("total_mxn") or 0), 2),
