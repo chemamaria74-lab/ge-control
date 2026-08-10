@@ -1897,6 +1897,27 @@ def test_assistant_load_facturas_does_not_pollute_main_invoice_status_by_default
     assert "setStatus('facturaMsg'" in load_source
 
 
+def test_assistant_manual_month_load_bypasses_stale_browser_cache():
+    html = _assistant_frontend_source()
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    start = html.index("function loadFacturasSelectedMonth")
+    end = html.index("async function refreshComplementosPagoData", start)
+
+    assert "force:true" in html[start:end]
+    assert "50_facturas_pagos.js?v=cancelacion-cache-20260810" in shell
+
+
+def test_cancelled_payment_complement_reopens_linked_ppd_invoices():
+    cancel_source = inspect.getsource(internal_users.gas_lp_conciliacion_cancelar_complemento)
+    reopen_source = inspect.getsource(internal_users._gas_lp_reabrir_facturas_complemento_cancelado)
+
+    assert "if acuse:" in cancel_source
+    assert "_gas_lp_reabrir_facturas_complemento_cancelado" in cancel_source
+    assert '.update({"status": "cancelado"' in reopen_source
+    assert '.eq("status", "timbrado")' in reopen_source
+    assert '"pendiente_complemento"' in reopen_source
+
+
 def test_assistant_complementos_search_is_manual_and_all_pending_ppd():
     html = _assistant_frontend_source()
     rows_source = inspect.getsource(internal_users._gas_lp_company_facturas_rows_impl)

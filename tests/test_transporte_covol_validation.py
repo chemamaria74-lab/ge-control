@@ -81,8 +81,17 @@ def test_covol_keeps_gas_lp_distribution_identity_separate():
         "LP/12345/DIST/REP/2026"
     )
     assert modality == "PER51"
-    assert installation == "TRA-0001"
+    assert installation == "TRA-0002"
     assert "Gas LP" in description
+
+
+def test_gas_lp_transport_uses_a_separate_installation_key():
+    modality, installation, description = transporte_v2._covol_permit_identity(
+        "LP/18755/TRA/2016"
+    )
+    assert modality == "PER48"
+    assert installation == "TRA-0002"
+    assert "LP/18755/TRA/2016" in description
 
 
 def test_covol_report_builds_movements_from_ingreso_xml_without_trip_relation():
