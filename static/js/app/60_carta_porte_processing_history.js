@@ -288,15 +288,21 @@ function _transferChart(days) {
   return `<div style="margin:.8rem 0 .55rem;color:#64748b;font-weight:700">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario al cierre.</div><div style="overflow:auto;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario" style="display:block;width:100%;min-width:620px;height:auto"><line x1="${left}" x2="${width - right}" y1="${zeroY}" y2="${zeroY}" stroke="#94a3b8"/><text x="8" y="${Math.max(14, zeroY - 6)}" fill="#64748b" font-size="12">0</text>${bars}<polyline points="${points}" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg></div><div style="font-size:.82rem;font-weight:800;margin-top:.55rem"><span style="color:#2563eb">━ Inventario final</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
 }
 
-function _transferPhysicalTable(days) {
+function _transferPhysicalTable(days, stationCapacity = 0) {
   const records = (days || []).flatMap(day => (day.traspasos || []).map(transfer => ({day, transfer, control: transfer.control_fisico || {}})).filter(item => Object.keys(item.control).length));
   if (!records.length) return '<div style="padding:1rem 0;color:#64748b">No hay controles físicos capturados para esta instalación y mes.</div>';
   const rows = records.map(({day, transfer, control}) => {
-    const difference = _transferNumber(control.diferencia_litros);
-    const status = control.alerta ? '<b style="color:#b91c1c">Revisar diferencia</b>' : '<b style="color:#166534">Dentro de tolerancia</b>';
-    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${escapeHtml(control.antes_pct ?? '—')}%</td><td>${escapeHtml(control.despues_pct ?? '—')}%</td><td>${_transferLiters(control.litros_declarados)}</td><td>${_transferLiters(control.litros_medidos)}</td><td>${_transferLiters(control.litros_cfdi || transfer.litros)}</td><td>${control.disponible_antes_traspaso == null ? '—' : _transferLiters(control.disponible_antes_traspaso)}</td><td style="color:${control.alerta ? '#b91c1c' : '#166534'};font-weight:800">${_transferLiters(difference)}</td><td>${status}</td></tr>`;
+    const capacity = _transferNumber(control.capacidad_litros || stationCapacity);
+    const theoretical = _transferNumber(day.inventario_final);
+    const real = capacity > 0 && control.despues_pct != null ? capacity * _transferNumber(control.despues_pct) / 100 : null;
+    const difference = real === null ? null : real - theoretical;
+    const differencePct = difference === null || capacity <= 0 ? null : difference / capacity * 100;
+    const alert = Boolean(control.alerta || (difference !== null && Math.abs(difference) > capacity * .05));
+    const color = alert ? '#b91c1c' : '#166534';
+    const signed = value => value === null ? '—' : `${value > 0 ? '+' : ''}${Number(value).toLocaleString('es-MX', {maximumFractionDigits: 2})}`;
+    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${escapeHtml(control.antes_pct ?? '—')}%</td><td>${escapeHtml(control.despues_pct ?? '—')}%</td><td>${_transferLiters(control.litros_declarados)}</td><td>${_transferLiters(control.litros_cfdi || transfer.litros)}</td><td>${_transferLiters(capacity)}</td><td>${_transferLiters(theoretical)}</td><td>${real === null ? '—' : _transferLiters(real)}</td><td style="color:${color};font-weight:800">${signed(difference)} L</td><td style="color:${color};font-weight:800">${signed(differencePct)}%</td><td><b style="color:${color}">${alert ? 'Revisar diferencia' : 'Dentro de tolerancia'}</b></td></tr>`;
   }).join('');
-  return `<div style="overflow:auto;margin-top:.8rem"><table style="width:100%;min-width:980px;font-size:.82rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>Lectura tanque</th><th>CFDI</th><th>Disponible operativo</th><th>Diferencia</th><th>Resultado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div style="font-size:.82rem;color:#64748b;margin-top:.8rem">El inventario real se calcula con el porcentaje final del tanque y se compara contra el inventario teórico al cierre.</div><div style="overflow:auto;margin-top:.5rem"><table style="width:100%;min-width:1250px;font-size:.82rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>CFDI</th><th>Capacidad tanque</th><th>Inventario teórico</th><th>Inventario real</th><th>Dif. litros</th><th>Dif. %</th><th>Resultado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderTransferAnalysis(data) {
@@ -308,7 +314,7 @@ function renderTransferAnalysis(data) {
   host.innerHTML = stations.map(({facility, ledger}) => {
     const alerts = ledger.alerts || [];
     const alertHtml = alerts.length ? alerts.map(a => `<li><b>${a.fecha}:</b> ${a.mensaje} (${_transferLiters(a.inventario_final)})</li>`).join('') : '<li>Sin alertas en este mes.</li>';
-    const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days) : _transferChart(ledger.days);
+    const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days, ledger.capacity) : _transferChart(ledger.days);
     return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${escapeHtml(facility.nombre || 'Estación')}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div>${content}</div>`;
   }).join('');
 }
