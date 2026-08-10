@@ -98,6 +98,19 @@ def test_petroliferos_permit_overrides_stale_per51_profile_default():
     assert report["DescripcionInstalacion"]
 
 
+def test_transport_covol_uses_own_program_provider_by_default():
+    report, _ = build_transport_covol(
+        viajes=[],
+        settings={
+            "RfcContribuyente": "OEMR710420FCA",
+            "NumPermiso": "PL/10422/TRA/OM/2015",
+        },
+        anio=2026,
+        mes=7,
+    )
+    assert report["RfcProveedor"] == "XAX010101000"
+
+
 def test_permit_products_match_equivalent_sat_codes_and_descriptions():
     allowed = ["Magna", "Premium", "Diésel"]
     assert transport_products_match_permit("15101514", allowed, ["Petrolíferos"], "Petrolíferos")

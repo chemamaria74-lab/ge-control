@@ -536,6 +536,18 @@ def test_paid_invoices_allow_only_documentary_date_correction():
     assert "correctPaidDate" in script
 
 
+def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    update_route = route.split('def update_direct_invoice(', 1)[1].split(
+        '@router.put("/gastos/invoices/{invoice_id}/paid-date")', 1
+    )[0]
+    assert "exclude_invoice_id=invoice_id" in update_route
+    assert 'previous_observation.startswith("Alerta: ")' in update_route
+    assert 'title="Editar gasto pendiente"' in script
+
+
 def test_payment_queue_can_delete_unpaid_expenses_and_export_is_separated():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
