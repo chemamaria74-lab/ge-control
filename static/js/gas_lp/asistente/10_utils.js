@@ -175,18 +175,20 @@ function switchPortalTab(tab, subtab=''){
     facturacion: ['facturacion', subtab || 'facturar'],
     clientes: ['clientes', subtab || 'clientes'],
     'carta_porte': ['carta-porte',''],
-    'carta-porte': ['carta-porte','']
+    'carta-porte': ['carta-porte',''],
+    inventario: ['inventario', subtab || 'estaciones']
   };
   const [mainTab, nextSubtab] = legacy[tab] || [tab, subtab];
-  ['facturacion','clientes','carta-porte'].forEach(name => {
+  ['facturacion','clientes','carta-porte','inventario'].forEach(name => {
     document.getElementById(`tab-${name}`)?.classList.toggle('active', name === mainTab);
   });
-  ['facturacion','clientes','carta-porte'].forEach(name => {
+  ['facturacion','clientes','carta-porte','inventario'].forEach(name => {
     document.getElementById(`panel-${name}`)?.classList.toggle('active', name === mainTab);
   });
   if(mainTab !== 'carta-porte') resetCartaPorteState({keepStatus:true});
   if(mainTab === 'facturacion') switchBillingTab(nextSubtab || 'facturar');
   if(mainTab === 'clientes') switchClientsTab(nextSubtab || 'clientes');
+  if(mainTab === 'inventario') switchInventoryTab(nextSubtab || 'estaciones');
   if(mainTab === 'carta-porte') {
     if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
     else renderCartaPorteWizard();
@@ -208,8 +210,8 @@ function switchCartaPorteTab(tab){
   }
 }
 function switchBillingTab(tab){
-  const active = ['facturar','facturas','complementos','estaciones'].includes(tab) ? tab : 'facturar';
-  ['facturar','facturas','complementos','estaciones'].forEach(name => {
+  const active = ['facturar','facturas','complementos'].includes(tab) ? tab : 'facturar';
+  ['facturar','facturas','complementos'].forEach(name => {
     document.getElementById(`billing-tab-${name}`)?.classList.toggle('active', name === active);
     document.getElementById(`billing-panel-${name}`)?.classList.toggle('active', name === active);
   });
@@ -218,6 +220,25 @@ function switchBillingTab(tab){
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
     renderComplementosPago();
   }
+}
+
+function switchInventoryTab(tab){
+  ASSISTANT_STATION_VIEW = tab === 'fisico' ? 'fisico' : 'grafica';
+  ['estaciones','fisico'].forEach(name => {
+    const active = (name === 'fisico') === (ASSISTANT_STATION_VIEW === 'fisico');
+    document.getElementById(`inventory-tab-${name}`)?.classList.toggle('active', active);
+  });
+  const month = document.getElementById('assistantStationMonth');
+  if(month && !month.value) month.value = todayKey().slice(0,7);
+  const title = document.getElementById('assistantInventoryTitle');
+  const description = document.getElementById('assistantInventoryDescription');
+  if(title) title.textContent = ASSISTANT_STATION_VIEW === 'fisico' ? 'Control físico' : 'Control de estaciones';
+  if(description) description.textContent = ASSISTANT_STATION_VIEW === 'fisico'
+    ? 'Consulta las lecturas físicas registradas y compáralas con los litros del CFDI.'
+    : 'Consulta por mes el inventario estimado, ventas y traspasos recibidos.';
+  const host = document.getElementById('assistantStationControl');
+  if(TRANSFER_INVENTORY_STATIONS && host) loadAssistantStationControl({renderOnly:true});
+  else if(host) host.textContent = 'Selecciona el mes y presiona Buscar para consultar la información.';
 }
 
 function assistantStationLiters(value){ return `${Number(value || 0).toLocaleString('es-MX',{maximumFractionDigits:2})} L`; }
@@ -279,10 +300,7 @@ function assistantStationPhysicalTable(station){
 }
 
 function setAssistantStationView(view){
-  ASSISTANT_STATION_VIEW = view === 'fisico' ? 'fisico' : 'grafica';
-  document.querySelectorAll('[data-station-view]').forEach(button => button.classList.toggle('active', button.dataset.stationView === ASSISTANT_STATION_VIEW));
-  const host = document.getElementById('assistantStationControl');
-  if(TRANSFER_INVENTORY_STATIONS && host) loadAssistantStationControl({renderOnly:true});
+  switchInventoryTab(view === 'fisico' ? 'fisico' : 'estaciones');
 }
 
 async function refreshTransferInventoryHint(){

@@ -18,6 +18,7 @@ function updateOperacionUI(){
   [vehiculoField,choferField,rutaField].forEach(el => el.classList.add('hide'));
   facturaGlobalField.classList.add('hide');
   transferPanel.classList.toggle('hide', !traspaso);
+  document.getElementById('transferPhysicalPanel')?.classList.toggle('hide', !traspaso);
   cartaPorteNotice.classList.toggle('hide', !cartaPorte);
   publicoGeneralToolbar.classList.toggle('hide', traspaso || cartaPorte);
   btnPublicoGeneral.disabled = traspaso || cartaPorte;
