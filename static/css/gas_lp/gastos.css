@@ -58,3 +58,9 @@ th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
 #directForm>.batch-invoice-fields{grid-column:1/-1}
 #directForm>label.wide{grid-column:1/-1}
 @media(max-width:760px){#directForm{grid-template-columns:1fr}}
+
+/* Paid records use explicit text actions so they remain understandable and visible. */
+.paid-edit-action,.paid-delete-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;padding:8px 10px;font-size:12px}
+.paid-edit-action{background:#f3e8e5;color:var(--wine-dark);border-color:#c9a7a0}
+.paid-delete-action{margin-top:5px;background:#fff0f1;color:#9d2031;border-color:#d89ca5}
+.paid-edit-action:hover{background:#ead5d1}.paid-delete-action:hover{background:#ffe1e5}
