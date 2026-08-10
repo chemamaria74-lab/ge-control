@@ -120,7 +120,7 @@ def test_permit_products_match_equivalent_sat_codes_and_descriptions():
     assert not transport_products_match_permit("15111510", allowed, ["Petrolíferos"], "Petrolíferos")
 
 
-def test_transport_zip_contains_json_and_xml(tmp_path):
+def test_transport_zip_contains_one_xml_with_same_base_name(tmp_path):
     report, meta = build_transport_covol(
         viajes=[],
         settings={"RfcContribuyente": "OEMR710420AA1", "NumPermiso": "LP/20740/COM/2017"},
@@ -130,5 +130,5 @@ def test_transport_zip_contains_json_and_xml(tmp_path):
     files = save_transport_covol(report, meta, {"RfcContribuyente": "OEMR710420AA1"}, str(tmp_path))
     with zipfile.ZipFile(files["zip_path"]) as archive:
         names = archive.namelist()
-    assert any(name.endswith(".json") for name in names)
-    assert any(name.endswith(".xml") for name in names)
+    assert files["zip_name"].endswith("_XML.zip")
+    assert names == [files["zip_name"].removesuffix(".zip") + ".xml"]
