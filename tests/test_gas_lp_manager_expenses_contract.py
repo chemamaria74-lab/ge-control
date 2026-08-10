@@ -614,6 +614,31 @@ def test_paid_view_has_visible_edit_and_safe_payment_reversal_actions():
     assert '.paid-edit-action' in css and '.paid-delete-action' in css
 
 
+def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_balance():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    migration = (ROOT / "supabase" / "migrations" / "20260810194709_expense_supplier_advances_20260810.sql").read_text(encoding="utf-8")
+
+    assert 'id="advanceCaptureMode"' in html and ">Anticipo</button>" in html
+    assert 'data-subpanel="advances"' in html and "Anticipos pendientes" in html
+    assert '@router.post("/gastos/advances"' in route
+    assert '@router.get("/gastos/advances")' in route
+    assert '@router.post("/gastos/advances/apply"' in route
+    assert '@router.delete("/gastos/advances/{advance_id}")' in route
+    assert "gas_lp_expense_advance_applications" in route
+    assert route.count('table("gas_lp_expense_advance_applications")') >= 6
+    assert "Esta factura tiene anticipos aplicados y ya no se puede editar" in route
+    assert "Esta factura tiene anticipos aplicados y no se puede eliminar" in route
+    assert "loadAdvances" in script and "openAdvanceApply" in script
+    assert "Restante por pagar" in html
+    assert "create table if not exists public.gas_lp_expense_advances" in migration
+    assert "create table if not exists public.gas_lp_expense_advance_applications" in migration
+    assert "for update" in migration
+    assert "security invoker" in migration
+    assert "from public, anon, authenticated" in migration
+
+
 def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
@@ -699,7 +724,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "expense-paid-actions-20260810" in html
+    assert "expense-advances-20260810" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html

@@ -122,6 +122,14 @@ def test_transport_covol_separates_magna_premium_and_diesel_for_sat_catalog():
     assert "<Covol:ComposOctanajeGasolina>87</Covol:ComposOctanajeGasolina>" in xml
     assert "<Covol:ComposOctanajeGasolina>91</Covol:ComposOctanajeGasolina>" in xml
     assert "<Covol:DieselConCombustibleNoFosil>No</Covol:DieselConCombustibleNoFosil>" in xml
+    assert "<Covol:VolumenExistenciasMes><Covol:ValorNumerico>0</Covol:ValorNumerico></Covol:VolumenExistenciasMes>" in xml.replace("\n", "").replace("  ", "")
+    assert "<Covol:Complemento_Transporte>" in xml
+    assert "<tr:Complemento_Transporte>" not in xml
+    assert "<tr:CFDI>4277517F-052A-4524-A0C5-64F05304AE5A</tr:CFDI>" in xml
+    assert "<tr:CFDI><tr:Cfdi>" not in xml
+    assert "<Covol:BITACORA>" in xml
+    assert "<Covol:BITACORAMENSUAL>" in xml
+    assert "<Covol:EVENTO>" not in xml
 
 
 def test_petroliferos_permit_overrides_stale_per51_profile_default():
