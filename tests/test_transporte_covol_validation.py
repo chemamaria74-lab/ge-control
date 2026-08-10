@@ -67,6 +67,24 @@ def test_covol_close_validation_does_not_borrow_trip_from_other_permit():
     assert result["movement_count"] == 0
 
 
+def test_covol_uses_sat_identity_for_selected_petroliferos_permit():
+    modality, installation, description = transporte_v2._covol_permit_identity(
+        "PL/10422/TRA/OM/2015"
+    )
+    assert modality == "PER7"
+    assert installation == "TRA-0001"
+    assert "PL/10422/TRA/OM/2015" in description
+
+
+def test_covol_keeps_gas_lp_distribution_identity_separate():
+    modality, installation, description = transporte_v2._covol_permit_identity(
+        "LP/12345/DIST/REP/2026"
+    )
+    assert modality == "PER51"
+    assert installation == "TRA-0001"
+    assert "Gas LP" in description
+
+
 def test_covol_report_builds_movements_from_ingreso_xml_without_trip_relation():
     xml = b'''<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
       xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
