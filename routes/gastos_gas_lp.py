@@ -133,6 +133,32 @@ class DirectInvoiceBatchCreate(BaseModel):
     reimbursement_account_id: int | None = None
 
 
+class SupplierAdvanceCreate(BaseModel):
+    supplier_id: int
+    concept_id: int | None = None
+    expense_zone_id: int | None = None
+    paid_on: date
+    amount_mxn: float = Field(gt=0, le=100_000_000)
+    reference: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=500)
+
+
+class AdvanceAllocationInput(BaseModel):
+    advance_id: int
+    amount_mxn: float = Field(gt=0, le=100_000_000)
+
+
+class SupplierAdvanceApply(BaseModel):
+    supplier_id: int
+    concept_id: int | None = None
+    expense_zone_id: int | None = None
+    invoice_number: str = Field(min_length=1, max_length=100)
+    invoice_date: date
+    total_mxn: float = Field(gt=0, le=100_000_000)
+    description: str = Field(default="", max_length=500)
+    allocations: list[AdvanceAllocationInput] = Field(min_length=1, max_length=100)
+
+
 class DirectInvoiceUpdate(BaseModel):
     invoice_number: str = Field(min_length=1, max_length=100)
     invoice_date: date
@@ -1069,6 +1095,126 @@ def print_voucher(voucher_id: int, token: str = Query(default=""), authorization
                              headers={"Content-Disposition": f'inline; filename="vale-{row["folio"]}.pdf"'})
 
 
+@router.post("/gastos/advances", status_code=201)
+def create_supplier_advance(payload: SupplierAdvanceCreate, token: str = Query(default=""),
+                            authorization: str = Header(default=""),
+                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                            x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede registrar anticipos.")
+    suppliers = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
+                 .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
+    if not suppliers:
+        raise HTTPException(400, "Proveedor no disponible en esta empresa.")
+    if payload.concept_id:
+        concepts = (_base_query(ctx, "gas_lp_expense_concepts").eq("id", payload.concept_id)
+                    .eq("status", "active").limit(1).execute().data or [])
+        if not concepts:
+            raise HTTPException(400, "Concepto no disponible en esta empresa.")
+    if payload.expense_zone_id and not any(
+        int(row.get("id") or 0) == payload.expense_zone_id for row in _expense_zones(ctx)
+    ):
+        raise HTTPException(400, "La zona interna seleccionada no pertenece a esta empresa.")
+    row = {
+        "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
+        "supplier_id": payload.supplier_id, "concept_id": payload.concept_id,
+        "expense_zone_id": payload.expense_zone_id, "paid_on": payload.paid_on.isoformat(),
+        "amount_mxn": round(payload.amount_mxn, 2), "reference": payload.reference.strip(),
+        "description": payload.description.strip(), "status": "pending", "created_by": ctx["actor_id"],
+    }
+    created = ctx["sb"].table("gas_lp_expense_advances").insert(row).execute().data[0]
+    _audit(ctx, "advance", int(created["id"]), "created", after=created)
+    return {"item": created}
+
+
+@router.get("/gastos/advances")
+def list_supplier_advances(status: str = Query(default="open"), limit: int = Query(default=300, ge=1, le=500),
+                           token: str = Query(default=""), authorization: str = Header(default=""),
+                           x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                           x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    query = _base_query(ctx, "gas_lp_expense_advances")
+    if status == "open":
+        query = query.in_("status", ["pending", "partial"])
+    elif status:
+        query = query.eq("status", status)
+    items = query.order("paid_on", desc=True).order("created_at", desc=True).limit(limit).execute().data or []
+    advance_ids = [int(row["id"]) for row in items]
+    applications = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                    .select("advance_id,invoice_id,amount_mxn").in_("advance_id", advance_ids)
+                    .execute().data or []) if advance_ids else []
+    applied: defaultdict[int, float] = defaultdict(float)
+    for application in applications:
+        applied[int(application["advance_id"])] += float(application.get("amount_mxn") or 0)
+    for item in items:
+        used = round(applied[int(item["id"])], 2)
+        item["applied_amount_mxn"] = used
+        item["available_amount_mxn"] = round(max(0, float(item.get("amount_mxn") or 0) - used), 2)
+    return {"items": items}
+
+
+@router.post("/gastos/advances/apply", status_code=201)
+def apply_supplier_advances(payload: SupplierAdvanceApply, token: str = Query(default=""),
+                            authorization: str = Header(default=""),
+                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                            x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede relacionar anticipos.")
+    allocation_ids = [int(row.advance_id) for row in payload.allocations]
+    if len(set(allocation_ids)) != len(allocation_ids):
+        raise HTTPException(400, "Un anticipo no puede repetirse en la misma factura.")
+    suppliers = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", payload.supplier_id)
+                 .eq("validation_status", "validated").eq("status", "active").limit(1).execute().data or [])
+    if not suppliers:
+        raise HTTPException(400, "Proveedor no disponible en esta empresa.")
+    alerts = _invoice_alerts(
+        ctx, supplier_id=payload.supplier_id, invoice_number=payload.invoice_number,
+        invoice_date=payload.invoice_date, total_mxn=payload.total_mxn,
+    )
+    if alerts:
+        raise HTTPException(409, " ".join(alerts))
+    result = ctx["sb"].rpc("apply_gas_lp_expense_advances", {
+        "p_tenant_id": ctx["tenant_id"], "p_profile_id": ctx["perfil_id"],
+        "p_supplier_id": payload.supplier_id, "p_concept_id": payload.concept_id,
+        "p_expense_zone_id": payload.expense_zone_id, "p_invoice_number": payload.invoice_number.strip(),
+        "p_invoice_date": payload.invoice_date.isoformat(), "p_total_mxn": round(payload.total_mxn, 2),
+        "p_description": payload.description.strip(), "p_created_by": ctx["actor_id"],
+        "p_advance_ids": allocation_ids,
+        "p_amounts": [round(float(row.amount_mxn), 2) for row in payload.allocations],
+    }).execute().data
+    invoice_id = int(result)
+    invoice = (_base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or [{}])[0]
+    _audit(ctx, "invoice", invoice_id, "created_from_advances", after={
+        **invoice, "advance_allocations": [row.model_dump() for row in payload.allocations],
+    })
+    return {"item": invoice}
+
+
+@router.delete("/gastos/advances/{advance_id}")
+def delete_supplier_advance(advance_id: int, token: str = Query(default=""),
+                            authorization: str = Header(default=""),
+                            x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                            x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    rows = _base_query(ctx, "gas_lp_expense_advances").eq("id", advance_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Anticipo no encontrado.")
+    row = rows[0]
+    links = (ctx["sb"].table("gas_lp_expense_advance_applications").select("invoice_id")
+             .eq("advance_id", advance_id).limit(1).execute().data or [])
+    if links:
+        raise HTTPException(409, "Este anticipo ya está relacionado con una factura y no se puede eliminar.")
+    update = {"status": "cancelled", "cancelled_by": ctx["actor_id"], "cancelled_at": _now(),
+              "cancellation_reason": "Anticipo eliminado por error.", "updated_at": _now()}
+    ctx["sb"].table("gas_lp_expense_advances").update(update).eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", advance_id).execute()
+    _audit(ctx, "advance", advance_id, "cancelled", before=row, after=update)
+    return {"ok": True, "deleted": True}
+
+
 @router.post("/gastos/invoices/from-vouchers", status_code=201)
 def create_invoice_from_vouchers(payload: VoucherInvoiceCreate, token: str = Query(default=""),
                                  authorization: str = Header(default=""),
@@ -1327,8 +1473,11 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
         item["vouchers"] = links_by_invoice.get(int(item["id"]), [])
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                    .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
+    advance_applications = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                            .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids)
+                            .execute().data or [])
     paid_by_invoice: defaultdict[int, float] = defaultdict(float)
-    for allocation in allocations:
+    for allocation in [*allocations, *advance_applications]:
         paid_by_invoice[int(allocation["invoice_id"])] += float(allocation.get("amount_mxn") or 0)
     for item in items:
         paid = round(paid_by_invoice.get(int(item["id"]), float(item.get("paid_amount_mxn") or 0)), 2)
@@ -1391,8 +1540,11 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
             raise HTTPException(400, "La nota de crédito debe corresponder al mismo destinatario del pago.")
     old_allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                        .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
+    old_advance_applications = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                                .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids)
+                                .execute().data or [])
     already_paid: defaultdict[int, float] = defaultdict(float)
-    for row in old_allocations:
+    for row in [*old_allocations, *old_advance_applications]:
         already_paid[int(row["invoice_id"])] += float(row.get("amount_mxn") or 0)
     credit_remaining = round(sum(float(row.get("total_mxn") or 0) for row in credit_notes), 2)
     credit_applied_by_invoice: dict[int, float] = {}
@@ -1540,7 +1692,9 @@ def delete_expense_payment(payment_id: int, token: str = Query(default=""),
         invoice = invoice_rows[0]
         remaining = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("amount_mxn")
                      .eq("invoice_id", invoice_id).execute().data or [])
-        applied = round(sum(float(row.get("amount_mxn") or 0) for row in remaining), 2)
+        remaining_advances = (ctx["sb"].table("gas_lp_expense_advance_applications").select("amount_mxn")
+                              .eq("invoice_id", invoice_id).execute().data or [])
+        applied = round(sum(float(row.get("amount_mxn") or 0) for row in [*remaining, *remaining_advances]), 2)
         complete = abs(float(invoice.get("total_mxn") or 0) - applied) < PAYMENT_BALANCE_TOLERANCE
         update = {
             "paid_amount_mxn": applied,
@@ -1822,6 +1976,10 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if allocations:
         raise HTTPException(409, "Este gasto tiene pagos relacionados y ya no se puede editar.")
+    advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications").select("advance_id")
+                     .eq("invoice_id", invoice_id).limit(1).execute().data or [])
+    if advance_links:
+        raise HTTPException(409, "Esta factura tiene anticipos aplicados y ya no se puede editar.")
     alerts = _invoice_alerts(
         ctx, supplier_id=int(row["supplier_id"]), invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date, total_mxn=payload.total_mxn,
@@ -1894,6 +2052,10 @@ def delete_direct_invoice(invoice_id: int, token: str = Query(default=""),
                    .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if allocations:
         raise HTTPException(409, "Este gasto tiene pagos relacionados y no se puede eliminar.")
+    advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications").select("advance_id")
+                     .eq("invoice_id", invoice_id).limit(1).execute().data or [])
+    if advance_links:
+        raise HTTPException(409, "Esta factura tiene anticipos aplicados y no se puede eliminar.")
     update = {
         "status": "cancelled", "observation": "Captura eliminada por error.",
         "reviewed_by": ctx["actor_id"], "reviewed_at": _now(), "updated_at": _now(),
