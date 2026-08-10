@@ -20,7 +20,9 @@
     const path = location.pathname;
     if (path.startsWith('/control-administrativo')) return {
       tokenKeys: ['sat_token', 'zc_token'],
-      login: '/login/control-administrativo',
+      login: path.startsWith('/control-administrativo/facturacion')
+        ? '/login/control-administrativo?portal=facturacion'
+        : '/login/control-administrativo?portal=gastos',
       renewable: true,
     };
     if (path.startsWith('/transporte-v2/operador')) return {
