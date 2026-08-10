@@ -45,11 +45,9 @@
               <span id="previewRfc">XAXX010101000</span> · CP <span id="previewCp">—</span> · Régimen <span id="previewRegimen">616</span> · Uso CFDI <span id="previewUso">S01</span> · <span id="previewEmail">Sin correo</span>
             </div>
           </div>
-          <div id="transferPanel" class="client-preview form-span hide" style="order:6">
-            <div class="client-preview-head"><span class="muted">Traspaso interno</span><strong>CFDI sin efectos fiscales</strong></div>
-            <div class="client-tax-line" id="transferInternalReceiver">Receptor interno: —</div>
-            <div class="client-tax-line" id="transferInternalPrice">Precio simbólico CFDI: —</div>
-            <div class="muted" style="font-size:12px;margin-top:6px">Se enviará el CFDI al correo predeterminado de la empresa.</div>
+          <div id="transferPanel" class="hide">
+            <span id="transferInternalReceiver" hidden></span>
+            <span id="transferInternalPrice" hidden></span>
             <input id="transferEmail" type="hidden" value="">
             <input id="saveTransferEmailDefault" type="checkbox" class="hide">
           </div>
@@ -79,11 +77,11 @@
           <div class="system-field"><label>Unidad</label><input id="unidadConcepto" class="locked-field" value="Litro" maxlength="20" readonly></div>
           <div id="fechaField" style="order:7"><label>Fecha emisión</label><input id="fechaEmision" type="datetime-local"><div id="fechaEmisionHelp" class="muted" style="font-size:12px;margin-top:5px"></div></div>
           <div id="transferPhysicalPanel" class="client-preview form-span hide" style="order:8">
-            <div class="client-preview-head"><span class="muted">Control físico de descarga</span><strong>Solo para comparar; no cambia los litros del CFDI</strong></div>
+            <div class="client-preview-head"><span class="muted">Control físico</span><strong>Solo compara; no cambia el CFDI</strong></div>
             <div class="form-grid" style="margin-top:8px">
-              <div><label>Tanque antes de descargar (%)</label><input id="transferTankBeforePct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
-              <div><label>Tanque después de descargar (%)</label><input id="transferTankAfterPct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
-              <div><label>Litros declarados por el chofer <span class="muted">(pueden ser distintos)</span></label><input id="transferDriverLiters" type="number" min="0" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              <div><label>Nivel antes (%)</label><input id="transferTankBeforePct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              <div><label>Nivel después (%)</label><input id="transferTankAfterPct" type="number" min="0" max="100" step="0.01" oninput="previewTransferPhysicalControl()"></div>
+              <div><label>Litros del chofer</label><input id="transferDriverLiters" type="number" min="0" step="0.01" oninput="previewTransferPhysicalControl()"></div>
             </div>
             <div id="transferPhysicalHint" class="muted" style="font-size:12px;margin-top:7px">Registra ambos porcentajes para comparar la descarga física contra los litros timbrados.</div>
           </div>
