@@ -1063,7 +1063,10 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
 @app.get("/transporte-v2/login-admin", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_transporte_v2_login_admin(request: Request):
     next_param = request.query_params.get("next") or "/transporte-v2/admin"
-    return _render_transporte_v2_login("admin", "Administrador Transporte", "Acceso con usuario y contraseña", next_param)
+    expenses_login = next_param.split("?", 1)[0].rstrip("/") == "/transporte-v2/gastos"
+    title = "Gastos y pagos de Transporte" if expenses_login else "Administrador Transporte"
+    subtitle = "Acceso al control de gastos y pagos" if expenses_login else "Acceso con usuario y contraseña"
+    return _render_transporte_v2_login("admin", title, subtitle, next_param)
 
 
 @app.get("/transporte-v2/login-operador", response_class=HTMLResponse, include_in_schema=False)
