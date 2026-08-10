@@ -93,8 +93,12 @@ def test_control_admin_company_owner_can_manage_expenses_with_legacy_user_role(m
         def eq(self, *_args): return self
         def limit(self, *_args): return self
         def execute(self):
-            rows = ([{"module": "control_administrativo"}] if self.table_name == "company_module_memberships"
-                    else [{"id": 4}])
+            if self.table_name == "company_module_memberships":
+                rows = [{"module": "control_administrativo"}]
+            elif self.table_name == "user_sections":
+                rows = [{"role": "user", "status": "active", "tenant_id": "t1", "perfil_id": None}]
+            else:
+                rows = [{"id": 4, "user_id": "u1", "tenant_id": "t1", "activo": True}]
             return type("Result", (), {"data": rows})()
 
     class Supabase:
@@ -103,13 +107,37 @@ def test_control_admin_company_owner_can_manage_expenses_with_legacy_user_role(m
 
     monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: Supabase())
     monkeypatch.setattr(gastos_gas_lp, "verify_token", lambda _token: "u1")
-    monkeypatch.setattr(gastos_gas_lp, "obtener_acceso_modulo", lambda *_args, **_kwargs: {
-        "role": "user", "tenant_id": "t1", "perfil_id": 4,
-    })
-    monkeypatch.setattr(auth_routes, "require_profile_access", lambda *_args, **_kwargs: None)
     result = gastos_gas_lp._ctx("Bearer jwt", "", "", "4|control_administrativo")
     assert result["is_admin"] is True
     assert result["perfil_id"] == 4
+
+
+@pytest.mark.parametrize("module,profile_id", [("control_administrativo", 416), ("transporte", 410)])
+def test_expense_context_resolves_admin_role_with_server_client(monkeypatch, module, profile_id):
+    class Query:
+        def __init__(self, table): self.table_name = table
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self):
+            if self.table_name == "company_module_memberships":
+                rows = [{"module": module}]
+            elif self.table_name == "user_sections":
+                rows = [{"role": "admin", "status": "active", "tenant_id": "t1",
+                         "perfil_id": profile_id if module == "transporte" else None}]
+            else:
+                rows = [{"id": profile_id, "user_id": "u1", "tenant_id": "t1", "activo": True}]
+            return type("Result", (), {"data": rows})()
+
+    class Supabase:
+        def table(self, name): return Query(name)
+
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: Supabase())
+    monkeypatch.setattr(gastos_gas_lp, "verify_token", lambda _token: "u1")
+    result = gastos_gas_lp._ctx("Bearer jwt", "", "", f"{profile_id}|{module}")
+    assert result["is_admin"] is True
+    assert result["perfil_id"] == profile_id
+    assert result["expense_module"] == module
 
 
 def test_gas_lp_supervision_jwt_uses_conciliation_permissions(monkeypatch):
