@@ -14,6 +14,7 @@ from services.service_invoice_builder import (
 )
 from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
 from services.transport_builder import build_cfdi_transporte_xml
+from services.transport_transformer import transport_covol_permit_identity
 
 _TBL_VIAJES = "tr_viajes"
 _TBL_CFDI = "tr_cfdi"
@@ -1975,12 +1976,13 @@ async def generar_covol_transporte(
         })
 
     # Preparar settings para el transformer
+    modalidad_permiso, clave_instalacion_default, descripcion_instalacion_default = transport_covol_permit_identity(selected_permiso)
     covol_settings = {
         **settings,
         "NumPermiso":          selected_permiso,
-        "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion", ""),
-        "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion", ""),
-        "ModalidadPermiso":    settings.get("ModalidadPermiso", "PER51"),
+        "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion") or clave_instalacion_default,
+        "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion") or descripcion_instalacion_default,
+        "ModalidadPermiso":    modalidad_permiso,
     }
 
     try:
