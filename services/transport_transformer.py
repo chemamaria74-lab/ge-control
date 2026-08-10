@@ -34,7 +34,9 @@ from services.product_catalog import get_producto, CLAVE_UNIDAD_LITROS, get_desc
 logger = logging.getLogger(__name__)
 
 # ── Constantes de transporte ──────────────────────────────────────────────────
-RFC_PROVEEDOR_DEFAULT = "ATI9404219D5"  # RFC del proveedor del programa informático
+# Programa propio: mismo identificador genérico utilizado por el generador Gas LP.
+# Un RFC real solo debe usarse cuando exista un proveedor externo del sistema.
+RFC_PROVEEDOR_DEFAULT = "XAX010101000"
 
 _PRODUCTO_FAMILY_BY_CLAVE = {
     "PR12": "gas_lp",

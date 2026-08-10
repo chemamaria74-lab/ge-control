@@ -145,28 +145,48 @@ def send_gas_lp_invoice_email(
     physical = transfer_physical_control if isinstance(transfer_physical_control, dict) else {}
     physical_rows = []
     if physical:
-        labels = (
+        captured_labels = (
             ("Tanque antes", physical.get("antes_pct"), "%"),
             ("Tanque después", physical.get("despues_pct"), "%"),
             ("Litros declarados por chofer", physical.get("litros_declarados"), " L"),
-            ("Litros medidos por lectura", physical.get("litros_medidos"), " L"),
-            ("Litros CFDI", physical.get("litros_cfdi"), " L"),
-            ("Disponible antes de traspaso", physical.get("disponible_antes_traspaso"), " L"),
-            ("Diferencia física", physical.get("diferencia_litros"), " L"),
         )
-        for label, value, unit in labels:
+        cfdi_labels = (
+            ("Litros CFDI", physical.get("litros_cfdi"), " L"),
+            ("Capacidad total del tanque", physical.get("capacidad_litros") or physical.get("capacidad_operativa"), " L"),
+            ("Inventario teórico antes", physical.get("inventario_antes_traspaso"), " L"),
+        )
+        for label, value, unit in captured_labels:
             if value is not None:
                 physical_rows.append(
                     f"<tr><td style=\"padding:6px 10px;border:1px solid #e5e7eb\">{html.escape(label)}</td>"
                     f"<td style=\"padding:6px 10px;border:1px solid #e5e7eb;text-align:right\"><b>{html.escape(str(value))}{unit}</b></td></tr>"
                 )
+        cfdi_rows = []
+        for label, value, unit in cfdi_labels:
+            if value is not None:
+                cfdi_rows.append(
+                    f"<tr><td style=\"padding:6px 10px;border:1px solid #e5e7eb\">{html.escape(label)}</td>"
+                    f"<td style=\"padding:6px 10px;border:1px solid #e5e7eb;text-align:right\"><b>{html.escape(str(value))}{unit}</b></td></tr>"
+                )
+        before_inventory = physical.get("inventario_antes_traspaso")
+        cfdi_liters = physical.get("litros_cfdi")
+        try:
+            after_inventory = float(before_inventory) + float(cfdi_liters) if before_inventory is not None and cfdi_liters is not None else None
+        except (TypeError, ValueError):
+            after_inventory = None
+        if after_inventory is not None:
+            cfdi_rows.append(
+                "<tr><td style=\"padding:6px 10px;border:1px solid #e5e7eb\">Inventario teórico después</td>"
+                f"<td style=\"padding:6px 10px;border:1px solid #e5e7eb;text-align:right\"><b>{html.escape(str(round(after_inventory, 2)))} L</b></td></tr>"
+            )
     physical_html = (
-        "<p><b>Control físico de descarga reportado</b></p>"
-        "<table style=\"border-collapse:collapse;min-width:320px\">"
-        "<tbody>" + "".join(physical_rows) + "</tbody></table>"
-        + ("<p><b>Resultado:</b> revisa la diferencia física reportada.</p>" if physical.get("alerta") else "<p><b>Resultado:</b> lectura física dentro de tolerancia.</p>")
+        "<p><b>Control físico capturado</b></p>"
+        "<table role=\"presentation\" style=\"border-collapse:collapse\"><tr>"
+        "<td valign=\"top\" style=\"padding:0 14px 0 0\"><b style=\"display:block;margin-bottom:5px\">Lectura física</b><table style=\"border-collapse:collapse;min-width:270px\"><tbody>" + "".join(physical_rows) + "</tbody></table></td>"
+        "<td valign=\"top\"><b style=\"display:block;margin-bottom:5px\">Datos del CFDI</b><table style=\"border-collapse:collapse;min-width:290px\"><tbody>" + "".join(cfdi_rows) + "</tbody></table></td>"
+        "</tr></table>"
     ) if physical_rows else ""
-    subject_parts = ["CFDI GAS LUX"]
+    subject_parts = [f"CFDI {issuer_name or 'GE Control'}"]
     if serie_folio:
         subject_parts.append(serie_folio)
     if uuid_sat:
