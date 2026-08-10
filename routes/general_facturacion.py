@@ -99,6 +99,10 @@ async def update_general_client(cliente_id: int, payload: GeneralCliente, author
     values = {**payload.model_dump(exclude_none=True), "email": str(payload.email or "")}
     if not _sb_update(CLIENTES, cliente_id, scope, values):
         raise HTTPException(404, "Cliente no encontrado.")
+    for schedule in _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True):
+        receptor_rfc = str(((schedule.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")
+        if receptor_rfc.strip().upper() == payload.rfc.strip().upper():
+            _sb_update(PROGRAMACIONES, schedule["id"], scope, {"email_destino": str(payload.email or "")})
     return {"ok": True, "cliente_id": cliente_id}
 
 
@@ -232,13 +236,19 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
 async def crear_programacion(payload: ScheduleRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
     cfdi = build_general_cfdi(payload.factura)
+    email_destino = str(payload.email_destino or "")
+    if not email_destino:
+        receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
+        client = next((row for row in _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
+                       if str(row.get("rfc") or "").strip().upper() == receptor_rfc), None)
+        email_destino = str((client or {}).get("email") or "")
     schedule_values = {
         "nombre": payload.nombre,
         "dia_mes": payload.dia_mes,
         "hora_local": payload.hora_local,
         "timezone": payload.timezone,
         "payload_json": cfdi,
-        "email_destino": str(payload.email_destino or ""),
+        "email_destino": email_destino,
         "status": "activa",
     }
     schedule_values["proxima_ejecucion_at"] = next_execution(

@@ -6556,6 +6556,96 @@ async def transporte_v2_listar_covol_externos(
     return {"ok": True, "movimientos": rows}
 
 
+@router.get("/tr-v2/control-volumetrico/cartas-ingreso")
+async def transporte_v2_listar_covol_cartas_ingreso(
+    periodo: str = Query(default=""),
+    num_permiso_cne: str = Query(default=""),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Return the stamped income CFDIs that the monthly export can consume.
+
+    This endpoint intentionally uses the same relationship and XML checks as
+    the generator so the review screen never counts Carta Porte documents that
+    will later be omitted from the SAT file.
+    """
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    selected_permiso = _first_text(num_permiso_cne)
+    selected_periodo = _first_text(periodo)[:7]
+    if not pid or not selected_permiso or not re.fullmatch(r"\d{4}-\d{2}", selected_periodo):
+        raise HTTPException(400, "perfil_id, permiso y periodo son requeridos.")
+    sb = _sb(token)
+    permit_rows = (
+        sb.table(TBL_PROVEEDORES).select("*")
+        .eq("user_id", uid).eq("perfil_id", pid).eq("activo", True)
+        .eq("permiso_cre", selected_permiso).limit(1).execute().data or []
+    )
+    selected_permit = _normalize_permiso_row(permit_rows[0]) if permit_rows else {}
+    trip_rows = (
+        sb.table(TBL_VIAJES).select("*")
+        .eq("user_id", uid).eq("perfil_id", pid)
+        .in_("status", ["timbrado", "cancelado"])
+        .like("fecha_hora_salida", f"{selected_periodo}%").execute().data or []
+    )
+    eligible_ids: list[int] = []
+    for row in trip_rows:
+        meta = _meta(row)
+        if _status_cancelado(row.get("status"), row.get("estatus"), meta.get("carta_porte_status")) and _cancelacion_fiscal_confirmada(row, meta):
+            continue
+        if _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista")) == selected_permiso and row.get("id") is not None:
+            eligible_ids.append(int(row["id"]))
+    if not eligible_ids:
+        return {"ok": True, "cartas_ingreso": []}
+    links = (
+        sb.table(TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id")
+        .eq("user_id", uid).eq("perfil_id", pid).in_("viaje_id", eligible_ids)
+        .execute().data or []
+    )
+    invoice_to_trips: dict[int, list[int]] = {}
+    for link in links:
+        if link.get("factura_servicio_id") is None or link.get("viaje_id") is None:
+            continue
+        invoice_to_trips.setdefault(int(link["factura_servicio_id"]), []).append(int(link["viaje_id"]))
+    if not invoice_to_trips:
+        return {"ok": True, "cartas_ingreso": []}
+    invoices = (
+        sb.table(TBL_FACT_SERV).select("id,status,uuid_carta_ingreso,uuid_sat,xml_content")
+        .eq("user_id", uid).eq("perfil_id", pid).in_("id", sorted(invoice_to_trips))
+        .execute().data or []
+    )
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for invoice in invoices:
+        if _status_cancelado(invoice.get("status")):
+            continue
+        xml_content = invoice.get("xml_content") or ""
+        uuid = _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")).upper()
+        if not xml_content or not uuid:
+            continue
+        try:
+            movements = _covol_movements_from_ingreso_xml(
+                xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content,
+                f"Carta Ingreso {invoice.get('id')}", selected_periodo,
+                selected_permiso, selected_permit,
+            )
+        except Exception:
+            continue
+        parsed_uuid = _first_text((movements[0] if movements else {}).get("uuid_cfdi"), uuid).upper()
+        if len(movements) != 2 or parsed_uuid in seen:
+            continue
+        seen.add(parsed_uuid)
+        result.append({
+            "factura_servicio_id": invoice.get("id"),
+            "uuid_carta_ingreso": parsed_uuid,
+            "viaje_ids": sorted(set(invoice_to_trips.get(int(invoice["id"]), []))),
+            "fecha_hora_salida": movements[0].get("fecha_hora_salida") or "",
+            "productos": movements[0].get("productos") or [],
+        })
+    return {"ok": True, "cartas_ingreso": result, "total": len(result)}
+
+
 @router.post("/tr-v2/control-volumetrico/externos")
 async def transporte_v2_subir_covol_externos(
     tipo_documento: str = Form(default="carta_ingreso"),
@@ -6987,7 +7077,7 @@ async def transporte_v2_generar_control_volumetrico(
         "NombreContribuyente": _first_text(fiscal.get("nombre_fiscal")),
         "RfcProveedor": RFC_PROVEEDOR_DEFAULT,
         "NumPermiso": selected_permiso,
-        "ClaveInstalacion": payload.clave_instalacion or cierre.get("clave_instalacion") or fiscal.get("clave_instalacion") or clave_instalacion_default,
+        "ClaveInstalacion": clave_instalacion_default,
         "DescripcionInstalacion": payload.descripcion_instalacion or (cierre.get("metadata") or {}).get("descripcion_instalacion") or fiscal.get("descripcion_instalacion") or descripcion_instalacion_default,
         "ModalidadPermiso": modalidad_permiso,
         "display_name": _first_text(fiscal.get("nombre_fiscal"), "GE Control Transporte"),
