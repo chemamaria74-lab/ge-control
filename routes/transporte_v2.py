@@ -6457,6 +6457,54 @@ def _covol_external_from_xml(content: bytes, filename: str, tipo_movimiento: str
     }
 
 
+def _covol_movements_from_ingreso_xml(
+    content: bytes,
+    filename: str,
+    periodo: str,
+    permiso: str,
+    selected_permit: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build both SAT movements directly from a stamped Carta Ingreso XML.
+
+    The income CFDI already embeds Carta Porte, so report generation must not
+    depend on the operational viaje/factura relation being present.
+    """
+    root = ET.fromstring(content)
+    if _first_text(root.get("TipoDeComprobante")).upper() != "I":
+        return []
+    if _xml_first(root, "CartaPorte") is None:
+        return []
+    invoice_period = _first_text(root.get("Fecha"))[:7]
+    if invoice_period != periodo:
+        return []
+
+    movements: list[dict[str, Any]] = []
+    for movement_type in ("carga", "descarga"):
+        parsed = _covol_external_from_xml(content, filename, movement_type, permiso)
+        product_text = _first_text(parsed.get("producto"), parsed.get("clave_producto"), parsed.get("clave_subproducto"))
+        if selected_permit and not _permiso_product_family_match(selected_permit, product_text):
+            continue
+        movements.append({
+            "uuid_cfdi": parsed.get("uuid_cfdi") or "",
+            "id_ccp": parsed.get("id_ccp") or "",
+            "num_permiso_cne": permiso,
+            "tipo_movimiento": movement_type,
+            "tipo_cfdi": "Ingreso",
+            "fecha_hora_salida": parsed.get("fecha_hora") or "",
+            "fecha_transaccion": _first_text(root.get("Fecha"), parsed.get("fecha_hora")),
+            "rfc_receptor": parsed.get("rfc_contraparte") or "",
+            "nombre_receptor": parsed.get("nombre_contraparte") or "",
+            "productos": [{
+                "clave_producto": parsed.get("clave_producto") or "",
+                "clave_subproducto": parsed.get("clave_subproducto") or "",
+                "descripcion": parsed.get("producto") or "",
+                "cantidad_litros": parsed.get("volumen_litros") or 0,
+                "importe": parsed.get("importe") or 0,
+            }],
+        })
+    return movements
+
+
 def _covol_external_ingreso_from_xml(content: bytes, filename: str) -> dict[str, Any]:
     root = ET.fromstring(content)
     detected = _detect_xml_document(content).get("detected") or {}
@@ -6796,132 +6844,52 @@ async def transporte_v2_generar_control_volumetrico(
     except Exception:
         selected_permiso_row = {}
 
-    invoice_by_trip: dict[int, dict[str, Any]] = {}
+    viajes_para_covol: list[dict[str, Any]] = []
+    seen_movements: set[tuple[str, str]] = set()
     try:
         invoice_rows = (
             sb.table(TBL_FACT_SERV)
-            .select("id,viaje_ids,total,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at")
+            .select("id,status,uuid_carta_ingreso,uuid_sat,fecha_timbrado,created_at,xml_content")
             .eq("user_id", uid)
             .eq("perfil_id", pid)
             .execute()
             .data
             or []
         )
-        invoice_trip_ids = {
-            int(invoice["id"]): set()
-            for invoice in invoice_rows
-            if str(invoice.get("id") or "").isdigit()
-        }
-        try:
-            relation_rows = (
-                sb.table(TBL_FACT_SERV_CARTAS)
-                .select("factura_servicio_id,viaje_id")
-                .eq("user_id", uid)
-                .eq("perfil_id", pid)
-                .execute()
-                .data
-                or []
-            )
-            for relation in relation_rows:
-                try:
-                    invoice_id = int(relation.get("factura_servicio_id"))
-                    trip_id = int(relation.get("viaje_id"))
-                except (TypeError, ValueError):
-                    continue
-                if invoice_id in invoice_trip_ids and trip_id:
-                    invoice_trip_ids[invoice_id].add(trip_id)
-        except Exception as exc:
-            logger.info("COVOL Transporte sin relaciones Carta Ingreso: %s", exc)
         for invoice in invoice_rows:
             if _status_cancelado(invoice.get("status")):
                 continue
-            trip_ids = set(invoice_trip_ids.get(int(invoice.get("id") or 0), set()))
-            trip_ids.update(_parse_json_value(invoice.get("viaje_ids"), []) or [])
-            for trip_id in trip_ids:
-                try:
-                    invoice_by_trip[int(trip_id)] = {
-                        "uuid": _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")).upper(),
-                        "total": _num(invoice.get("total")),
-                        "fecha": _first_text(invoice.get("fecha_timbrado"), invoice.get("created_at")),
-                    }
-                except (TypeError, ValueError):
+            xml_content = invoice.get("xml_content") or ""
+            if not xml_content or not _first_text(invoice.get("uuid_carta_ingreso"), invoice.get("uuid_sat")):
+                continue
+            try:
+                invoice_movements = _covol_movements_from_ingreso_xml(
+                    xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content,
+                    f"Carta Ingreso {invoice.get('id')}",
+                    periodo,
+                    selected_permiso,
+                    selected_permiso_row,
+                )
+            except Exception as exc:
+                logger.info("COVOL Transporte omitió Carta Ingreso %s inválida: %s", invoice.get("id"), exc)
+                continue
+            for movement in invoice_movements:
+                key = (_first_text(movement.get("uuid_cfdi")).upper(), _first_text(movement.get("tipo_movimiento")).lower())
+                if key in seen_movements:
                     continue
+                seen_movements.add(key)
+                viajes_para_covol.append(movement)
     except Exception as exc:
-        logger.info("COVOL Transporte sin complemento de Carta Ingreso: %s", exc)
+        logger.info("COVOL Transporte sin Cartas Ingreso emitidas: %s", exc)
 
-    viajes_para_covol: list[dict[str, Any]] = []
-    viajes_sin_carta_ingreso: list[int] = []
     permisos_detectados: set[str] = set()
     for row in rows:
         meta = _meta(row)
         if _status_cancelado(row.get("status"), row.get("estatus"), row.get("carta_porte_status"), meta.get("carta_porte_status")) and _cancelacion_fiscal_confirmada(row, meta):
             continue
-        productos_json = _parse_json_value(row.get("productos_json"), [])
         permiso_viaje = _first_text(row.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista"))
         if permiso_viaje:
             permisos_detectados.add(permiso_viaje)
-        productos_texto = [
-            _first_text(prod.get("descripcion"), prod.get("producto"), prod.get("clave_subproducto"), prod.get("clave_producto"))
-            for prod in (productos_json if isinstance(productos_json, list) else [])
-            if isinstance(prod, dict)
-        ]
-        productos_texto.extend([
-            _first_text(row.get("producto_descripcion")),
-            _first_text(row.get("producto")),
-            _first_text(meta.get("producto_descripcion")),
-            _first_text(meta.get("producto")),
-        ])
-        productos_texto = [text for text in productos_texto if text]
-        producto_match_permiso = bool(selected_permiso_row) and bool(productos_texto) and all(
-            _permiso_product_family_match(selected_permiso_row, producto_text)
-            for producto_text in productos_texto
-        )
-        if permiso_viaje != selected_permiso:
-            continue
-        if not producto_match_permiso:
-            continue
-        trip_id = int(row.get("id") or 0)
-        service_invoice = invoice_by_trip.get(trip_id) or {}
-        if not _first_text(service_invoice.get("uuid")):
-            viajes_sin_carta_ingreso.append(trip_id)
-            continue
-        enriched_products = []
-        for product in (productos_json if isinstance(productos_json, list) else []):
-            if not isinstance(product, dict):
-                continue
-            enriched = dict(product)
-            enriched["importe"] = _num(service_invoice.get("total"))
-            enriched_products.append(enriched)
-        base_movement = {
-            "uuid_cfdi": _first_text(service_invoice.get("uuid")),
-            "id_ccp": _first_text(row.get("id_ccp"), meta.get("id_ccp")),
-            "num_permiso_cne": selected_permiso,
-            "tipo_cfdi": "Ingreso",
-            "fecha_transaccion": _first_text(service_invoice.get("fecha"), row.get("fecha_hora_salida")),
-            "productos": enriched_products,
-        }
-        viajes_para_covol.append({
-            **base_movement,
-            "tipo_movimiento": "carga",
-            "fecha_hora_salida": row.get("fecha_hora_salida") or "",
-            "rfc_receptor": rfc_contribuyente,
-            "nombre_receptor": _first_text(row.get("nombre_origen"), "Origen de carga"),
-        })
-        viajes_para_covol.append({
-            **base_movement,
-            "tipo_movimiento": "descarga",
-            "fecha_hora_salida": row.get("fecha_hora_llegada") or row.get("fecha_hora_salida") or "",
-            "rfc_receptor": row.get("rfc_receptor") or "",
-            "nombre_receptor": row.get("nombre_receptor") or row.get("nombre_destino") or "",
-        })
-
-    if viajes_sin_carta_ingreso:
-        ids = ", ".join(str(value) for value in sorted(set(viajes_sin_carta_ingreso)))
-        raise HTTPException(
-            409,
-            f"No se puede generar el reporte SAT: los viajes {ids} no tienen Carta Ingreso timbrada con complemento Carta Porte.",
-        )
-
     try:
         external_rows = (
             sb.table(TBL_COVOL_EXTERNOS)
@@ -6940,7 +6908,7 @@ async def transporte_v2_generar_control_volumetrico(
             external_product = _first_text(external.get("producto"), external.get("clave_producto"), external.get("clave_subproducto"))
             if not selected_permiso_row or not _permiso_product_family_match(selected_permiso_row, external_product):
                 continue
-            viajes_para_covol.append({
+            external_movement = {
                 "uuid_cfdi": external.get("uuid_cfdi") or "",
                 "id_ccp": external.get("id_ccp") or "",
                 "num_permiso_cne": selected_permiso,
@@ -6961,12 +6929,16 @@ async def transporte_v2_generar_control_volumetrico(
                     "cantidad_litros": external.get("volumen_litros") or 0,
                     "importe": external.get("importe") or 0,
                 }],
-            })
+            }
+            key = (_first_text(external_movement.get("uuid_cfdi")).upper(), _first_text(external_movement.get("tipo_movimiento")).lower())
+            if key not in seen_movements:
+                seen_movements.add(key)
+                viajes_para_covol.append(external_movement)
     except Exception as exc:
         logger.info("COVOL Transporte sin movimientos externos: %s", exc)
     if not viajes_para_covol:
         detalle = f" Permisos detectados: {', '.join(sorted(permisos_detectados))}." if permisos_detectados else ""
-        raise HTTPException(404, f"No hay viajes timbrados para el permiso {selected_permiso} en {periodo}.{detalle}")
+        raise HTTPException(404, f"No hay Cartas Ingreso timbradas para el permiso {selected_permiso} en {periodo}.{detalle}")
 
     covol_settings = {
         "RfcContribuyente": rfc_contribuyente,
