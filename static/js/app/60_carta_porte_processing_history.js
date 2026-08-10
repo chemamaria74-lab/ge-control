@@ -254,6 +254,51 @@ function _transferLiters(value) {
   return `${Number(value || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})} L`;
 }
 
+let transferAnalysisView = 'grafica';
+let transferAnalysisData = null;
+
+function _transferNumber(value) {
+  return Number(value || 0);
+}
+
+function _transferChart(days) {
+  const chartDays = (days || []).slice(-14);
+  if (!chartDays.length) return '<div style="color:#64748b;padding:1rem 0">Sin movimientos en este mes.</div>';
+  const width = 960, height = 250, left = 44, right = 20, top = 20, bottom = 42;
+  const plotW = width - left - right, plotH = height - top - bottom;
+  const inventory = chartDays.map(d => _transferNumber(d.inventario_final));
+  const maxMovement = Math.max(1, ...chartDays.flatMap(d => [_transferNumber(d.ventas), _transferNumber(d.traspasos_recibidos)]));
+  const minInventory = Math.min(0, ...inventory);
+  const maxInventory = Math.max(1, ...inventory);
+  const yMin = Math.min(0, minInventory, -maxMovement * .25);
+  const yMax = Math.max(maxInventory, maxMovement * .25, 1);
+  const range = Math.max(1, yMax - yMin);
+  const y = value => top + (yMax - value) / range * plotH;
+  const x = index => left + (chartDays.length === 1 ? plotW / 2 : index * plotW / (chartDays.length - 1));
+  const zeroY = y(0);
+  const barWidth = Math.max(8, Math.min(28, plotW / Math.max(1, chartDays.length) * .22));
+  const bars = chartDays.map((d, index) => {
+    const cx = x(index), received = _transferNumber(d.traspasos_recibidos), sales = _transferNumber(d.ventas);
+    const receivedY = y(received), salesY = y(-sales);
+    const title = escapeHtml(`${d.fecha}: recibidos ${_transferLiters(received)}, ventas ${_transferLiters(sales)}, inventario ${_transferLiters(d.inventario_final)}`);
+    return `<g><title>${title}</title><rect x="${cx - barWidth - 2}" y="${Math.min(zeroY, receivedY)}" width="${barWidth}" height="${Math.abs(zeroY - receivedY)}" rx="3" fill="#10b981"/><rect x="${cx + 2}" y="${Math.min(zeroY, salesY)}" width="${barWidth}" height="${Math.abs(zeroY - salesY)}" rx="3" fill="#ef4444"/><text x="${cx}" y="${height - 14}" text-anchor="middle" fill="#64748b" font-size="12">${escapeHtml(String(d.fecha).slice(-2))}</text></g>`;
+  }).join('');
+  const points = inventory.map((value, index) => `${x(index)},${y(value)}`).join(' ');
+  const dots = inventory.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="4" fill="#2563eb"><title>${escapeHtml(`${chartDays[index].fecha}: inventario ${_transferLiters(value)}`)}</title></circle>`).join('');
+  return `<div style="margin:.8rem 0 .55rem;color:#64748b;font-weight:700">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario al cierre.</div><div style="overflow:auto;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario" style="display:block;width:100%;min-width:620px;height:auto"><line x1="${left}" x2="${width - right}" y1="${zeroY}" y2="${zeroY}" stroke="#94a3b8"/><text x="8" y="${Math.max(14, zeroY - 6)}" fill="#64748b" font-size="12">0</text>${bars}<polyline points="${points}" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg></div><div style="font-size:.82rem;font-weight:800;margin-top:.55rem"><span style="color:#2563eb">━ Inventario final</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
+}
+
+function _transferPhysicalTable(days) {
+  const records = (days || []).flatMap(day => (day.traspasos || []).map(transfer => ({day, transfer, control: transfer.control_fisico || {}})).filter(item => Object.keys(item.control).length));
+  if (!records.length) return '<div style="padding:1rem 0;color:#64748b">No hay controles físicos capturados para esta instalación y mes.</div>';
+  const rows = records.map(({day, transfer, control}) => {
+    const difference = _transferNumber(control.diferencia_litros);
+    const status = control.alerta ? '<b style="color:#b91c1c">Revisar diferencia</b>' : '<b style="color:#166534">Dentro de tolerancia</b>';
+    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${escapeHtml(control.antes_pct ?? '—')}%</td><td>${escapeHtml(control.despues_pct ?? '—')}%</td><td>${_transferLiters(control.litros_declarados)}</td><td>${_transferLiters(control.litros_medidos)}</td><td>${_transferLiters(control.litros_cfdi || transfer.litros)}</td><td>${control.disponible_antes_traspaso == null ? '—' : _transferLiters(control.disponible_antes_traspaso)}</td><td style="color:${control.alerta ? '#b91c1c' : '#166534'};font-weight:800">${_transferLiters(difference)}</td><td>${status}</td></tr>`;
+  }).join('');
+  return `<div style="overflow:auto;margin-top:.8rem"><table style="width:100%;min-width:980px;font-size:.82rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>Lectura tanque</th><th>CFDI</th><th>Disponible operativo</th><th>Diferencia</th><th>Resultado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function renderTransferAnalysis(data) {
   const host = document.getElementById('transferAnalysisResults');
   if (!host) return;
@@ -263,24 +308,8 @@ function renderTransferAnalysis(data) {
   host.innerHTML = stations.map(({facility, ledger}) => {
     const alerts = ledger.alerts || [];
     const alertHtml = alerts.length ? alerts.map(a => `<li><b>${a.fecha}:</b> ${a.mensaje} (${_transferLiters(a.inventario_final)})</li>`).join('') : '<li>Sin alertas en este mes.</li>';
-    const rows = (ledger.days || []).map(d => {
-      const physicalControls = (d.traspasos || []).map(t => t.control_fisico || {}).filter(c => Object.keys(c).length);
-      const physical = physicalControls.map(c => {
-        const measured = _transferLiters(c.litros_medidos);
-        const cfdi = _transferLiters(c.litros_cfdi);
-        const difference = _transferLiters(c.diferencia_litros);
-        const color = c.alerta ? '#991b1b' : '#166534';
-        const label = c.alerta ? 'Revisar diferencia física' : 'Lectura física dentro de tolerancia';
-        return `<div style="margin-top:4px;color:${color}"><b>${label}:</b> medido ${measured}; CFDI ${cfdi}; diferencia ${difference}.</div>`;
-      }).join('');
-      const inventory = Number(d.inventario_final || 0);
-      const inventoryStyle = inventory < 0 ? 'color:#dc2626;font-weight:800' : '';
-      return `<tr><td>${d.fecha}</td><td>${_transferLiters(d.ventas)}</td><td>${_transferLiters(d.traspasos_recibidos)}</td><td>${_transferLiters(d.traspasos_enviados)}</td><td style="${inventoryStyle}">${_transferLiters(inventory)}</td><td>${escapeHtml(d.mensaje)}${physical}</td></tr>`;
-    }).join('') || '<tr><td colspan="6">Sin movimientos en este mes.</td></tr>';
-    const chartDays = (ledger.days || []).slice(-14);
-    const chartMax = Math.max(1, ...chartDays.flatMap(d => [Number(d.ventas || 0), Number(d.traspasos_recibidos || 0), Math.abs(Math.min(0, Number(d.inventario_final || 0)))]));
-    const chart = chartDays.length ? `<div style="position:relative;display:flex;gap:8px;height:170px;padding:8px 4px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;margin:.7rem 0 1rem"><span style="position:absolute;left:0;right:0;top:50%;border-top:1px solid #94a3b8"></span>${chartDays.map(d => { const sales = Number(d.ventas || 0), received = Number(d.traspasos_recibidos || 0), deficit = Math.abs(Math.min(0, Number(d.inventario_final || 0))); const title = `${d.fecha}: ventas ${_transferLiters(sales)}, recibidos ${_transferLiters(received)}, inventario ${_transferLiters(d.inventario_final)}`; return `<div title="${title}" style="flex:1;display:grid;grid-template-rows:1fr 1fr;min-width:0"><div style="display:flex;align-items:end;gap:2px"><i style="display:block;flex:1;height:${sales ? Math.max(3, sales / chartMax * 100) : 0}%;background:#2563eb;border-radius:3px 3px 0 0"></i><i style="display:block;flex:1;height:${received ? Math.max(3, received / chartMax * 100) : 0}%;background:#10b981;border-radius:3px 3px 0 0"></i></div><div style="display:flex;align-items:start;justify-content:center"><i style="display:block;width:45%;height:${deficit ? Math.max(3, deficit / chartMax * 100) : 0}%;background:#dc2626;border-radius:0 0 3px 3px"></i></div></div>`; }).join('')}</div><div style="font-size:.75rem;color:#64748b"><span style="color:#2563eb">■ Ventas</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#dc2626">■ Inventario negativo</span> · últimos ${chartDays.length} días</div>` : '';
-    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${facility.nombre || 'Estación'}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div>${chart}<div style="overflow:auto"><table style="width:100%;font-size:.78rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Ventas</th><th>Recibidos</th><th>Enviados</th><th>Inventario</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days) : _transferChart(ledger.days);
+    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${escapeHtml(facility.nombre || 'Estación')}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div>${content}</div>`;
   }).join('');
 }
 
@@ -296,11 +325,29 @@ document.getElementById('btnLoadTransferAnalysis')?.addEventListener('click', as
     const res = await fetch(`/api/history/${month}/inventory-control${suffix}`, {headers: authHeader()});
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || 'No fue posible cargar el análisis.');
+    transferAnalysisData = data;
     renderTransferAnalysis(data);
   } catch (error) {
     if (host) host.textContent = error.message || 'No fue posible cargar el análisis.';
   }
 });
+
+document.querySelectorAll('[data-admin-inventory-view]').forEach(button => button.addEventListener('click', () => {
+  transferAnalysisView = button.dataset.adminInventoryView || 'grafica';
+  document.querySelectorAll('[data-admin-inventory-view]').forEach(tab => {
+    const active = tab === button;
+    tab.classList.toggle('active', active);
+    tab.style.background = active ? '#8d2030' : '#fff';
+    tab.style.borderColor = active ? '#8d2030' : '#d8d0c4';
+    tab.style.color = active ? '#fff' : '#344258';
+  });
+  if (transferAnalysisData) renderTransferAnalysis(transferAnalysisData);
+}));
+
+const transferAnalysisMonth = document.getElementById('transferAnalysisMonth');
+if (transferAnalysisMonth && !transferAnalysisMonth.value) {
+  transferAnalysisMonth.value = new Date().toISOString().slice(0, 7);
+}
 
 // ── Procesar CFDI (múltiples archivos) ────────────────────────────────────
 let _cfdiProcessing = false;
