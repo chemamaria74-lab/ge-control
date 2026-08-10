@@ -563,17 +563,24 @@ async def login_view(modulo: str, request: Request):
             target = f"{target}?lang={lang}"
         return RedirectResponse(url=target, status_code=307)
 
+    portal_title = None
+    portal_slug = None
     if modulo == "control_administrativo":
         portal = (request.query_params.get("portal") or "gastos").strip().lower()
         if portal == "facturacion":
             login_next = "/control-administrativo/facturacion"
+            portal_title = "Facturación"
+            portal_slug = "facturacion"
         else:
             login_next = "/control-administrativo"
+            portal_title = "Gastos y pagos"
+            portal_slug = "gastos"
 
     # Los portales que usan la sesión oficial regresan al destino elegido
     # después de autenticar. El destino se resuelve en servidor y no se acepta
     # una URL arbitraria del cliente, para evitar redirecciones abiertas.
-    login_next = "/gas-lp/flotilla" if modulo == "gas_lp" and intent == "flotilla_360" else "/app"
+    if modulo != "control_administrativo":
+        login_next = "/gas-lp/flotilla" if modulo == "gas_lp" and intent == "flotilla_360" else "/app"
 
     if modulo == "transporte":
         color_primario    = "#7A1E2C"
@@ -585,7 +592,6 @@ async def login_view(modulo: str, request: Request):
         color_secundario  = "#5B0F1D"
         icon_module       = "fa-briefcase"
         nombre_modulo     = "Empresas y personas"
-        login_next        = "/control-administrativo"
     else:
         color_primario    = "#7A1E2C"
         color_secundario  = "#5B0F1D"
@@ -607,6 +613,8 @@ async def login_view(modulo: str, request: Request):
         color_secundario=color_secundario,
         icon_module=icon_module,
         login_next=login_next,
+        portal_title=portal_title,
+        portal_slug=portal_slug,
     )
     return HTMLResponse(content=_inject_legal_branding(html))
 
@@ -746,8 +754,8 @@ async def frontend_control_administrativo():
 
 @app.get("/control-administrativo/portales", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_control_administrativo_portals():
-    """Selector previo al login para Gastos y pagos o Facturación."""
-    return _render_html_file("control_administrativo_choice.html")
+    """Compatibilidad: Administrador de empresas usa un solo login con pestañas."""
+    return RedirectResponse(url="/login/control-administrativo?portal=gastos", status_code=307)
 
 
 @app.get("/control-administrativo/facturacion", response_class=HTMLResponse, include_in_schema=False)
