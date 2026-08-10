@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -8,6 +9,7 @@ from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 from services.sw_sapien import emitir_timbrar_json
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
+from services.general_schedule_worker import cfdi_for_execution, next_execution
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_insert, _sb_list, _sb_update
 
 router = APIRouter(prefix="/general-facturacion", tags=["Facturación general"])
@@ -230,7 +232,7 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
 async def crear_programacion(payload: ScheduleRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
     cfdi = build_general_cfdi(payload.factura)
-    row = _sb_insert(PROGRAMACIONES, _scope_row(scope, {
+    schedule_values = {
         "nombre": payload.nombre,
         "dia_mes": payload.dia_mes,
         "hora_local": payload.hora_local,
@@ -238,7 +240,11 @@ async def crear_programacion(payload: ScheduleRequest, authorization: str = Head
         "payload_json": cfdi,
         "email_destino": str(payload.email_destino or ""),
         "status": "activa",
-    }))
+    }
+    schedule_values["proxima_ejecucion_at"] = next_execution(
+        schedule_values, after=datetime.now(timezone.utc)
+    ).isoformat()
+    row = _sb_insert(PROGRAMACIONES, _scope_row(scope, schedule_values))
     if not row:
         raise HTTPException(500, "No se pudo guardar la programación.")
     return {"ok": True, "programacion": row}
@@ -276,10 +282,15 @@ async def ejecutar_programacion(
     if previous:
         return {"ok": previous.get("status") == "completada", "reused": True, "ejecucion": previous}
 
-    cfdi = schedule.get("payload_json") or {}
+    execution_now = datetime.now(timezone.utc)
+    cfdi = cfdi_for_execution(schedule, now=execution_now)
     result = emitir_timbrar_json(cfdi)
     if not result.get("ok"):
         execution = _sb_insert(EJECUCIONES, _scope_row(scope, {"programacion_id": programacion_id, "periodo": periodo, "status": "rechazada", "error": result.get("error") or "SW Sapien rechazó el CFDI.", "email_delivery": {}}))
+        _sb_update(PROGRAMACIONES, programacion_id, scope, {
+            "ultima_ejecucion_at": execution_now.isoformat(),
+            "proxima_ejecucion_at": next_execution(schedule, after=execution_now).isoformat(),
+        })
         raise HTTPException(422, {"message": result.get("error") or "SW Sapien rechazó el CFDI.", "ejecucion": execution})
 
     data = result.get("data") or {}
@@ -293,4 +304,9 @@ async def ejecutar_programacion(
         except Exception as exc:
             email = {"ok": False, "skipped": False, "error": str(exc)[:500]}
     execution = _sb_insert(EJECUCIONES, _scope_row(scope, {"programacion_id": programacion_id, "periodo": periodo, "status": "completada", "factura_id": factura.get("id") if factura else None, "email_delivery": email, "error": ""}))
+    _sb_update(PROGRAMACIONES, programacion_id, scope, {
+        "payload_json": cfdi,
+        "ultima_ejecucion_at": execution_now.isoformat(),
+        "proxima_ejecucion_at": next_execution(schedule, after=execution_now).isoformat(),
+    })
     return {"ok": True, "reused": False, "factura": factura, "ejecucion": execution, "email_delivery": email}
