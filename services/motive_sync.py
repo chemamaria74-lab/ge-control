@@ -396,6 +396,18 @@ def _lookback_dates(full: bool) -> tuple[str, str]:
     return (today - timedelta(days=days)).isoformat(), today.isoformat()
 
 
+def _event_lookback_dates(full: bool) -> tuple[str, str]:
+    """Revisa una ventana mayor para eventos que Motive clasifica o descarta tarde."""
+    if full:
+        return _lookback_dates(True)
+    try:
+        days = min(max(int(os.getenv("MOTIVE_EVENT_LOOKBACK_DAYS", 14)), 1), 730)
+    except ValueError:
+        days = 14
+    today = date.today()
+    return (today - timedelta(days=days)).isoformat(), today.isoformat()
+
+
 def _upsert(sb: Any, table: str, rows: list[dict[str, Any]], on_conflict: str, batch_size: int = 250) -> int:
     conflict_keys = [key.strip() for key in on_conflict.split(",") if key.strip()]
     unique_rows: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -647,7 +659,8 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
         datasets["defects"] = _upsert(sb, "fleet_inspection_defects", defects, "inspection_id,source_key")
         pulse()
 
-        event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": start_date, "end_date": end_date, "media_required": "false"})
+        event_start_date, event_end_date = _event_lookback_dates(full)
+        event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"})
         driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
         for row in driver_events:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
@@ -657,7 +670,7 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             datasets["driver_events"] = 0
         pulse()
 
-        speeding_items = _optional_pages(datasets, "speeding_events", "/v1/speeding_events", "speeding_events", params={"start_date": start_date, "end_date": end_date})
+        speeding_items = _optional_pages(datasets, "speeding_events", "/v1/speeding_events", "speeding_events", params={"start_date": event_start_date, "end_date": event_end_date})
         speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
         for row in speeding:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
