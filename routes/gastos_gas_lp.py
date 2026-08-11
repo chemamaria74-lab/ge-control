@@ -1630,9 +1630,28 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
     payments = (_base_query(ctx, "gas_lp_expense_payments")
                 .order("paid_on", desc=True).order("created_at", desc=True)
                 .limit(limit).execute().data or [])
+    # Un anticipo ya es una salida de dinero. Se integra al historial de pagos
+    # como movimiento de consulta, sin crear un segundo pago ni duplicar el egreso.
+    advances = (_base_query(ctx, "gas_lp_expense_advances")
+                .in_("status", ["pending", "partial", "applied"])
+                .order("paid_on", desc=True).order("created_at", desc=True)
+                .limit(limit).execute().data or [])
+    advance_ids = [int(row["id"]) for row in advances]
+    advance_applications = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                            .select("advance_id,amount_mxn").in_("advance_id", advance_ids)
+                            .execute().data or []) if advance_ids else []
+    applied_by_advance: defaultdict[int, float] = defaultdict(float)
+    for application in advance_applications:
+        applied_by_advance[int(application["advance_id"])] += float(application.get("amount_mxn") or 0)
+    for advance in advances:
+        applied = round(applied_by_advance[int(advance["id"])], 2)
+        advance["is_advance"] = True
+        advance["applied_amount_mxn"] = applied
+        advance["available_amount_mxn"] = round(max(0, float(advance.get("amount_mxn") or 0) - applied), 2)
+        advance["allocations"] = []
     payment_ids = [int(row["id"]) for row in payments]
     if not payment_ids:
-        return {"items": []}
+        return {"items": advances[:limit]}
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                    .select("payment_id,invoice_id,amount_mxn")
                    .in_("payment_id", payment_ids).execute().data or [])
@@ -1664,7 +1683,12 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
         payment["difference_mxn"] = round(
             float(payment.get("amount_mxn") or 0) - payment["applied_amount_mxn"], 2
         )
-    return {"items": payments}
+    movements = sorted(
+        [*payments, *advances],
+        key=lambda row: (str(row.get("paid_on") or ""), str(row.get("created_at") or "")),
+        reverse=True,
+    )
+    return {"items": movements[:limit]}
 
 
 @router.delete("/gastos/payments/{payment_id}")
@@ -1737,6 +1761,16 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
     end = date(year + (month_number == 12), 1 if month_number == 12 else month_number + 1, 1)
     payments = (_base_query(ctx, "gas_lp_expense_payments").gte("paid_on", start.isoformat())
                 .lt("paid_on", end.isoformat()).order("paid_on").order("id").execute().data or [])
+    advances = (_base_query(ctx, "gas_lp_expense_advances").gte("paid_on", start.isoformat())
+                .lt("paid_on", end.isoformat()).in_("status", ["pending", "partial", "applied"])
+                .order("paid_on").order("id").execute().data or [])
+    advance_ids = [int(row["id"]) for row in advances]
+    advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                     .select("advance_id,amount_mxn").in_("advance_id", advance_ids)
+                     .execute().data or []) if advance_ids else []
+    advance_applied: defaultdict[int, float] = defaultdict(float)
+    for link in advance_links:
+        advance_applied[int(link["advance_id"])] += float(link.get("amount_mxn") or 0)
     payment_ids = [int(row["id"]) for row in payments]
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations").select("*")
                    .in_("payment_id", payment_ids).execute().data or []) if payment_ids else []
@@ -1755,7 +1789,7 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
     headers = ["ID DE PAGO", "FACTURA EN EL PAGO", "FOLIO DE FACTURA", "FECHA DE FACTURA",
                "RAZÓN SOCIAL / DESTINATARIO", "MONTO DE LA FACTURA", "MONTO PAGADO",
                "FECHA DE PAGO", "TOTAL TRANSFERIDO", "DIFERENCIA", "REFERENCIA", "CONCEPTO / NOTAS"]
-    green, burgundy, thin = "A9D18E", "7A1E2C", Side(style="thin", color="E7E3DC")
+    green, burgundy, light_blue, thin = "A9D18E", "7A1E2C", "DDEBF7", Side(style="thin", color="E7E3DC")
     for worksheet in (provider_ws, reimbursement_ws):
         worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:L1"
         for cell in worksheet[1]:
@@ -1784,8 +1818,28 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
                 difference if index == 0 else None, payment.get("reference") or "",
                 " · ".join(dict.fromkeys(notes)),
             ])
+            # Los folios de una sola transferencia comparten color para que
+            # contabilidad los reconozca como un único pago agrupado.
+            for cell in worksheet[worksheet.max_row]:
+                cell.fill = PatternFill("solid", fgColor=light_blue)
             bucket = totals[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
             bucket["invoices"] += 1; bucket["payments"].add(int(payment["id"])); bucket["paid"] += applied
+    for advance in advances:
+        party = suppliers.get(int(advance.get("supplier_id") or 0), {})
+        party_name = party.get("commercial_name") or "Sin proveedor"
+        amount = float(advance.get("amount_mxn") or 0)
+        applied = round(advance_applied[int(advance["id"])], 2)
+        available = round(max(0, amount - applied), 2)
+        provider_ws.append([
+            f"A-{advance['id']}", "ANTICIPO", "S/F", None, party_name, amount, amount,
+            advance.get("paid_on"), amount, 0, advance.get("reference") or "",
+            f"ANTICIPO PAGADO · {'PENDIENTE DE FACTURA' if available > 0 else 'CON FACTURA'}"
+            + (f" · {advance.get('description')}" if advance.get("description") else ""),
+        ])
+        for cell in provider_ws[provider_ws.max_row]:
+            cell.fill = PatternFill("solid", fgColor=light_blue)
+        bucket = totals[("Proveedor", party_name)]
+        bucket["invoices"] += 0; bucket["payments"].add(f"A-{advance['id']}"); bucket["paid"] += amount
     for worksheet in (provider_ws, reimbursement_ws):
         for row in worksheet.iter_rows(min_row=2):
             for cell in row: cell.border = Border(bottom=thin)
