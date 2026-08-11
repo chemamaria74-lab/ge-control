@@ -737,7 +737,12 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
             updated_event_items = _optional_pages(
                 datasets, "driver_event_updates", "/v2/driver_performance_events",
                 "driver_performance_events",
-                params={"updated_after": event_start_date, "media_required": "false"},
+                params={
+                    "start_date": event_start_date,
+                    "end_date": event_end_date,
+                    "updated_after": event_start_date,
+                    "media_required": "false",
+                },
             )
             event_items = _merge_motive_events(event_items, updated_event_items)
         driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
