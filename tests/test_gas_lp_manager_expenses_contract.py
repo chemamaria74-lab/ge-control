@@ -112,6 +112,27 @@ def test_control_admin_company_owner_can_manage_expenses_with_legacy_user_role(m
     assert result["perfil_id"] == 4
 
 
+def test_expired_expense_jwt_returns_401_instead_of_admin_error(monkeypatch):
+    monkeypatch.setattr(gastos_gas_lp, "get_supabase_admin", lambda: object())
+    monkeypatch.setattr(gastos_gas_lp, "verify_token", lambda _token: None)
+
+    with pytest.raises(HTTPException) as error:
+        gastos_gas_lp._ctx("Bearer expired-jwt", "", "", "4|control_administrativo")
+
+    assert error.value.status_code == 401
+    assert "sesión expiró" in str(error.value.detail).lower()
+
+
+def test_expenses_frontend_tracks_refreshed_token_and_exits_on_401():
+    js = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "let token=" in js
+    assert "ge:token-refreshed" in js
+    assert "window.GESessionTimeout?.expire()" in js
+    assert "session-expiry-20260811" in html
+
+
 @pytest.mark.parametrize("module,profile_id", [("control_administrativo", 416), ("transporte", 410)])
 def test_expense_context_resolves_admin_role_with_server_client(monkeypatch, module, profile_id):
     class Query:
@@ -724,7 +745,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "expense-advances-20260810" in html
+    assert "session-expiry-20260811" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html

@@ -1,11 +1,24 @@
+from datetime import date
 from decimal import Decimal
 
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
-    normalize_vehicle_mileage, normalize_vehicle_utilization,
+    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates,
 )
 from services.motive import motive_get_all_pages_flexible
+
+
+def test_incremental_event_window_rechecks_late_motive_changes(monkeypatch):
+    monkeypatch.delenv("MOTIVE_EVENT_LOOKBACK_DAYS", raising=False)
+    start, end = _event_lookback_dates(False)
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 14
+
+
+def test_event_window_can_be_configured(monkeypatch):
+    monkeypatch.setenv("MOTIVE_EVENT_LOOKBACK_DAYS", "21")
+    start, end = _event_lookback_dates(False)
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 21
 
 
 def test_vehicle_normalizer_keeps_only_dashboard_fields():
