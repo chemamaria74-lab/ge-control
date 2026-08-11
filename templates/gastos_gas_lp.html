@@ -30,7 +30,7 @@
       <div class="subtabs tabs" data-subtabs="expenses">
         <button class="active" data-subpanel="capture"><i class="fa-solid fa-plus"></i> Agregar gasto</button>
         <button data-subpanel="all-expenses"><i class="fa-solid fa-list-check"></i> Todos los gastos</button>
-        <button data-subpanel="advances"><i class="fa-solid fa-hand-holding-dollar"></i> Anticipos pendientes</button>
+        <button data-subpanel="advances"><i class="fa-solid fa-hand-holding-dollar"></i> Anticipos pendientes de factura</button>
         <button data-subpanel="vouchers" hidden><i class="fa-solid fa-file-invoice"></i> Complemento de vales</button>
       </div>
 
@@ -57,7 +57,7 @@
       </div>
 
       <div class="subpanel" data-subcontent="advances">
-        <article class="card"><div class="card-heading"><div><h3>Anticipos pendientes de factura</h3><p>Dinero ya entregado a proveedores que todavía debe relacionarse con una factura.</p></div><button class="btn primary" id="loadAdvances" type="button"><i class="fa-solid fa-magnifying-glass"></i> Cargar anticipos</button></div>
+        <article class="card"><div class="card-heading"><div><h3>Anticipos pagados pendientes de factura</h3><p>Estos anticipos ya fueron pagados. Aquí se controla únicamente el importe que todavía falta relacionar con facturas.</p></div><button class="btn primary" id="loadAdvances" type="button"><i class="fa-solid fa-magnifying-glass"></i> Cargar anticipos</button></div>
           <div class="advance-summary"><span>Saldo pendiente de comprobar</span><strong id="advanceGrandTotal">$0.00</strong><small id="advanceCount">0 anticipos</small></div>
           <div id="advanceRows" class="advance-groups"><div class="empty">Presiona Cargar anticipos.</div></div>
         </article>
@@ -125,5 +125,5 @@
     </form>
   </div>
   <script src="/static/js/session_timeout.js?v=two-hour-control-20260804"></script>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=session-expiry-20260811"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=advance-paid-history-20260811"></script>
 </body></html>
