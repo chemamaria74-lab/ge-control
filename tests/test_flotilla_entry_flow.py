@@ -152,6 +152,8 @@ def test_fleet_reports_exclude_discarded_events_and_closed_faults():
 def test_motive_sync_refreshes_events_by_updated_after():
     backend = Path("services/motive_sync.py").read_text()
     assert '"updated_after": event_start_date' in backend
+    assert '"start_date": event_start_date' in backend
+    assert '"end_date": event_end_date' in backend
     assert "_merge_motive_events(event_items, updated_event_items)" in backend
 
 
