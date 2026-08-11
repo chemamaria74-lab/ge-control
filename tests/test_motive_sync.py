@@ -5,6 +5,7 @@ from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates,
+    _merge_motive_events,
 )
 from services.motive import motive_get_all_pages_flexible
 
@@ -19,6 +20,14 @@ def test_event_window_can_be_configured(monkeypatch):
     monkeypatch.setenv("MOTIVE_EVENT_LOOKBACK_DAYS", "21")
     start, end = _event_lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 21
+
+
+def test_updated_motive_event_wins_when_status_changes_to_dismissed():
+    original = {"driver_performance_event": {"id": 10, "coaching_status": "pending_review"}}
+    updated = {"driver_performance_event": {"id": 10, "coaching_status": "dismissed"}}
+    rows = _merge_motive_events([original], [updated])
+    assert len(rows) == 1
+    assert rows[0]["driver_performance_event"]["coaching_status"] == "dismissed"
 
 
 def test_vehicle_normalizer_keeps_only_dashboard_fields():

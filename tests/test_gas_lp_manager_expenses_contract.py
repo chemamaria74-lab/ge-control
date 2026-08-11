@@ -130,7 +130,7 @@ def test_expenses_frontend_tracks_refreshed_token_and_exits_on_401():
     assert "let token=" in js
     assert "ge:token-refreshed" in js
     assert "window.GESessionTimeout?.expire()" in js
-    assert "session-expiry-20260811" in html
+    assert "advance-paid-history-20260811" in html
 
 
 @pytest.mark.parametrize("module,profile_id", [("control_administrativo", 416), ("transporte", 410)])
@@ -642,7 +642,7 @@ def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_bal
     migration = (ROOT / "supabase" / "migrations" / "20260810194709_expense_supplier_advances_20260810.sql").read_text(encoding="utf-8")
 
     assert 'id="advanceCaptureMode"' in html and ">Anticipo</button>" in html
-    assert 'data-subpanel="advances"' in html and "Anticipos pendientes" in html
+    assert 'data-subpanel="advances"' in html and "Anticipos pendientes de factura" in html
     assert '@router.post("/gastos/advances"' in route
     assert '@router.get("/gastos/advances")' in route
     assert '@router.post("/gastos/advances/apply"' in route
@@ -658,6 +658,31 @@ def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_bal
     assert "for update" in migration
     assert "security invoker" in migration
     assert "from public, anon, authenticated" in migration
+
+
+def test_paid_advances_appear_in_payment_history_and_accounting_export_without_duplication():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    payment_list = route.split('def list_expense_payments(', 1)[1].split(
+        '@router.delete("/gastos/payments/{payment_id}")', 1
+    )[0]
+    payment_export = route.split('def export_expense_payments(', 1)[1].split(
+        'def _legacy_export_expense_payments(', 1
+    )[0]
+    assert 'advance["is_advance"] = True' in payment_list
+    assert 'movements = sorted(' in payment_list
+    assert 'f"A-{advance[\'id\']}"' in payment_export
+    assert "ANTICIPO PAGADO" in payment_export
+    assert "PENDIENTE DE FACTURA" in payment_export
+    assert "function advancePaymentHtml" in script
+    assert "if(payment.is_advance)return advancePaymentHtml" in script
+    assert "Fecha de pago del anticipo" in script
+    assert "guardado en Pagos; queda pendiente de factura" in script
+    assert ".paid-payment .table-wrap tbody tr" in css
+    assert "advance-paid-history-20260811" in html
 
 
 def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
@@ -745,7 +770,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "session-expiry-20260811" in html
+    assert "advance-paid-history-20260811" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
