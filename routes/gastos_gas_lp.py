@@ -330,6 +330,11 @@ def _ctx(authorization: str, fleet_access: str, token: str, profile_header: str 
     if authorization.startswith("Bearer "):
         access_token = authorization[7:].strip()
         uid = verify_token(access_token)
+        if not uid:
+            # Un JWT vencido o inválido es una sesión terminada, no una
+            # degradación de permisos. Responder 401 permite renovar el token
+            # o sacar al usuario del portal con un mensaje claro.
+            raise HTTPException(401, "La sesión expiró; inicia sesión nuevamente.")
         requested_profile_id = int(raw_profile_id) if raw_profile_id.isdigit() else 0
         module = requested_expense_module or "gas_lp"
         if requested_profile_id:
