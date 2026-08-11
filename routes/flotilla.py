@@ -604,11 +604,21 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         "discarded", "dismissed", "rejected", "invalid", "not_coachable",
         "not coachable", "not-coachable", "false_positive", "false positive",
     }
+    discarded_fragments = (
+        "dismiss", "discard", "reject", "invalid", "not_coach", "not coach",
+        "false_positive", "false positive",
+    )
+
+    def discarded_event_value(value: Any) -> bool:
+        text = str(value or "").strip().casefold()
+        return text in discarded_statuses or any(fragment in text for fragment in discarded_fragments)
+
     events = [
         row for row in events
-        if str(row.get("coaching_status") or "").strip().casefold() not in discarded_statuses
+        if not discarded_event_value(row.get("coaching_status"))
+        and not bool((row.get("raw_metadata") or {}).get("is_discarded"))
         and not any(
-            str(tag or "").strip().casefold() in discarded_statuses
+            discarded_event_value(tag)
             for tag in ((row.get("raw_metadata") or {}).get("annotation_tags") or [])
         )
     ]
