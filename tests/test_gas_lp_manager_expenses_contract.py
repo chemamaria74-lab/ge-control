@@ -242,6 +242,34 @@ def test_supplier_optional_fields_are_validated_when_present():
         gastos_gas_lp._validate_supplier_fields("", "correo-invalido")
 
 
+def test_duplicate_alert_requires_same_supplier_and_folio():
+    class Query:
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def execute(self):
+            return type("Result", (), {"data": [{
+                "id": 65, "supplier_id": 98, "invoice_number": "59220",
+                "invoice_date": "2026-08-06", "total_mxn": 1399.45, "status": "paid",
+            }]})()
+
+    class Supabase:
+        def table(self, _name): return Query()
+
+    ctx = {"sb": Supabase(), "tenant_id": "t1", "perfil_id": 5}
+    other_supplier = gastos_gas_lp._invoice_alerts(
+        ctx, supplier_id=99, invoice_number="59220",
+        invoice_date=gastos_gas_lp.date(2026, 8, 6), total_mxn=1399.45,
+    )
+    same_record = gastos_gas_lp._invoice_alerts(
+        ctx, supplier_id=98, invoice_number="59220",
+        invoice_date=gastos_gas_lp.date(2026, 8, 6), total_mxn=1399.45,
+        exclude_invoice_id=65,
+    )
+
+    assert other_supplier == []
+    assert same_record == []
+
+
 def test_workspace_selector_keeps_expenses_outside_fiscal_tabs():
     selector = (ROOT / "templates" / "conciliacion_gastos_selector.html").read_text(encoding="utf-8")
     fiscal = (ROOT / "templates" / "gas_lp" / "conciliacion" / "_header_kpis_tabs.html").read_text(encoding="utf-8")
