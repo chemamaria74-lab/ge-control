@@ -235,6 +235,55 @@ def _text_list(value: Any) -> list[str]:
     return [str(value)] if value not in (None, "") else []
 
 
+_DISCARDED_EVENT_VALUES = {
+    "discarded", "dismissed", "rejected", "invalid", "not_coachable",
+    "not coachable", "not-coachable", "false_positive", "false positive",
+}
+_DISCARDED_EVENT_PHRASES = (
+    "event dismissed", "event discarded", "driver is not at fault",
+    "driver not at fault", "not the driver's fault", "false positive",
+    "evento descartado", "evento desestimado", "no es culpa del chofer",
+)
+_DISCARDED_EVENT_FRAGMENTS = (
+    "dismiss", "discard", "reject", "invalid", "not_coach", "not coach",
+    "false_positive", "false positive",
+)
+_EVENT_REVIEW_KEYS = {
+    "coaching_status", "status", "review_status", "event_status", "disposition",
+    "notes", "note", "comments", "comment", "dismissal_reason", "rejection_reason",
+}
+
+
+def _event_review_texts(event: dict[str, Any]) -> list[str]:
+    """Extrae estados y notas de revisión sin conservar el payload completo de Motive."""
+    texts: list[str] = []
+
+    def visit(value: Any, depth: int = 0) -> None:
+        if depth > 4 or not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            normalized_key = str(key).strip().casefold()
+            if normalized_key in _EVENT_REVIEW_KEYS:
+                if isinstance(child, list):
+                    texts.extend(str(item) for item in child if item not in (None, ""))
+                elif child not in (None, ""):
+                    texts.append(str(child))
+            if isinstance(child, dict):
+                visit(child, depth + 1)
+
+    visit(event)
+    return list(dict.fromkeys(texts))
+
+
+def _review_text_is_discarded(value: Any) -> bool:
+    text = str(value or "").strip().casefold()
+    return (
+        text in _DISCARDED_EVENT_VALUES
+        or any(fragment in text for fragment in _DISCARDED_EVENT_FRAGMENTS)
+        or any(phrase in text for phrase in _DISCARDED_EVENT_PHRASES)
+    )
+
+
 def normalize_driver_event(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
     event = _inner(item, "driver_performance_event")
     vehicle, driver = _entity(event, "vehicle"), _entity(event, "driver")
@@ -243,6 +292,9 @@ def normalize_driver_event(item: Any, *, integration_id: int, tenant_id: str) ->
         raise ValueError("Evento de seguridad Motive incompleto.")
     primary = _text_list(event.get("primary_behavior"))
     secondary = _text_list(event.get("secondary_behaviors"))
+    review_texts = _event_review_texts(event)
+    metadata = _entity(event, "metadata")
+    annotation_tags = _text_list(event.get("annotation_tags") or metadata.get("annotation_tags"))
     return {
         "integration_id": integration_id, "tenant_id": tenant_id, "motive_id": int(event["id"]),
         "motive_vehicle_id": vehicle.get("id"), "motive_driver_id": driver.get("id"),
@@ -253,7 +305,12 @@ def normalize_driver_event(item: Any, *, integration_id: int, tenant_id: str) ->
         "ended_at": _iso(event.get("end_time")), "duration_seconds": _integer(event.get("duration")),
         "location": str(event.get("location") or ""), "start_speed_kph": _number(_decimal(event.get("start_speed")), 3),
         "end_speed_kph": _number(_decimal(event.get("end_speed")), 3), "max_speed_kph": _number(_decimal(event.get("max_speed")), 3),
-        "raw_metadata": {"annotation_tags": _text_list(event.get("annotation_tags")), "coachable_behaviors": _text_list(event.get("coachable_behaviors"))},
+        "raw_metadata": {
+            "annotation_tags": annotation_tags,
+            "coachable_behaviors": _text_list(event.get("coachable_behaviors")),
+            "review_texts": review_texts,
+            "is_discarded": any(_review_text_is_discarded(value) for value in review_texts),
+        },
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
