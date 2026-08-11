@@ -57,6 +57,40 @@ def test_driver_event_keeps_behaviors_but_not_camera_urls():
     assert "camera_media" not in row["raw_metadata"]
 
 
+def test_driver_event_marks_motive_dismissal_note_as_discarded():
+    row = normalize_driver_event({"driver_performance_event": {
+        "id": 5, "start_time": "2026-08-07T19:43:00Z", "type": "near_collision",
+        "primary_behavior": ["near_collision"], "vehicle": {"id": 89},
+        "driver": {"id": 3, "first_name": "Omar"},
+        "coaching_status": "pending_review",
+        "notes": "Motive - Event dismissed because the driver is not at fault",
+    }}, integration_id=3, tenant_id="tenant")
+    assert row["raw_metadata"]["is_discarded"] is True
+    assert row["raw_metadata"]["review_texts"]
+
+
+def test_driver_event_does_not_discard_pending_review_without_note():
+    row = normalize_driver_event({"driver_performance_event": {
+        "id": 6, "start_time": "2026-08-08T10:00:00Z", "type": "hard_brake",
+        "primary_behavior": ["hard_brake"], "vehicle": {"id": 89},
+        "driver": {"id": 3, "first_name": "Omar"},
+        "coaching_status": "pending_review",
+    }}, integration_id=3, tenant_id="tenant")
+    assert row["raw_metadata"]["is_discarded"] is False
+
+
+def test_driver_event_recognizes_dismissed_status_variant_and_nested_tags():
+    row = normalize_driver_event({"driver_performance_event": {
+        "id": 7, "start_time": "2026-08-05T13:14:00Z", "type": "driver_facing_cam_obstruction",
+        "primary_behavior": ["driver_facing_cam_obstruction"], "vehicle": {"id": 97},
+        "driver": {"id": 2, "first_name": "Jose"},
+        "coaching_status": "dismissed_by_fm",
+        "metadata": {"annotation_tags": ["driver_facing_cam_obstruction"]},
+    }}, integration_id=3, tenant_id="tenant")
+    assert row["raw_metadata"]["is_discarded"] is True
+    assert row["raw_metadata"]["annotation_tags"] == ["driver_facing_cam_obstruction"]
+
+
 def test_fault_and_speeding_normalizers():
     fault = normalize_fault({"fault_code": {"id": 9, "code": "P0420", "status": "open", "vehicle": {"id": 8}}}, integration_id=3, tenant_id="tenant")
     speeding = normalize_speeding_event({"speeding_event": {"id": 7, "start_time": "2026-07-20T10:00:00Z", "max_over_speed_in_kph": "21", "vehicle": {"id": 8}}}, integration_id=3, tenant_id="tenant")

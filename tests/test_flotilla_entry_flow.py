@@ -143,6 +143,8 @@ def test_fleet_reports_exclude_discarded_events_and_closed_faults():
 
     assert '"coaching_status"' in backend
     assert '"discarded", "dismissed", "rejected", "invalid"' in backend
+    assert 'get("is_discarded")' in backend
+    assert '"dismiss", "discard", "reject"' in backend
     assert "if not row.get(\"cleared_at\")" in backend
     assert '"closed", "cleared", "resolved", "inactive", "dismissed"' in backend
 
