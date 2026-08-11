@@ -465,6 +465,21 @@ def _event_lookback_dates(full: bool) -> tuple[str, str]:
     return (today - timedelta(days=days)).isoformat(), today.isoformat()
 
 
+def _merge_motive_events(*collections: list[Any]) -> list[Any]:
+    """Une eventos por ID; la colección más reciente prevalece."""
+    merged: dict[int, Any] = {}
+    without_id: list[Any] = []
+    for collection in collections:
+        for item in collection:
+            event = _inner(item, "driver_performance_event")
+            event_id = _integer(event.get("id"))
+            if event_id is None:
+                without_id.append(item)
+            else:
+                merged[event_id] = item
+    return [*merged.values(), *without_id]
+
+
 def _upsert(sb: Any, table: str, rows: list[dict[str, Any]], on_conflict: str, batch_size: int = 250) -> int:
     conflict_keys = [key.strip() for key in on_conflict.split(",") if key.strip()]
     unique_rows: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -718,6 +733,13 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
 
         event_start_date, event_end_date = _event_lookback_dates(full)
         event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"})
+        if not full:
+            updated_event_items = _optional_pages(
+                datasets, "driver_event_updates", "/v2/driver_performance_events",
+                "driver_performance_events",
+                params={"updated_after": event_start_date, "media_required": "false"},
+            )
+            event_items = _merge_motive_events(event_items, updated_event_items)
         driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
         for row in driver_events:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
