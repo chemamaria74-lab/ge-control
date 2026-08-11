@@ -508,11 +508,12 @@ def _invoice_alerts(ctx: dict[str, Any], *, supplier_id: int, invoice_number: st
     ]
     alerts: list[str] = []
     if not _is_without_folio(invoice_number) and any(
-        not _is_without_folio(row.get("invoice_number"))
+        int(row.get("supplier_id") or 0) == int(supplier_id)
+        and not _is_without_folio(row.get("invoice_number"))
         and _normalize(row.get("invoice_number")) == _normalize(invoice_number)
         for row in rows
     ):
-        alerts.append("Número de factura repetido en esta empresa.")
+        alerts.append("Número de factura repetido para este proveedor.")
     if any(
         int(row.get("supplier_id") or 0) == int(supplier_id)
         and str(row.get("invoice_date") or "")[:10] == invoice_date.isoformat()
@@ -1476,6 +1477,13 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
             })
     for item in items:
         item["vouchers"] = links_by_invoice.get(int(item["id"]), [])
+    folio_counts: defaultdict[tuple[int, str], int] = defaultdict(int)
+    for item in items:
+        if item.get("status") not in {"rejected", "cancelled"} and not _is_without_folio(item.get("invoice_number")):
+            folio_counts[(int(item.get("supplier_id") or 0), _normalize(item.get("invoice_number")))] += 1
+    for item in items:
+        key = (int(item.get("supplier_id") or 0), _normalize(item.get("invoice_number")))
+        item["duplicate_invoice_number"] = not _is_without_folio(item.get("invoice_number")) and folio_counts[key] > 1
     allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
                    .select("invoice_id,amount_mxn").in_("invoice_id", invoice_ids).execute().data or [])
     advance_applications = (ctx["sb"].table("gas_lp_expense_advance_applications")
@@ -2257,16 +2265,11 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
         dimensions["zone"][group_names.get(int(voucher["group_id"]), "Zona")] += amount
         dimensions["unit"][vehicle_names.get(int(voucher["vehicle_id"]), "Unidad")] += amount
         dimensions["manager"][voucher.get("created_by_name") or "Gerente"] += amount
-    number_counts: defaultdict[str, int] = defaultdict(int)
-    signature_counts: defaultdict[tuple[str, str, float], int] = defaultdict(int)
+    number_counts: defaultdict[tuple[int, str], int] = defaultdict(int)
     supplier_months: defaultdict[int, defaultdict[str, float]] = defaultdict(lambda: defaultdict(float))
     for row in active_invoices:
         if not _is_without_folio(row.get("invoice_number")):
-            number_counts[_normalize(row["invoice_number"])] += 1
-        signature_counts[(
-            str(row["supplier_id"]), str(row.get("invoice_date") or ""),
-            round(float(row.get("total_mxn") or 0), 2),
-        )] += 1
+            number_counts[(int(row["supplier_id"]), _normalize(row["invoice_number"]))] += 1
         supplier_months[int(row["supplier_id"])][str(row.get("invoice_date") or "")[:7]] += float(row.get("total_mxn") or 0) * (-1 if row.get("expense_type") == "credit_note" else 1)
     today = date.today()
     stale_amount = sum(
@@ -2286,7 +2289,9 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     )
     alerts = {
         "duplicate_invoice_numbers": sum(count - 1 for count in number_counts.values() if count > 1),
-        "similar_invoices": sum(count - 1 for count in signature_counts.values() if count > 1),
+        # Distinct folios can legitimately share supplier, date and amount.
+        # Treating that signature as a duplicate created noisy false positives.
+        "similar_invoices": 0,
         "pending_suppliers": sum(row["validation_status"] == "pending" for row in suppliers),
         "vouchers_without_amount": stale_amount, "vouchers_not_invoiced": stale_ready,
         "accounting_payment_overdue": stale_accounting,
