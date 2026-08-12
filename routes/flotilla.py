@@ -331,7 +331,7 @@ def overview(
         )
     latest_runs = (
         sb.table("fleet_sync_runs")
-        .select("id,status,sync_type,started_at,finished_at,heartbeat_at,records_processed,datasets,error_code,error_message")
+        .select("id,status,sync_type,started_at,finished_at,heartbeat_at,pages_processed,records_processed,datasets,error_code,error_message")
         .eq("tenant_id", ctx["tenant_id"])
         .order("created_at", desc=True)
         .limit(1)
@@ -634,10 +634,11 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
     events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,coaching_status,duration_seconds,location,raw_metadata"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     discarded_statuses = {
         "discarded", "dismissed", "rejected", "invalid", "not_coachable",
-        "not coachable", "not-coachable", "false_positive", "false positive",
+        "not coachable", "not-coachable", "uncoachable", "un_coachable",
+        "false_positive", "false positive",
     }
     discarded_fragments = (
-        "dismiss", "discard", "reject", "invalid", "not_coach", "not coach",
+        "dismiss", "discard", "reject", "invalid", "not_coach", "not coach", "uncoach",
         "false_positive", "false positive",
     )
 
