@@ -34,6 +34,33 @@ from supabase_config import get_supabase_admin
 
 router = APIRouter()
 SYNC_COOLDOWN_MINUTES = 10
+SYNC_STALE_MINUTES = 15
+
+
+def _sync_is_stale(row: dict[str, Any], *, now: datetime | None = None) -> bool:
+    if str(row.get("status") or "") not in {"queued", "running"}:
+        return False
+    timestamp = row.get("heartbeat_at") or row.get("started_at")
+    if not timestamp:
+        return True
+    try:
+        observed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    return (now or datetime.now(timezone.utc)) - observed.astimezone(timezone.utc) > timedelta(minutes=SYNC_STALE_MINUTES)
+
+
+def _visible_sync(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row or not _sync_is_stale(row):
+        return row
+    return {
+        **row,
+        "status": "failed",
+        "error_code": "stale_worker",
+        "error_message": "La sincronización perdió actividad. Presiona Actualizar desde Motive para reintentar.",
+    }
 
 
 @router.post("/flotilla/webhooks/motive", status_code=202)
@@ -303,7 +330,7 @@ def overview(
         )
     latest_runs = (
         sb.table("fleet_sync_runs")
-        .select("id,status,sync_type,started_at,finished_at,records_processed,datasets,error_code,error_message")
+        .select("id,status,sync_type,started_at,finished_at,heartbeat_at,records_processed,datasets,error_code,error_message")
         .eq("tenant_id", ctx["tenant_id"])
         .order("created_at", desc=True)
         .limit(1)
@@ -322,7 +349,7 @@ def overview(
             "last_error_at": integration.get("last_error_at"),
             "last_error_code": integration.get("last_error_code"),
         },
-        "sync": latest_runs[0] if latest_runs else None,
+        "sync": _visible_sync(latest_runs[0]) if latest_runs else None,
         "kpis": {
             "vehicles": len(vehicles),
             "active_vehicles": sum(1 for row in vehicles if str(row.get("status") or "").lower() == "active"),
@@ -466,11 +493,7 @@ def request_sync(
         raise HTTPException(409, "El tenant no tiene una integración Motive activa.")
     active = sb.table("fleet_sync_runs").select("id,status,started_at,heartbeat_at").eq("integration_id", integration["id"]).in_("status", ["queued", "running"]).order("created_at", desc=True).limit(1).execute().data or []
     if active:
-        heartbeat_raw = active[0].get("heartbeat_at")
-        if not heartbeat_raw:
-            return {"accepted": True, "reused": True, "sync": active[0]}
-        heartbeat = datetime.fromisoformat(str(heartbeat_raw).replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) - heartbeat <= timedelta(minutes=15):
+        if not _sync_is_stale(active[0]):
             return {"accepted": True, "reused": True, "sync": active[0]}
         now = datetime.now(timezone.utc).isoformat()
         sb.table("fleet_sync_runs").update({
