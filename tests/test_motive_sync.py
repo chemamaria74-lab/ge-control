@@ -38,7 +38,8 @@ def test_fast_safety_sync_is_bounded_to_recent_event_window():
     fast_sync = source[start:end]
     assert '"/v2/driver_performance_events"' in fast_sync
     assert '"/v1/speeding_events"' in fast_sync
-    assert '"updated_after": event_start_date' in fast_sync
+    assert '"updated_after": event_start_date' not in fast_sync
+    assert "progress=event_progress" in fast_sync
     assert '"/v1/driving_periods"' not in fast_sync
     assert '"/v1/fuel_purchases"' not in fast_sync
 
@@ -111,6 +112,18 @@ def test_driver_event_recognizes_dismissed_status_variant_and_nested_tags():
     }}, integration_id=3, tenant_id="tenant")
     assert row["raw_metadata"]["is_discarded"] is True
     assert row["raw_metadata"]["annotation_tags"] == ["driver_facing_cam_obstruction"]
+
+
+def test_driver_event_treats_motive_uncoachable_as_discarded():
+    row = normalize_driver_event({"driver_performance_event": {
+        "id": 8, "start_time": "2026-08-05T13:14:48Z",
+        "type": "driver_facing_cam_obstruction",
+        "primary_behavior": ["driver_facing_cam_obstruction"],
+        "vehicle": {"id": 97}, "driver": {"id": 2, "first_name": "Jose"},
+        "coaching_status": "uncoachable",
+    }}, integration_id=3, tenant_id="tenant")
+    assert row["coaching_status"] == "uncoachable"
+    assert row["raw_metadata"]["is_discarded"] is True
 
 
 def test_fault_and_speeding_normalizers():

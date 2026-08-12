@@ -145,16 +145,22 @@ def test_fleet_reports_exclude_discarded_events_and_closed_faults():
     assert '"discarded", "dismissed", "rejected", "invalid"' in backend
     assert 'get("is_discarded")' in backend
     assert '"dismiss", "discard", "reject"' in backend
+    assert '"uncoachable", "un_coachable"' in backend
     assert "if not row.get(\"cleared_at\")" in backend
     assert '"closed", "cleared", "resolved", "inactive", "dismissed"' in backend
 
 
 def test_motive_sync_refreshes_events_by_updated_after():
     backend = Path("services/motive_sync.py").read_text()
-    assert '"updated_after": event_start_date' in backend
-    assert '"start_date": event_start_date' in backend
-    assert '"end_date": event_end_date' in backend
-    assert "_merge_motive_events(event_items, updated_event_items)" in backend
+    assert '"updated_after": event_start_date' not in backend
+    assert "progress=event_progress" in backend
+
+
+def test_fleet_sync_ui_shows_phase_pages_and_remaining_time():
+    frontend = Path("static/js/gas_lp/flotilla.js").read_text()
+    assert "function syncProgressText(sync)" in frontend
+    assert "Calculando tiempo restante" in frontend
+    assert "min restantes" in frontend
 
 
 def test_legacy_flotilla_login_redirects_to_dedicated_access():
