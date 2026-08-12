@@ -4,7 +4,7 @@ import os
 import random
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -104,6 +104,7 @@ def motive_get_all_pages(
     max_pages: int = 1000,
     page_param: str = "page_no",
     timezone_header: str = "America/Mexico_City",
+    progress: Callable[[int, int, int | None], None] | None = None,
 ) -> list[Any]:
     """Recorre paginación page_no/per_page sin asumir que una página contiene todo."""
     records: list[Any] = []
@@ -120,6 +121,14 @@ def motive_get_all_pages(
         if not isinstance(batch, list):
             raise MotiveAPIError(502, f"Motive devolvió {collection_key} en un formato inesperado.")
         records.extend(batch)
+        pagination = page.get("pagination") if isinstance(page.get("pagination"), dict) else {}
+        total_raw = page.get("total") or pagination.get("total") or pagination.get("total_count")
+        try:
+            total = int(total_raw) if total_raw is not None else None
+        except (TypeError, ValueError):
+            total = None
+        if progress:
+            progress(page_no, len(records), total)
         if len(batch) < per_page:
             return records
         page_no += 1

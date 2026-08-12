@@ -237,7 +237,8 @@ def _text_list(value: Any) -> list[str]:
 
 _DISCARDED_EVENT_VALUES = {
     "discarded", "dismissed", "rejected", "invalid", "not_coachable",
-    "not coachable", "not-coachable", "false_positive", "false positive",
+    "not coachable", "not-coachable", "uncoachable", "un_coachable",
+    "false_positive", "false positive",
 }
 _DISCARDED_EVENT_PHRASES = (
     "event dismissed", "event discarded", "driver is not at fault",
@@ -245,7 +246,7 @@ _DISCARDED_EVENT_PHRASES = (
     "evento descartado", "evento desestimado", "no es culpa del chofer",
 )
 _DISCARDED_EVENT_FRAGMENTS = (
-    "dismiss", "discard", "reject", "invalid", "not_coach", "not coach",
+    "dismiss", "discard", "reject", "invalid", "not_coach", "not coach", "uncoach",
     "false_positive", "false positive",
 )
 _EVENT_REVIEW_KEYS = {
@@ -677,20 +678,26 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
         vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
         event_start_date, event_end_date = _event_lookback_dates(False)
 
+        def event_progress(page: int, records: int, total: int | None) -> None:
+            total_pages = ((total + 99) // 100) if total is not None else None
+            now = datetime.now(timezone.utc).isoformat()
+            datasets["sync_progress"] = {
+                "phase": "Eventos de seguridad", "pages_done": page,
+                "total_pages": total_pages, "records_seen": records,
+            }
+            sb.table("fleet_sync_runs").update({
+                "heartbeat_at": now, "pages_processed": page,
+                "records_processed": records, "datasets": datasets,
+            }).eq("id", run_id).execute()
+
         event_items = motive_get_all_pages(
             "/v2/driver_performance_events", collection_key="driver_performance_events",
             params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"},
-        )
-        updated_items = motive_get_all_pages(
-            "/v2/driver_performance_events", collection_key="driver_performance_events",
-            params={
-                "start_date": event_start_date, "end_date": event_end_date,
-                "updated_after": event_start_date, "media_required": "false",
-            },
+            progress=event_progress,
         )
         driver_events = [
             normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id)
-            for item in _merge_motive_events(event_items, updated_items)
+            for item in event_items
         ]
         for row in driver_events:
             motive_vehicle_id = row.get("motive_vehicle_id")
@@ -702,15 +709,31 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
             "heartbeat_at": heartbeat, "records_processed": datasets["driver_events"], "datasets": datasets,
         }).eq("id", run_id).execute()
 
+        event_pages = int((datasets.get("sync_progress") or {}).get("pages_done") or 0)
+
+        def speed_progress(page: int, records: int, total: int | None) -> None:
+            total_pages = ((total + 99) // 100) if total is not None else None
+            now = datetime.now(timezone.utc).isoformat()
+            datasets["sync_progress"] = {
+                "phase": "Excesos de velocidad", "pages_done": page,
+                "total_pages": total_pages, "records_seen": records,
+            }
+            sb.table("fleet_sync_runs").update({
+                "heartbeat_at": now, "pages_processed": event_pages + page,
+                "records_processed": datasets["driver_events"] + records, "datasets": datasets,
+            }).eq("id", run_id).execute()
+
         speeding_items = motive_get_all_pages(
             "/v1/speeding_events", collection_key="speeding_events",
             params={"start_date": event_start_date, "end_date": event_end_date},
+            progress=speed_progress,
         )
         speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
         for row in speeding:
             motive_vehicle_id = row.get("motive_vehicle_id")
             row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
         datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+        datasets.pop("sync_progress", None)
 
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values())
@@ -847,18 +870,6 @@ def sync_motive_tenant(
 
         event_start_date, event_end_date = _event_lookback_dates(full)
         event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"})
-        if not full:
-            updated_event_items = _optional_pages(
-                datasets, "driver_event_updates", "/v2/driver_performance_events",
-                "driver_performance_events",
-                params={
-                    "start_date": event_start_date,
-                    "end_date": event_end_date,
-                    "updated_after": event_start_date,
-                    "media_required": "false",
-                },
-            )
-            event_items = _merge_motive_events(event_items, updated_event_items)
         driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
         for row in driver_events:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
