@@ -632,7 +632,116 @@ def sync_vehicle_mileage_range(
     )
 
 
-def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full: bool = False) -> dict[str, Any]:
+def queue_motive_sync(tenant_id: str, requested_by: str | None = None, *, full: bool = False) -> int:
+    """Crea el registro visible antes de despachar el trabajo de fondo."""
+    from supabase_config import get_supabase_admin
+
+    sb = get_supabase_admin()
+    integrations = sb.table("fleet_integrations").select("id,status").eq("tenant_id", tenant_id).eq("provider", "motive").limit(1).execute().data or []
+    if not integrations or integrations[0].get("status") != "active":
+        raise RuntimeError("El tenant no tiene una integración Motive activa.")
+    rows = sb.table("fleet_sync_runs").insert({
+        "integration_id": int(integrations[0]["id"]),
+        "tenant_id": tenant_id,
+        "requested_by": requested_by,
+        "sync_type": "full" if full else "incremental",
+        "status": "queued",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }).execute().data or []
+    if not rows:
+        raise RuntimeError("No fue posible registrar la sincronización Motive.")
+    return int(rows[0]["id"])
+
+
+def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
+    """Actualización rápida del informe: sólo seguridad y velocidad recientes."""
+    from supabase_config import get_supabase_admin
+
+    sb = get_supabase_admin()
+    integrations = sb.table("fleet_integrations").select("id,status").eq("tenant_id", tenant_id).eq("provider", "motive").limit(1).execute().data or []
+    if not integrations or integrations[0].get("status") != "active":
+        raise RuntimeError("El tenant no tiene una integración Motive activa.")
+    integration_id = int(integrations[0]["id"])
+    run_id = int(queued_run_id)
+    started = datetime.now(timezone.utc).isoformat()
+    activated = sb.table("fleet_sync_runs").update({
+        "status": "running", "started_at": started, "heartbeat_at": started,
+        "error_code": None, "error_message": None,
+    }).eq("id", run_id).eq("tenant_id", tenant_id).execute().data or []
+    if not activated:
+        raise RuntimeError("No fue posible activar la actualización de seguridad.")
+
+    datasets: dict[str, Any] = {}
+    try:
+        stored = sb.table("fleet_vehicles").select("id,motive_id").eq("integration_id", integration_id).execute().data or []
+        vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
+        event_start_date, event_end_date = _event_lookback_dates(False)
+
+        event_items = motive_get_all_pages(
+            "/v2/driver_performance_events", collection_key="driver_performance_events",
+            params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"},
+        )
+        updated_items = motive_get_all_pages(
+            "/v2/driver_performance_events", collection_key="driver_performance_events",
+            params={
+                "start_date": event_start_date, "end_date": event_end_date,
+                "updated_after": event_start_date, "media_required": "false",
+            },
+        )
+        driver_events = [
+            normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id)
+            for item in _merge_motive_events(event_items, updated_items)
+        ]
+        for row in driver_events:
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
+        datasets["driver_events"] = _upsert(sb, "fleet_driver_events", driver_events, "integration_id,motive_id")
+
+        heartbeat = datetime.now(timezone.utc).isoformat()
+        sb.table("fleet_sync_runs").update({
+            "heartbeat_at": heartbeat, "records_processed": datasets["driver_events"], "datasets": datasets,
+        }).eq("id", run_id).execute()
+
+        speeding_items = motive_get_all_pages(
+            "/v1/speeding_events", collection_key="speeding_events",
+            params={"start_date": event_start_date, "end_date": event_end_date},
+        )
+        speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
+        for row in speeding:
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
+        datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+
+        finished = datetime.now(timezone.utc).isoformat()
+        total = sum(int(value) for value in datasets.values())
+        sb.table("fleet_sync_runs").update({
+            "status": "succeeded", "finished_at": finished, "heartbeat_at": finished,
+            "records_processed": total, "datasets": datasets,
+        }).eq("id", run_id).execute()
+        sb.table("fleet_integrations").update({
+            "last_incremental_sync_at": finished, "last_success_at": finished,
+            "last_error_code": None, "updated_at": finished,
+        }).eq("id", integration_id).execute()
+        return {"run_id": run_id, "status": "succeeded", "datasets": datasets, "records_processed": total}
+    except Exception as exc:
+        error_code = "motive_api" if isinstance(exc, MotiveAPIError) else "sync_error"
+        finished = datetime.now(timezone.utc).isoformat()
+        message = str(exc)[:300] or "Error al actualizar seguridad desde Motive."
+        sb.table("fleet_sync_runs").update({
+            "status": "failed", "finished_at": finished, "heartbeat_at": finished,
+            "datasets": datasets, "error_code": error_code, "error_message": message,
+        }).eq("id", run_id).execute()
+        sb.table("fleet_integrations").update({
+            "last_error_at": finished, "last_error_code": error_code, "updated_at": finished,
+        }).eq("id", integration_id).execute()
+        logger.warning("motive_safety_sync_failed tenant=%s run=%s code=%s", tenant_id, run_id, error_code)
+        return {"run_id": run_id, "status": "failed", "error_code": error_code, "error_message": message}
+
+
+def sync_motive_tenant(
+    tenant_id: str, requested_by: str | None = None, *, full: bool = False,
+    queued_run_id: int | None = None,
+) -> dict[str, Any]:
     """Sincroniza un tenant. Debe ejecutarse fuera del request web mediante BackgroundTasks/worker."""
     from supabase_config import get_supabase_admin
 
@@ -641,18 +750,23 @@ def sync_motive_tenant(tenant_id: str, requested_by: str | None = None, *, full:
     if not integrations or integrations[0].get("status") == "inactive":
         raise RuntimeError("El tenant no tiene una integración Motive activa.")
     integration_id = int(integrations[0]["id"])
-    run_rows = sb.table("fleet_sync_runs").insert({
-        "integration_id": integration_id,
-        "tenant_id": tenant_id,
-        "requested_by": requested_by,
-        "sync_type": "full" if full else "incremental",
-        "status": "running",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "heartbeat_at": datetime.now(timezone.utc).isoformat(),
-    }).execute().data or []
-    if not run_rows:
-        raise RuntimeError("No fue posible iniciar la sincronización Motive.")
-    run_id = int(run_rows[0]["id"])
+    started = datetime.now(timezone.utc).isoformat()
+    if queued_run_id is None:
+        run_rows = sb.table("fleet_sync_runs").insert({
+            "integration_id": integration_id, "tenant_id": tenant_id,
+            "requested_by": requested_by, "sync_type": "full" if full else "incremental",
+            "status": "running", "started_at": started, "heartbeat_at": started,
+        }).execute().data or []
+        if not run_rows:
+            raise RuntimeError("No fue posible iniciar la sincronización Motive.")
+        run_id = int(run_rows[0]["id"])
+    else:
+        run_id = int(queued_run_id)
+        updated = sb.table("fleet_sync_runs").update({
+            "status": "running", "started_at": started, "heartbeat_at": started,
+        }).eq("id", run_id).eq("tenant_id", tenant_id).execute().data or []
+        if not updated:
+            raise RuntimeError("No fue posible activar la sincronización registrada.")
     datasets: dict[str, Any] = {}
 
     def pulse() -> None:
