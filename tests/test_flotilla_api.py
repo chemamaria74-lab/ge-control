@@ -143,3 +143,20 @@ def test_recent_sync_without_heartbeat_is_still_active():
     now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
     row = {"status": "queued", "started_at": (now - timedelta(minutes=2)).isoformat(), "heartbeat_at": None}
     assert flotilla._sync_is_stale(row, now=now) is False
+
+
+def test_incremental_button_dispatches_fast_safety_sync(monkeypatch):
+    sb = FakeSupabase({
+        "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],
+        "fleet_sync_runs": [],
+    })
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "tenant_id": "tenant-safe", "user_id": "user-1", "sb": sb,
+    })
+    monkeypatch.setattr(flotilla, "motive_is_configured", lambda: True)
+    monkeypatch.setattr(flotilla, "queue_motive_sync", lambda *args, **kwargs: 123)
+    tasks = BackgroundTasks()
+    result = flotilla.request_sync(tasks, full=False, authorization="Bearer x", x_flotilla_access="grant")
+    assert result["run_id"] == 123
+    assert len(tasks.tasks) == 1
+    assert tasks.tasks[0].func is flotilla.sync_motive_safety

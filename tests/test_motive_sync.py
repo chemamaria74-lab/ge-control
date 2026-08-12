@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
@@ -28,6 +29,18 @@ def test_updated_motive_event_wins_when_status_changes_to_dismissed():
     rows = _merge_motive_events([original], [updated])
     assert len(rows) == 1
     assert rows[0]["driver_performance_event"]["coaching_status"] == "dismissed"
+
+
+def test_fast_safety_sync_is_bounded_to_recent_event_window():
+    source = Path("services/motive_sync.py").read_text()
+    start = source.index("def sync_motive_safety")
+    end = source.index("def sync_motive_tenant", start)
+    fast_sync = source[start:end]
+    assert '"/v2/driver_performance_events"' in fast_sync
+    assert '"/v1/speeding_events"' in fast_sync
+    assert '"updated_after": event_start_date' in fast_sync
+    assert '"/v1/driving_periods"' not in fast_sync
+    assert '"/v1/fuel_purchases"' not in fast_sync
 
 
 def test_vehicle_normalizer_keeps_only_dashboard_fields():
