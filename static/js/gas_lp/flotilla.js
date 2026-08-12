@@ -90,6 +90,18 @@
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
   function notice(message,type=''){ const el=$('fleetNotice'); el.textContent=message||''; el.className=`fleet-notice${message?' show':''}${type?' '+type:''}`; }
   function setSync(kind,title,meta){ $('syncDot').className=`sync-dot ${kind||''}`; $('syncTitle').textContent=title; $('syncMeta').textContent=meta; }
+  function syncProgressText(sync){
+    const progress=sync?.datasets?.sync_progress||{}, phase=progress.phase||'Preparando actualización';
+    const done=Number(progress.pages_done||0), total=Number(progress.total_pages||0), records=Number(progress.records_seen||sync?.records_processed||0);
+    let remaining='Calculando tiempo restante…';
+    if(done>0&&total>=done&&sync?.started_at){
+      const elapsed=Math.max((Date.now()-new Date(sync.started_at).getTime())/1000,1);
+      const seconds=Math.max(Math.round((elapsed/done)*(total-done)),0);
+      remaining=seconds<60?`menos de 1 min restante`:`aprox. ${Math.ceil(seconds/60)} min restantes`;
+    }
+    const pages=total?` · página ${done} de ${total}`:(done?` · página ${done}`:'');
+    return `${phase}${pages} · ${fmt(records)} registros · ${remaining}`;
+  }
   function reportCacheBaseKey(){
     const identity=state.identity||{};
     const parts=[
@@ -150,7 +162,7 @@
     try{
       const data=await api(`/overview?${params()}`); const k=data.kpis||{};
       if(!data.configured) setSync('error','Motive sin configurar','Falta la clave API en el servidor.');
-      else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',`Registros revisados: ${fmt(data.sync.records_processed)} · los existentes se actualizan, no se duplican`);
+      else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',syncProgressText(data.sync));
       else if(data.sync?.status==='failed'&&data.sync?.error_code==='stale_worker') setSync('error','Actualización interrumpida','La actualización dejó de responder. Presiona “Actualizar desde Motive” para reintentar.');
       else if(data.connected) setSync('ok','Motive conectado',`Última actualización: ${dateText(data.integration.last_success_at)}`);
       else if(data.integration?.last_error_at) setSync('error','Conexión pendiente',`Último intento: ${dateText(data.integration.last_error_at)}`);
