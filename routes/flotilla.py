@@ -14,7 +14,8 @@ from fastapi.responses import StreamingResponse
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import MotiveAPIError, motive_is_configured
 from services.motive_sync import (
-    sync_motive_tenant, sync_vehicle_mileage_range, sync_vehicle_utilization_range,
+    queue_motive_sync, sync_motive_safety, sync_motive_tenant,
+    sync_vehicle_mileage_range, sync_vehicle_utilization_range,
 )
 from services.fleet_reports import (
     behavior_label, build_fleet_report, comparison_row, fleet_analytics,
@@ -509,8 +510,16 @@ def request_sync(
                 return {"accepted": False, "cooldown_seconds": int(remaining.total_seconds()), "last_success_at": integration["last_success_at"]}
         except ValueError:
             pass
-    background_tasks.add_task(sync_motive_tenant, ctx["tenant_id"], ctx["user_id"], full=full)
-    return {"accepted": True, "reused": False, "status": "scheduled"}
+    try:
+        run_id = queue_motive_sync(ctx["tenant_id"], ctx["user_id"], full=full)
+    except Exception as exc:
+        raise HTTPException(503, f"No fue posible programar la actualización: {str(exc)[:160]}") from exc
+    background_tasks.add_task(
+        sync_motive_tenant if full else sync_motive_safety,
+        ctx["tenant_id"],
+        **({"requested_by": ctx["user_id"], "full": True, "queued_run_id": run_id} if full else {"queued_run_id": run_id}),
+    )
+    return {"accepted": True, "reused": False, "status": "queued", "run_id": run_id}
 
 
 @router.get("/flotilla/sync/{run_id}")
