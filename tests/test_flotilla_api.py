@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +20,7 @@ class FakeQuery:
         self.calls = calls
 
     def select(self, value): self.calls.append(("select", value)); return self
+    def update(self, value): self.calls.append(("update", value)); return self
     def eq(self, key, value): self.calls.append(("eq", key, value)); return self
     def in_(self, key, value): self.calls.append(("in", key, value)); return self
     def order(self, key, **kwargs): self.calls.append(("order", key, kwargs)); return self
@@ -107,9 +108,10 @@ def test_vehicle_search_is_local_and_query_is_tenant_scoped(monkeypatch):
 
 
 def test_sync_reuses_active_run_and_does_not_schedule(monkeypatch):
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     sb = FakeSupabase({
         "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],
-        "fleet_sync_runs": [{"id": 99, "status": "running", "started_at": "2026-07-23T20:00:00Z"}],
+        "fleet_sync_runs": [{"id": 99, "status": "running", "started_at": recent}],
     })
     monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {"tenant_id": "tenant-safe", "user_id": "user-1", "sb": sb})
     monkeypatch.setattr(flotilla, "motive_is_configured", lambda: True)
@@ -128,3 +130,16 @@ def test_sync_status_is_tenant_scoped(monkeypatch):
     assert result["id"] == 12
     assert ("eq", "tenant_id", "tenant-safe") in sb.calls
     assert ("eq", "id", 12) in sb.calls
+
+
+def test_stale_sync_uses_started_at_when_heartbeat_is_missing():
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+    row = {"status": "running", "started_at": (now - timedelta(hours=24)).isoformat(), "heartbeat_at": None}
+    assert flotilla._sync_is_stale(row, now=now) is True
+    assert flotilla._visible_sync(row)["error_code"] == "stale_worker"
+
+
+def test_recent_sync_without_heartbeat_is_still_active():
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+    row = {"status": "queued", "started_at": (now - timedelta(minutes=2)).isoformat(), "heartbeat_at": None}
+    assert flotilla._sync_is_stale(row, now=now) is False
