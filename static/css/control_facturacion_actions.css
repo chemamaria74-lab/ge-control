@@ -1,0 +1,13 @@
+.row-btn.icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 1.05rem;
+}
+
+.row-btn.icon-action:focus-visible {
+  outline: 3px solid #7a1e2c33;
+  outline-offset: 2px;
+}
