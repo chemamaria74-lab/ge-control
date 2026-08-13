@@ -559,7 +559,7 @@ def test_supplier_payment_email_is_optional_for_reimbursements():
     assert "[x.legal_name,x.rfc,x.payment_email].filter(Boolean)" in script
 
 
-def test_recipients_and_concepts_have_search_edit_and_safe_disable_actions():
+def test_recipients_and_concepts_have_search_edit_and_real_delete_actions():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
@@ -569,7 +569,11 @@ def test_recipients_and_concepts_have_search_edit_and_safe_disable_actions():
     assert 'id="recipientSearch"' in html and 'id="recipientEditId"' in html
     assert "data-edit-recipient" in script and "data-disable-recipient" in script
     assert "function editRecipient" in script and "function toggleRecipient" in script
-    assert "data-disable-concept" in script and "function toggleConcept" in script
+    assert "data-delete-concept" in script and "function deleteConcept" in script
+    assert '@router.delete("/gastos/concepts/{concept_id}")' in route
+    assert '"gas_lp_expense_invoices", "gastos o facturas"' in route
+    assert '"gas_lp_expense_vouchers", "vales"' in route
+    assert '"gas_lp_expense_advances", "anticipos"' in route
     assert "status:row.status==='active'?'inactive':'active'" in script
 
 
@@ -619,8 +623,9 @@ def test_accounting_export_and_paid_view_make_payment_invoice_relationship_expli
 
     for header in (
         "ID DE PAGO", "FACTURA EN EL PAGO", "FOLIO DE FACTURA", "FECHA DE FACTURA",
-        "RAZÓN SOCIAL / DESTINATARIO", "MONTO DE LA FACTURA", "MONTO PAGADO",
-        "FECHA DE PAGO", "TOTAL TRANSFERIDO", "DIFERENCIA", "REFERENCIA", "CONCEPTO / NOTAS",
+        "CONCEPTO DE GASTO", "PROVEEDOR / EMISOR", "REEMBOLSADO A", "DESTINO DEL PAGO",
+        "MONTO DE LA FACTURA", "MONTO PAGADO", "FECHA DE PAGO", "TOTAL TRANSFERIDO",
+        "DIFERENCIA", "REFERENCIA", "NOTAS",
     ):
         assert header in route
     assert 'f"P-{payment[\'id\']}"' in route
@@ -628,6 +633,10 @@ def test_accounting_export_and_paid_view_make_payment_invoice_relationship_expli
         'def _legacy_export_expense_payments(', 1
     )[0]
     assert "Pago P-${esc(payment.id)}" in script
+    assert "Pago total · varias facturas" in script
+    assert 'title="Cambiar fecha de pago"' in script
+    assert 'title="Eliminar pago y regresar sus facturas a pendientes"' in script
+    assert 'title="Cambiar fecha de factura"' in script
     assert "Facturas incluidas en el pago P-${esc(payment.id)}" in script
     assert "$('exportPayments').hidden" not in script
     assert 'class="review-navigation"' in html
@@ -653,7 +662,7 @@ def test_paid_payments_allow_correcting_the_actual_payment_date():
     assert '@router.put("/gastos/payments/{payment_id}/paid-date")' in route
     assert '"payment_date_corrected"' in route
     assert "data-edit-payment-date" in script
-    assert "Editar fecha de pago" in script
+    assert 'title="Cambiar fecha de pago"' in script
     assert "correctPaymentDate" in script
 
 
@@ -670,9 +679,12 @@ def test_paid_view_has_visible_edit_and_safe_payment_reversal_actions():
 
     assert '@router.delete("/gastos/payments/{payment_id}")' in route
     assert '"deleted_payment_error"' in route
-    assert 'data-delete-payment' in script and 'Eliminar pago' in script
-    assert 'data-edit-paid-date' in script and 'Editar fecha' in script
+    assert 'data-delete-payment' in script and 'title="Eliminar pago y regresar sus facturas a pendientes"' in script
+    assert 'data-edit-paid-date' in script and 'title="Cambiar fecha de factura"' in script
     assert '.paid-edit-action' in css and '.paid-delete-action' in css
+    assert 'fa-circle-check"></i> Pagado' in script
+    assert 'fa-arrow-right-arrow-left"></i> En pagos' in script
+    assert "Las facturas y sus conceptos NO se borrarán" in script
 
 
 def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_balance():
