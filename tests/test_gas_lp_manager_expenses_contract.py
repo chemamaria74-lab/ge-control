@@ -645,6 +645,18 @@ def test_paid_invoices_allow_only_documentary_date_correction():
     assert "correctPaidDate" in script
 
 
+def test_paid_payments_allow_correcting_the_actual_payment_date():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert "class ExpensePaymentDateUpdate" in route
+    assert '@router.put("/gastos/payments/{payment_id}/paid-date")' in route
+    assert '"payment_date_corrected"' in route
+    assert "data-edit-payment-date" in script
+    assert "Editar fecha de pago" in script
+    assert "correctPaymentDate" in script
+
+
 def test_without_folio_is_not_treated_as_a_repeated_invoice_number():
     assert gastos_gas_lp._is_without_folio("S/F") is True
     assert gastos_gas_lp._is_without_folio("sin folio") is True

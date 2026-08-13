@@ -161,3 +161,14 @@ def test_transportista_permission_editor_distinguishes_edit_from_create():
     assert "title.textContent = 'Editar permiso CRE transportista'" in frontend
     assert "title.textContent = 'Nuevo permiso CRE transportista'" in frontend
     assert '>Ya desactivado</button>' in frontend
+
+
+def test_closed_control_volume_month_does_not_block_carta_ingreso_stamping():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    create_source = backend.split("async def crear_factura_servicio", 1)[1].split(
+        "@router.", 1
+    )[0]
+
+    assert "tr_covol_month_closures" not in create_source
+    assert "El mes ya está cerrado para estas Cartas Porte" not in create_source
+    assert "Carta Ingreso fiscal puede emitirse después del cierre" in create_source
