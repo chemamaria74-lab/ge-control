@@ -567,13 +567,17 @@ def test_recipients_and_concepts_have_search_edit_and_real_delete_actions():
     assert '@router.put("/gastos/reimbursement-recipients/{recipient_id}")' in route
     assert "class ReimbursementRecipientUpdate" in route
     assert 'id="recipientSearch"' in html and 'id="recipientEditId"' in html
-    assert "data-edit-recipient" in script and "data-disable-recipient" in script
-    assert "function editRecipient" in script and "function toggleRecipient" in script
+    assert "data-edit-recipient" in script and "data-delete-recipient" in script
+    assert "function editRecipient" in script and "function deleteCatalogItem" in script
     assert "data-delete-concept" in script and "function deleteConcept" in script
     assert '@router.delete("/gastos/concepts/{concept_id}")' in route
     assert '"gas_lp_expense_invoices", "gastos o facturas"' in route
     assert '"gas_lp_expense_vouchers", "vales"' in route
     assert '"gas_lp_expense_advances", "anticipos"' in route
+    assert '@router.delete("/gastos/suppliers/{supplier_id}")' in route
+    assert '@router.delete("/gastos/reimbursement-recipients/{recipient_id}")' in route
+    assert '@router.delete("/gastos/expense-zones/{zone_id}")' in route
+    assert "data-delete-supplier" in script and "data-delete-zone" in script
     assert "status:row.status==='active'?'inactive':'active'" in script
 
 
@@ -598,7 +602,9 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "> Por pagar</button>" not in html
     assert "['pending_review','accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
-    assert 'data-select-party' in script and '>Pagar</button>' in script
+    assert 'data-select-party' in script and '>Preparar pago</button>' in script
+    assert "Saldo a favor disponible" in script
+    assert "Se podrá usar cuando exista una factura pendiente" in script
     assert 'id="paymentModal"' in html and 'aria-modal="true"' in html
     assert 'data-select-all-party' in script
     assert 'id="paymentMethod" value="Transferencia" readonly' in html
