@@ -733,6 +733,35 @@ def update_concept(concept_id: int, payload: ConceptUpdate, token: str = Query(d
     return {"ok": True, "item": {**rows[0], **update}}
 
 
+@router.delete("/gastos/concepts/{concept_id}")
+def delete_concept(concept_id: int, token: str = Query(default=""), authorization: str = Header(default=""),
+                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Delete an unused concept; historical expense relations remain protected."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede eliminar conceptos.")
+    rows = _base_query(ctx, "gas_lp_expense_concepts").eq("id", concept_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Concepto no encontrado.")
+    usages = []
+    for table, label in (
+        ("gas_lp_expense_invoices", "gastos o facturas"),
+        ("gas_lp_expense_vouchers", "vales"),
+        ("gas_lp_expense_advances", "anticipos"),
+    ):
+        found = _base_query(ctx, table).select("id").eq("concept_id", concept_id).limit(1).execute().data or []
+        if found:
+            usages.append(label)
+    if usages:
+        raise HTTPException(409, "No se puede eliminar porque este concepto está usado en " + ", ".join(usages) + ".")
+    ctx["sb"].table("gas_lp_expense_concepts").delete().eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", concept_id).execute()
+    _audit(ctx, "concept", concept_id, "deleted", before=rows[0])
+    return {"ok": True, "deleted": True, "id": concept_id}
+
+
 @router.get("/gastos/suppliers")
 def list_suppliers(limit: int = Query(default=300, ge=1, le=500),
                    token: str = Query(default=""), authorization: str = Header(default=""),
@@ -1847,15 +1876,22 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
         by_payment[int(allocation["payment_id"])].append(allocation)
     suppliers = {int(row["id"]): row for row in (_base_query(ctx, "gas_lp_expense_suppliers").execute().data or [])}
     recipients = {int(row["id"]): row for row in (_base_query(ctx, "gas_lp_expense_recipients").execute().data or [])}
+    recipient_accounts = {int(row["id"]): row for row in (
+        _base_query(ctx, "gas_lp_expense_recipient_accounts").execute().data or []
+    )}
+    concepts = {int(row["id"]): row.get("name") or "Sin concepto" for row in (
+        _base_query(ctx, "gas_lp_expense_concepts").execute().data or []
+    )}
 
     wb = Workbook(); provider_ws = wb.active; provider_ws.title = "Pagos proveedores"
     reimbursement_ws = wb.create_sheet("Reembolsos"); summary_ws = wb.create_sheet("Resumen por destinatario")
     headers = ["ID DE PAGO", "FACTURA EN EL PAGO", "FOLIO DE FACTURA", "FECHA DE FACTURA",
-               "RAZÓN SOCIAL / DESTINATARIO", "MONTO DE LA FACTURA", "MONTO PAGADO",
-               "FECHA DE PAGO", "TOTAL TRANSFERIDO", "DIFERENCIA", "REFERENCIA", "CONCEPTO / NOTAS"]
-    green, burgundy, light_blue, thin = "A9D18E", "7A1E2C", "DDEBF7", Side(style="thin", color="E7E3DC")
+               "CONCEPTO DE GASTO", "PROVEEDOR / EMISOR", "REEMBOLSADO A", "DESTINO DEL PAGO",
+               "MONTO DE LA FACTURA", "MONTO PAGADO", "FECHA DE PAGO", "TOTAL TRANSFERIDO",
+               "DIFERENCIA", "REFERENCIA", "NOTAS"]
+    green, burgundy, thin = "A9D18E", "7A1E2C", Side(style="thin", color="E7E3DC")
     for worksheet in (provider_ws, reimbursement_ws):
-        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:L1"
+        worksheet.append(headers); worksheet.freeze_panes = "A2"; worksheet.auto_filter.ref = "A1:O1"
         for cell in worksheet[1]:
             cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=green)
             cell.alignment = Alignment(horizontal="center")
@@ -1864,10 +1900,20 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
         target = payment.get("payment_target") or "supplier"
         party = recipients.get(int(payment.get("reimbursement_recipient_id") or 0), {}) if target == "reimbursement" else suppliers.get(int(payment.get("supplier_id") or 0), {})
         party_name = party.get("name") or party.get("commercial_name") or "Sin destinatario"
+        account = recipient_accounts.get(int(payment.get("reimbursement_account_id") or 0), {}) if target == "reimbursement" else party
+        if target == "reimbursement":
+            destination = (f"Tarjeta •••• {account.get('card_last_four') or ''}"
+                           if account.get("account_type") == "credit_card"
+                           else " · ".join(filter(None, [account.get("bank_name"), account.get("account_number")])))
+        else:
+            destination = " · ".join(filter(None, [party.get("bank_name"), party.get("account_number")]))
         rows = by_payment.get(int(payment["id"]), [])
         worksheet = reimbursement_ws if target == "reimbursement" else provider_ws
         for index, allocation in enumerate(rows):
             invoice = invoices_by_id.get(int(allocation["invoice_id"]), {})
+            invoice_supplier = suppliers.get(int(invoice.get("supplier_id") or 0), {})
+            issuer_name = invoice_supplier.get("commercial_name") or invoice_supplier.get("legal_name") or "Sin proveedor"
+            concept_name = concepts.get(int(invoice.get("concept_id") or 0), "Sin concepto")
             applied = float(allocation.get("amount_mxn") or 0)
             notes = []
             if payment.get("notes"): notes.append(str(payment["notes"]))
@@ -1877,15 +1923,12 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
             difference = round(transferred - applied_payment, 2)
             worksheet.append([
                 f"P-{payment['id']}", f"{index + 1} de {len(rows)}", invoice.get("invoice_number") or "S/F",
-                invoice.get("invoice_date"), party_name, float(invoice.get("total_mxn") or 0), applied,
-                payment.get("paid_on"), transferred if index == 0 else None,
-                difference if index == 0 else None, payment.get("reference") or "",
-                " · ".join(dict.fromkeys(notes)),
+                invoice.get("invoice_date"), concept_name, issuer_name,
+                party_name if target == "reimbursement" else "", destination,
+                float(invoice.get("total_mxn") or 0), applied, payment.get("paid_on"),
+                transferred if index == 0 else None, difference if index == 0 else None,
+                payment.get("reference") or "", " · ".join(dict.fromkeys(notes)),
             ])
-            # Los folios de una sola transferencia comparten color para que
-            # contabilidad los reconozca como un único pago agrupado.
-            for cell in worksheet[worksheet.max_row]:
-                cell.fill = PatternFill("solid", fgColor=light_blue)
             bucket = totals[("Reembolso" if target == "reimbursement" else "Proveedor", party_name)]
             bucket["invoices"] += 1; bucket["payments"].add(int(payment["id"])); bucket["paid"] += applied
     for advance in advances:
@@ -1895,22 +1938,22 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
         applied = round(advance_applied[int(advance["id"])], 2)
         available = round(max(0, amount - applied), 2)
         provider_ws.append([
-            f"A-{advance['id']}", "ANTICIPO", "S/F", None, party_name, amount, amount,
-            advance.get("paid_on"), amount, 0, advance.get("reference") or "",
+            f"A-{advance['id']}", "ANTICIPO", "S/F", None,
+            concepts.get(int(advance.get("concept_id") or 0), "Anticipo"), party_name, "",
+            " · ".join(filter(None, [party.get("bank_name"), party.get("account_number")])),
+            amount, amount, advance.get("paid_on"), amount, 0, advance.get("reference") or "",
             f"ANTICIPO PAGADO · {'PENDIENTE DE FACTURA' if available > 0 else 'CON FACTURA'}"
             + (f" · {advance.get('description')}" if advance.get("description") else ""),
         ])
-        for cell in provider_ws[provider_ws.max_row]:
-            cell.fill = PatternFill("solid", fgColor=light_blue)
         bucket = totals[("Proveedor", party_name)]
         bucket["invoices"] += 0; bucket["payments"].add(f"A-{advance['id']}"); bucket["paid"] += amount
     for worksheet in (provider_ws, reimbursement_ws):
         for row in worksheet.iter_rows(min_row=2):
             for cell in row: cell.border = Border(bottom=thin)
-            row[3].number_format = 'dd/mm/yyyy'; row[5].number_format = '$#,##0.00'
-            row[6].number_format = '$#,##0.00'; row[7].number_format = 'dd/mm/yyyy'
-            row[8].number_format = '$#,##0.00'; row[9].number_format = '$#,##0.00'
-        for column, width in enumerate((14, 18, 20, 18, 38, 20, 18, 18, 20, 16, 24, 34), 1):
+            row[3].number_format = 'dd/mm/yyyy'; row[8].number_format = '$#,##0.00'
+            row[9].number_format = '$#,##0.00'; row[10].number_format = 'dd/mm/yyyy'
+            row[11].number_format = '$#,##0.00'; row[12].number_format = '$#,##0.00'
+        for column, width in enumerate((14, 18, 20, 18, 26, 34, 28, 32, 20, 18, 18, 20, 16, 24, 34), 1):
             worksheet.column_dimensions[get_column_letter(column)].width = width
     summary_ws.append(["TIPO", "PROVEEDOR O PERSONA", "FACTURAS", "TRANSFERENCIAS", "TOTAL PAGADO"])
     for cell in summary_ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=burgundy)
