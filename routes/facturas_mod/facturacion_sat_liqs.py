@@ -1003,33 +1003,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         cfdi_cancelados = []
     if cfdi_cancelados:
         raise HTTPException(400, f"Estas Cartas Porte están canceladas fiscalmente y no se pueden facturar: {sorted(set(cfdi_cancelados))}")
-    if perfil_factura:
-        cerrados = []
-        for v in viajes:
-            periodo_viaje = _fact_serv_trip_period(v)
-            permiso_viaje = _fact_serv_trip_permit(v)
-            if not periodo_viaje or not permiso_viaje:
-                continue
-            try:
-                cierre = (
-                    sb.table("tr_covol_month_closures")
-                    .select("id")
-                    .eq("user_id", uid)
-                    .eq("perfil_id", perfil_factura)
-                    .eq("periodo", periodo_viaje)
-                    .eq("num_permiso_cne", permiso_viaje)
-                    .eq("status", "cerrado")
-                    .limit(1)
-                    .execute()
-                    .data
-                    or []
-                )
-                if cierre:
-                    cerrados.append({"viaje": v.get("id"), "periodo": periodo_viaje, "permiso": permiso_viaje})
-            except Exception:
-                pass
-        if cerrados:
-            raise HTTPException(409, f"El mes ya está cerrado para estas Cartas Porte: {cerrados}")
+    # El cierre de Control Volumétrico conserva la fotografía mensual, pero no
+    # cancela ni vuelve infacturable una Carta Porte Traslado ya timbrada. Una
+    # Carta Ingreso fiscal puede emitirse después del cierre y aparecerá en la
+    # siguiente generación reproducible del reporte, sin reabrir el mes.
     try:
         ya_q = sb.table(_TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id").eq("user_id", uid).in_("viaje_id", payload.viaje_ids)
         if perfil_factura:
@@ -1980,7 +1957,7 @@ async def generar_covol_transporte(
     covol_settings = {
         **settings,
         "NumPermiso":          selected_permiso,
-        "ClaveInstalacion":    payload.clave_instalacion or settings.get("ClaveInstalacion") or clave_instalacion_default,
+        "ClaveInstalacion":    clave_instalacion_default,
         "DescripcionInstalacion": payload.descripcion_instalacion or settings.get("DescripcionInstalacion") or descripcion_instalacion_default,
         "ModalidadPermiso":    modalidad_permiso,
     }
