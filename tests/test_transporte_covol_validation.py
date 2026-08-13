@@ -135,12 +135,12 @@ def test_covol_report_uses_ingreso_issue_month_not_trip_dates():
     xml = b'''<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
       xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
       xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31"
-      TipoDeComprobante="I" Fecha="2026-06-30T23:59:00" Total="100">
+      TipoDeComprobante="I" Fecha="2026-08-01T10:00:00" Total="100">
       <cfdi:Complemento>
         <cartaporte31:CartaPorte IdCCP="CCC11111-2222-3333-4444-555555555555">
           <cartaporte31:Ubicaciones>
-            <cartaporte31:Ubicacion TipoUbicacion="Origen" FechaHoraSalidaLlegada="2026-07-01T01:00:00"/>
-            <cartaporte31:Ubicacion TipoUbicacion="Destino" FechaHoraSalidaLlegada="2026-07-01T02:00:00"/>
+            <cartaporte31:Ubicacion TipoUbicacion="Origen" FechaHoraSalidaLlegada="2026-07-30T01:00:00"/>
+            <cartaporte31:Ubicacion TipoUbicacion="Destino" FechaHoraSalidaLlegada="2026-07-30T02:00:00"/>
           </cartaporte31:Ubicaciones>
           <cartaporte31:Mercancias><cartaporte31:Mercancia BienesTransp="15101515" Descripcion="PREMIUM" Cantidad="1"/></cartaporte31:Mercancias>
         </cartaporte31:CartaPorte>
@@ -151,3 +151,44 @@ def test_covol_report_uses_ingreso_issue_month_not_trip_dates():
     assert transporte_v2._covol_movements_from_ingreso_xml(
         xml, "CI.xml", "2026-07", PETROL_PERMIT["permiso_cre"], PETROL_PERMIT,
     ) == []
+    august = transporte_v2._covol_movements_from_ingreso_xml(
+        xml, "CI.xml", "2026-08", PETROL_PERMIT["permiso_cre"], PETROL_PERMIT,
+    )
+    assert len(august) == 2
+    assert all(item["fecha_transaccion"].startswith("2026-08-01") for item in august)
+    assert august[0]["fecha_hora_salida"].startswith("2026-07-30")
+
+
+def test_covol_ingreso_lookup_keeps_august_invoice_linked_to_july_trip():
+    class Query:
+        def __init__(self, table):
+            self.table = table
+
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: self
+
+        def execute(self):
+            if self.table == transporte_v2.TBL_FACT_SERV:
+                data = [{
+                    "id": 90, "status": "timbrada", "uuid_carta_ingreso": UUID,
+                    "xml_content": "<xml/>", "metadata": {}, "viaje_ids": [],
+                    "cfdi_relacionados": [],
+                }]
+            elif self.table == transporte_v2.TBL_FACT_SERV_CARTAS:
+                data = [{"factura_servicio_id": 90, "viaje_id": 148}]
+            else:
+                data = [{
+                    "id": 148, "num_permiso_cne": PETROL_PERMIT["permiso_cre"],
+                    "metadata": {},
+                }]
+            return type("Response", (), {"data": data})()
+
+    class Supabase:
+        def table(self, name):
+            return Query(name)
+
+    invoices = transporte_v2._covol_ingreso_invoices_for_permit(
+        Supabase(), "user", 1, PETROL_PERMIT["permiso_cre"],
+    )
+    assert [row["id"] for row in invoices] == [90]
+    assert invoices[0]["_covol_viaje_ids"] == [148]
