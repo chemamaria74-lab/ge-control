@@ -204,6 +204,10 @@ class ExpensePaymentCreate(BaseModel):
     notes: str = Field(default="", max_length=500)
 
 
+class ExpensePaymentDateUpdate(BaseModel):
+    paid_on: date
+
+
 class ExpenseZoneCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
 
@@ -1697,6 +1701,58 @@ def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: 
         reverse=True,
     )
     return {"items": movements[:limit]}
+
+
+@router.put("/gastos/payments/{payment_id}/paid-date")
+def update_expense_payment_date(payment_id: int, payload: ExpensePaymentDateUpdate,
+                                token: str = Query(default=""),
+                                authorization: str = Header(default=""),
+                                x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                                x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    """Correct the payment date and keep linked invoices consistent."""
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede corregir la fecha de un pago.")
+    rows = _base_query(ctx, "gas_lp_expense_payments").eq("id", payment_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Pago no encontrado.")
+    payment = rows[0]
+    next_date = payload.paid_on.isoformat()
+    if str(payment.get("paid_on") or "")[:10] == next_date:
+        return {"ok": True, "item": payment, "unchanged": True}
+
+    allocations = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                   .select("invoice_id").eq("payment_id", payment_id).execute().data or [])
+    invoice_ids = sorted({int(row["invoice_id"]) for row in allocations})
+    update = {"paid_on": next_date, "updated_at": _now()}
+    ctx["sb"].table("gas_lp_expense_payments").update(update).eq(
+        "tenant_id", ctx["tenant_id"]
+    ).eq("profile_id", ctx["perfil_id"]).eq("id", payment_id).execute()
+
+    # paid_on on an invoice is derived from every linked payment/advance. This
+    # keeps partial payments correct after changing one payment's date.
+    for invoice_id in invoice_ids:
+        payment_links = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                         .select("payment_id").eq("invoice_id", invoice_id).execute().data or [])
+        payment_ids = sorted({int(row["payment_id"]) for row in payment_links})
+        linked_payments = (_base_query(ctx, "gas_lp_expense_payments")
+                           .select("id,paid_on").in_("id", payment_ids).execute().data or []) if payment_ids else []
+        advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                         .select("advance_id").eq("invoice_id", invoice_id).execute().data or [])
+        advance_ids = sorted({int(row["advance_id"]) for row in advance_links})
+        linked_advances = (_base_query(ctx, "gas_lp_expense_advances")
+                           .select("id,paid_on").in_("id", advance_ids).execute().data or []) if advance_ids else []
+        linked_dates = [str(row.get("paid_on") or "")[:10]
+                        for row in [*linked_payments, *linked_advances] if row.get("paid_on")]
+        ctx["sb"].table("gas_lp_expense_invoices").update({
+            "paid_on": max(linked_dates) if linked_dates else None,
+            "updated_at": _now(),
+        }).eq("tenant_id", ctx["tenant_id"]).eq("profile_id", ctx["perfil_id"]).eq(
+            "id", invoice_id
+        ).execute()
+
+    _audit(ctx, "payment", payment_id, "payment_date_corrected", before=payment, after={**payment, **update})
+    return {"ok": True, "item": {**payment, **update}, "updated_invoice_ids": invoice_ids}
 
 
 @router.delete("/gastos/payments/{payment_id}")
