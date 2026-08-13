@@ -846,6 +846,35 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
     return {"ok": True, "item": {**before, **update}}
 
 
+@router.delete("/gastos/suppliers/{supplier_id}")
+def delete_supplier(supplier_id: int, token: str = Query(default=""), authorization: str = Header(default=""),
+                    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                    x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede eliminar proveedores.")
+    rows = _base_query(ctx, "gas_lp_expense_suppliers").eq("id", supplier_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Proveedor no encontrado.")
+    usages = []
+    for table, label in (
+        ("gas_lp_expense_invoices", "gastos o facturas"),
+        ("gas_lp_expense_vouchers", "vales"),
+        ("gas_lp_expense_advances", "anticipos"),
+        ("gas_lp_expense_payments", "pagos"),
+    ):
+        found = _base_query(ctx, table).select("id").eq("supplier_id", supplier_id).limit(1).execute().data or []
+        if found:
+            usages.append(label)
+    if usages:
+        raise HTTPException(409, "No se puede eliminar porque este proveedor está usado en " + ", ".join(usages) + ".")
+    ctx["sb"].table("gas_lp_expense_suppliers").delete().eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", supplier_id).execute()
+    _audit(ctx, "supplier", supplier_id, "deleted", before=rows[0])
+    return {"ok": True, "deleted": True, "id": supplier_id}
+
+
 @router.get("/gastos/reimbursement-recipients")
 def list_reimbursement_recipients(limit: int = Query(default=300, ge=1, le=500),
                                   token: str = Query(default=""), authorization: str = Header(default=""),
@@ -915,6 +944,32 @@ def update_reimbursement_recipient(recipient_id: int, payload: ReimbursementReci
     return {"ok": True, "item": {**rows[0], **update}}
 
 
+@router.delete("/gastos/reimbursement-recipients/{recipient_id}")
+def delete_reimbursement_recipient(recipient_id: int, token: str = Query(default=""),
+                                   authorization: str = Header(default=""),
+                                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede eliminar personas para reembolso.")
+    rows = _base_query(ctx, "gas_lp_expense_recipients").eq("id", recipient_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Persona no encontrada.")
+    usages = []
+    for table, label in (("gas_lp_expense_invoices", "gastos o facturas"), ("gas_lp_expense_payments", "pagos")):
+        found = (_base_query(ctx, table).select("id").eq("reimbursement_recipient_id", recipient_id)
+                 .limit(1).execute().data or [])
+        if found:
+            usages.append(label)
+    if usages:
+        raise HTTPException(409, "No se puede eliminar porque esta persona está usada en " + ", ".join(usages) + ".")
+    ctx["sb"].table("gas_lp_expense_recipients").delete().eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", recipient_id).execute()
+    _audit(ctx, "reimbursement_recipient", recipient_id, "deleted", before=rows[0])
+    return {"ok": True, "deleted": True, "id": recipient_id}
+
+
 @router.get("/gastos/expense-zones")
 def list_expense_zones(token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
@@ -966,6 +1021,30 @@ def update_expense_zone(zone_id: int, payload: ExpenseZoneUpdate, token: str = Q
     ).eq("id", zone_id).execute()
     _audit(ctx, "expense_zone", zone_id, "updated", before=rows[0], after=update)
     return {"ok": True, "item": {**rows[0], **update}}
+
+
+@router.delete("/gastos/expense-zones/{zone_id}")
+def delete_expense_zone(zone_id: int, token: str = Query(default=""), authorization: str = Header(default=""),
+                        x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                        x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Solo Gastos y pagos puede eliminar zonas internas.")
+    rows = _base_query(ctx, "gas_lp_expense_zones").eq("id", zone_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Zona no encontrada.")
+    usages = []
+    for table, label in (("gas_lp_expense_invoices", "gastos o facturas"), ("gas_lp_expense_advances", "anticipos")):
+        found = _base_query(ctx, table).select("id").eq("expense_zone_id", zone_id).limit(1).execute().data or []
+        if found:
+            usages.append(label)
+    if usages:
+        raise HTTPException(409, "No se puede eliminar porque esta zona está usada en " + ", ".join(usages) + ".")
+    ctx["sb"].table("gas_lp_expense_zones").delete().eq("tenant_id", ctx["tenant_id"]).eq(
+        "profile_id", ctx["perfil_id"]
+    ).eq("id", zone_id).execute()
+    _audit(ctx, "expense_zone", zone_id, "deleted", before=rows[0])
+    return {"ok": True, "deleted": True, "id": zone_id}
 
 
 @router.get("/gastos/vouchers")

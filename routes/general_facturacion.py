@@ -226,6 +226,14 @@ class ScheduleRequest(BaseModel):
     email_destino: Optional[EmailStr] = None
 
 
+class ScheduleUpdate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+    dia_mes: int = Field(ge=1, le=28)
+    hora_local: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
+    email_destino: Optional[EmailStr] = None
+
+
 @router.get("/programaciones")
 async def listar_programaciones(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
@@ -258,6 +266,20 @@ async def crear_programacion(payload: ScheduleRequest, authorization: str = Head
     if not row:
         raise HTTPException(500, "No se pudo guardar la programación.")
     return {"ok": True, "programacion": row}
+
+
+@router.put("/programaciones/{programacion_id}")
+async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _scope_required(authorization, x_perfil_id)
+    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
+    if not schedule:
+        raise HTTPException(404, "Programación no encontrada.")
+    values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or "")}
+    values["proxima_ejecucion_at"] = next_execution(values, after=datetime.now(timezone.utc)).isoformat()
+    if not _sb_update(PROGRAMACIONES, programacion_id, scope, values):
+        raise HTTPException(404, "Programación no encontrada.")
+    return {"ok": True, "programacion": {**schedule, **values}}
 
 
 @router.patch("/programaciones/{programacion_id}/estado")
