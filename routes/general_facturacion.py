@@ -2,14 +2,16 @@ from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Header, HTTPException, Response
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 from services.sw_sapien import emitir_timbrar_json
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
-from services.general_schedule_worker import cfdi_for_execution, next_execution
+from services.general_schedule_worker import (acquire_general_stamp_slot, execute_schedule, next_execution,
+                                                reserve_general_folio, selected_general_logo)
+from supabase_config import get_supabase_admin
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_insert, _sb_list, _sb_update
 
 router = APIRouter(prefix="/general-facturacion", tags=["Facturación general"])
@@ -31,6 +33,19 @@ class FiscalConfig(BaseModel):
     forma_pago_default: str = Field(default="99", pattern=r"^\d{2}$")
     metodo_pago_default: str = Field(default="PPD", pattern=r"^(PUE|PPD)$")
     email_envio: Optional[EmailStr] = None
+    logo_data_url: str = Field(default="", max_length=500_000)
+    logo_1_nombre: str = Field(default="Principal", min_length=1, max_length=60)
+    logo_1_data_url: str = Field(default="", max_length=500_000)
+    logo_2_nombre: str = Field(default="Alternativo", min_length=1, max_length=60)
+    logo_2_data_url: str = Field(default="", max_length=500_000)
+
+    @field_validator("logo_data_url", "logo_1_data_url", "logo_2_data_url")
+    @classmethod
+    def validate_logo_data_url(cls, value: str) -> str:
+        value = str(value or "").strip()
+        if value and not value.startswith(("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,")):
+            raise ValueError("El logo debe ser PNG, JPG o WebP.")
+        return value
 
 
 class GeneralCliente(BaseModel):
@@ -163,6 +178,7 @@ async def preparar_factura_general(payload: GeneralCfdiRequest):
 class StampRequest(BaseModel):
     factura: GeneralCfdiRequest
     idempotency_key: str = Field(min_length=8, max_length=120)
+    logo_slot: int = Field(default=1, ge=1, le=2)
 
 
 @router.post("/facturas/timbrar")
@@ -179,16 +195,36 @@ async def timbrar_factura_general(
     if previous:
         return {"ok": previous.get("status") == "timbrada", "reused": True, "factura": previous}
 
+    sb = get_supabase_admin()
+    stamp_slot = acquire_general_stamp_slot(
+        sb, tenant_id=scope["tenant_id"], perfil_id=scope["perfil_id"]
+    )
+    if not stamp_slot.get("adquirido"):
+        raise HTTPException(409, {
+            "message": "Hay otra factura de esta empresa en turno. Intenta nuevamente después de la hora indicada.",
+            "retry_at": stamp_slot.get("proximo_timbrado_at"),
+        })
+
+    cfdi = reserve_general_folio(
+        sb,
+        tenant_id=scope["tenant_id"],
+        perfil_id=scope["perfil_id"],
+        cfdi=cfdi,
+    )
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    logo_name, logo_data = selected_general_logo(config, payload.logo_slot)
+
     result = emitir_timbrar_json(cfdi)
     if not result.get("ok"):
         row = _sb_insert(FACTURAS, _scope_row(scope, {
             "status": "rechazada",
             "idempotency_key": payload.idempotency_key,
             "tipo_comprobante": payload.factura.tipo_comprobante,
-            "serie": payload.factura.serie or "",
-            "folio": payload.factura.folio or "",
+            "serie": cfdi.get("Serie") or "",
+            "folio": cfdi.get("Folio") or "",
             "cfdi_json": cfdi,
             "pac_response": result.get("pac_response") or {"error": result.get("error")},
+            "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
         }))
         raise HTTPException(422, {"message": result.get("error") or "SW Sapien rechazó el CFDI.", "factura": row})
 
@@ -197,13 +233,14 @@ async def timbrar_factura_general(
         "status": "timbrada",
         "idempotency_key": payload.idempotency_key,
         "tipo_comprobante": payload.factura.tipo_comprobante,
-        "serie": payload.factura.serie or "",
-        "folio": payload.factura.folio or "",
+        "serie": cfdi.get("Serie") or "",
+        "folio": cfdi.get("Folio") or "",
         "uuid_sat": data.get("uuid") or "",
         "xml_content": data.get("cfdi") or "",
         "pdf_url": data.get("pdfUrl") or "",
         "cfdi_json": cfdi,
         "pac_response": result.get("raw") or {},
+        "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
     }))
     if not row:
         raise HTTPException(500, "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado.")
@@ -217,6 +254,18 @@ async def listar_facturas_generales(authorization: str = Header(default=""), x_p
     return {"ok": True, "facturas": rows}
 
 
+@router.get("/facturas/{factura_id}/pdf")
+async def descargar_pdf_factura_general(factura_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _scope_required(authorization, x_perfil_id)
+    factura = next((row for row in _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True)
+                    if int(row.get("id") or 0) == factura_id), None)
+    if not factura or not factura.get("xml_content"):
+        raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
+    pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""))
+    filename = f"factura_{factura.get('uuid_sat') or factura_id}.pdf"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 class ScheduleRequest(BaseModel):
     nombre: str = Field(min_length=1, max_length=120)
     dia_mes: int = Field(ge=1, le=28)
@@ -224,6 +273,7 @@ class ScheduleRequest(BaseModel):
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
     factura: GeneralCfdiRequest
     email_destino: Optional[EmailStr] = None
+    logo_slot: int = Field(default=1, ge=1, le=2)
 
 
 class ScheduleUpdate(BaseModel):
@@ -232,12 +282,20 @@ class ScheduleUpdate(BaseModel):
     hora_local: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
     email_destino: Optional[EmailStr] = None
+    logo_slot: int = Field(default=1, ge=1, le=2)
 
 
 @router.get("/programaciones")
 async def listar_programaciones(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    return {"ok": True, "programaciones": _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)}
+    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
+    latest_by_schedule = {}
+    for execution in executions:
+        latest_by_schedule.setdefault(str(execution.get("programacion_id")), execution)
+    for schedule in schedules:
+        schedule["ultima_ejecucion"] = latest_by_schedule.get(str(schedule.get("id")))
+    return {"ok": True, "programaciones": schedules}
 
 
 @router.post("/programaciones")
@@ -258,6 +316,7 @@ async def crear_programacion(payload: ScheduleRequest, authorization: str = Head
         "payload_json": cfdi,
         "email_destino": email_destino,
         "status": "activa",
+        "logo_slot": payload.logo_slot,
     }
     schedule_values["proxima_ejecucion_at"] = next_execution(
         schedule_values, after=datetime.now(timezone.utc)
@@ -275,7 +334,7 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
     schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
     if not schedule:
         raise HTTPException(404, "Programación no encontrada.")
-    values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or "")}
+    values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or ""), "logo_slot": payload.logo_slot}
     values["proxima_ejecucion_at"] = next_execution(values, after=datetime.now(timezone.utc)).isoformat()
     if not _sb_update(PROGRAMACIONES, programacion_id, scope, values):
         raise HTTPException(404, "Programación no encontrada.")
@@ -309,36 +368,11 @@ async def ejecutar_programacion(
         raise HTTPException(404, "Programación no encontrada.")
     if schedule.get("status") != "activa":
         raise HTTPException(409, "La programación no está activa.")
-    executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
-    previous = next((row for row in executions if int(row.get("programacion_id") or 0) == programacion_id and row.get("periodo") == periodo), None)
-    if previous:
-        return {"ok": previous.get("status") == "completada", "reused": True, "ejecucion": previous}
-
     execution_now = datetime.now(timezone.utc)
-    cfdi = cfdi_for_execution(schedule, now=execution_now)
-    result = emitir_timbrar_json(cfdi)
+    actual_period = execution_now.astimezone(__import__("zoneinfo").ZoneInfo(schedule.get("timezone") or "America/Mexico_City")).strftime("%Y-%m")
+    if periodo != actual_period:
+        raise HTTPException(422, "La ejecución manual solo permite el periodo actual.")
+    result = execute_schedule(schedule, now=execution_now)
     if not result.get("ok"):
-        execution = _sb_insert(EJECUCIONES, _scope_row(scope, {"programacion_id": programacion_id, "periodo": periodo, "status": "rechazada", "error": result.get("error") or "SW Sapien rechazó el CFDI.", "email_delivery": {}}))
-        _sb_update(PROGRAMACIONES, programacion_id, scope, {
-            "ultima_ejecucion_at": execution_now.isoformat(),
-            "proxima_ejecucion_at": next_execution(schedule, after=execution_now).isoformat(),
-        })
-        raise HTTPException(422, {"message": result.get("error") or "SW Sapien rechazó el CFDI.", "ejecucion": execution})
-
-    data = result.get("data") or {}
-    factura = _sb_insert(FACTURAS, _scope_row(scope, {"status": "timbrada", "idempotency_key": f"programacion:{programacion_id}:{periodo}", "tipo_comprobante": cfdi.get("TipoDeComprobante") or "I", "serie": cfdi.get("Serie") or "", "folio": cfdi.get("Folio") or "", "uuid_sat": data.get("uuid") or "", "xml_content": data.get("cfdi") or "", "pdf_url": data.get("pdfUrl") or "", "cfdi_json": cfdi, "pac_response": result.get("raw") or {}}))
-    email = {"ok": False, "skipped": True, "error": "Sin XML timbrado."}
-    if data.get("cfdi"):
-        try:
-            pdf = generar_pdf_ingreso_desde_xml(data["cfdi"])
-            delivery = send_gas_lp_invoice_email(to_email=schedule.get("email_destino"), issuer_name=(cfdi.get("Emisor") or {}).get("Nombre") or "Empresa", customer_name=(cfdi.get("Receptor") or {}).get("Nombre") or "Cliente", uuid_sat=data.get("uuid") or "", total=cfdi.get("Total") or "0", xml_content=data["cfdi"], pdf_bytes=pdf, pdf_filename=f"factura_{data.get('uuid') or programacion_id}.pdf", serie_folio=f"{cfdi.get('Serie') or ''}{cfdi.get('Folio') or ''}")
-            email = delivery.as_metadata()
-        except Exception as exc:
-            email = {"ok": False, "skipped": False, "error": str(exc)[:500]}
-    execution = _sb_insert(EJECUCIONES, _scope_row(scope, {"programacion_id": programacion_id, "periodo": periodo, "status": "completada", "factura_id": factura.get("id") if factura else None, "email_delivery": email, "error": ""}))
-    _sb_update(PROGRAMACIONES, programacion_id, scope, {
-        "payload_json": cfdi,
-        "ultima_ejecucion_at": execution_now.isoformat(),
-        "proxima_ejecucion_at": next_execution(schedule, after=execution_now).isoformat(),
-    })
-    return {"ok": True, "reused": False, "factura": factura, "ejecucion": execution, "email_delivery": email}
+        raise HTTPException(422, {"message": result.get("error") or "La programación no pudo completarse.", "ejecucion": result.get("ejecucion")})
+    return result
