@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
-from services.general_schedule_worker import cfdi_for_execution, next_execution
+from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, next_execution,
+                                                reserve_general_folio, selected_general_logo)
 
 
 def schedule(**overrides):
     value = {
+        "id": 42,
         "dia_mes": 5,
         "hora_local": "09:00",
         "timezone": "America/Mexico_City",
@@ -18,7 +20,60 @@ def test_refreshes_cfdi_date_without_mutating_template():
     original = schedule()
     result = cfdi_for_execution(original, now=datetime(2026, 10, 5, 15, 3, tzinfo=timezone.utc))
     assert result["Fecha"] == "2026-10-05T09:03:00"
+    assert "Folio" not in result
     assert original["payload_json"]["Fecha"] == "2026-09-05T09:00:00"
+
+
+def test_preserves_explicit_folio():
+    result = cfdi_for_execution(schedule(payload_json={"Folio": "F123"}), now=datetime(2026, 10, 5, 15, 3, tzinfo=timezone.utc))
+    assert result["Folio"] == "F123"
+
+
+def test_reserves_simple_company_folio():
+    class Response:
+        data = [{"serie": "A", "folio": 1}]
+
+    class Supabase:
+        def rpc(self, name, params):
+            assert name == "general_facturacion_reservar_folio"
+            assert params == {"p_tenant_id": "tenant", "p_perfil_id": 7, "p_serie": "A"}
+            return self
+
+        def execute(self):
+            return Response()
+
+    cfdi = reserve_general_folio(
+        Supabase(), tenant_id="tenant", perfil_id=7, cfdi={"Serie": "a", "Total": "10.00"}
+    )
+    assert cfdi["Serie"] == "A"
+    assert cfdi["Folio"] == "01"
+
+
+def test_does_not_consume_sequence_for_explicit_folio():
+    cfdi = {"Serie": "F", "Folio": "99"}
+    assert reserve_general_folio(None, tenant_id="tenant", perfil_id=7, cfdi=cfdi) is cfdi
+
+
+def test_acquires_exclusive_company_stamp_slot():
+    class Response:
+        data = [{"adquirido": True, "proximo_timbrado_at": "2026-08-14T21:05:00Z"}]
+
+    class Supabase:
+        def rpc(self, name, params):
+            assert name == "general_facturacion_adquirir_turno"
+            assert params["p_espera_segundos"] == 300
+            return self
+
+        def execute(self):
+            return Response()
+
+    assert acquire_general_stamp_slot(Supabase(), tenant_id="tenant", perfil_id=7)["adquirido"] is True
+
+
+def test_selects_each_named_company_logo_and_legacy_fallback():
+    config = {"logo_data_url": "legacy", "logo_1_nombre": "Gas", "logo_2_nombre": "Consultoría", "logo_2_data_url": "second"}
+    assert selected_general_logo(config, 1) == ("Gas", "legacy")
+    assert selected_general_logo(config, 2) == ("Consultoría", "second")
 
 
 def test_next_execution_moves_to_following_month_after_due_time():
