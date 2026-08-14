@@ -4,6 +4,9 @@
   const TIMEOUT_MS = 2 * 60 * 60 * 1000;
   const LAST_ACTIVITY_PREFIX = 'ge_session_last_activity:';
   const SESSION_EXPIRED_REASON = 'session_expired';
+  const REFRESH_LOCK_NAME = 'ge-session-refresh';
+  const REFRESH_CHANNEL_NAME = 'ge-session-refresh-events';
+  const REFRESH_TIMEOUT_MS = 10 * 1000;
   const AUTH_KEYS = [
     'sat_token', 'zc_token', 'sat_user_id', 'sat_email', 'sat_role',
     'sat_assigned_perfil_id', 'sat_modulo', 'trv2_user', 'zc_perfil',
@@ -15,6 +18,9 @@
   let redirecting = false;
   let authValidation = null;
   let refreshPromise = null;
+  const refreshChannel = typeof BroadcastChannel === 'function'
+    ? new BroadcastChannel(REFRESH_CHANNEL_NAME)
+    : null;
 
   function portal() {
     const path = location.pathname;
@@ -173,26 +179,59 @@
   // Convierte respuestas de autenticación vencida en una salida clara. Un 403 es
   // un problema de permisos y deliberadamente no cierra una sesión válida.
   const nativeFetch = window.fetch.bind(window);
-  async function refreshAccessToken() {
-    if (refreshPromise) return refreshPromise;
-    refreshPromise = nativeFetch('/api/auth/refresh', {
+  function applyRefreshedToken(token, broadcast = false) {
+    token = String(token || '');
+    if (!token) return '';
+    const currentPortal = portal();
+    currentPortal.tokenKeys.forEach(key => {
+      if (localStorage.getItem(key)) localStorage.setItem(key, token);
+    });
+    if (currentPortal.tokenKeys.includes('sat_token')) localStorage.setItem('sat_token', token);
+    window.dispatchEvent(new CustomEvent('ge:token-refreshed', {detail: {token}}));
+    markActivity(true);
+    if (broadcast && refreshChannel) refreshChannel.postMessage({type: 'token', token});
+    return token;
+  }
+
+  if (refreshChannel) {
+    refreshChannel.addEventListener('message', event => {
+      if (event.data?.type === 'token') applyRefreshedToken(event.data.token);
+    });
+  }
+
+  async function requestFreshToken() {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS) : null;
+    return nativeFetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'same-origin',
       cache: 'no-store',
+      ...(controller ? {signal: controller.signal} : {}),
     }).then(async response => {
       if (!response.ok) return '';
       const data = await response.json();
-      const token = String(data.token || '');
-      if (!token) return '';
-      const currentPortal = portal();
-      currentPortal.tokenKeys.forEach(key => {
-        if (localStorage.getItem(key)) localStorage.setItem(key, token);
-      });
-      if (currentPortal.tokenKeys.includes('sat_token')) localStorage.setItem('sat_token', token);
-      window.dispatchEvent(new CustomEvent('ge:token-refreshed', {detail: {token}}));
-      markActivity(true);
-      return token;
+      return applyRefreshedToken(data.token, true);
     }).catch(() => '')
+      .finally(() => { if (timeout) clearTimeout(timeout); });
+  }
+
+  async function coordinatedRefresh() {
+    const tokenBeforeWaiting = activeToken();
+    if (!navigator.locks?.request) return requestFreshToken();
+    return navigator.locks.request(REFRESH_LOCK_NAME, {mode: 'exclusive'}, async () => {
+      // Otra pestaña pudo renovar mientras ésta esperaba el bloqueo. En ese
+      // caso se reutiliza el JWT compartido y no se rota otra vez la cookie.
+      const tokenAfterWaiting = activeToken();
+      if (tokenAfterWaiting && tokenAfterWaiting !== tokenBeforeWaiting) {
+        return applyRefreshedToken(tokenAfterWaiting);
+      }
+      return requestFreshToken();
+    });
+  }
+
+  async function refreshAccessToken() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = coordinatedRefresh()
       .finally(() => { refreshPromise = null; });
     return refreshPromise;
   }
