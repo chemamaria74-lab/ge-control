@@ -6,13 +6,14 @@ from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
-from services.sw_sapien import emitir_timbrar_json
+from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
+from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import send_gas_lp_invoice_email
-from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
+from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
 from services.general_schedule_worker import (acquire_general_stamp_slot, execute_schedule, next_execution,
                                                 reserve_general_folio, selected_general_logo)
 from supabase_config import get_supabase_admin
-from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_insert, _sb_list, _sb_update
+from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_get, _sb_insert, _sb_list, _sb_query, _sb_update
 
 router = APIRouter(prefix="/general-facturacion", tags=["Facturación general"])
 
@@ -22,6 +23,8 @@ PRODUCTOS = "general_facturacion_productos"
 FACTURAS = "general_facturas"
 PROGRAMACIONES = "general_facturacion_programaciones"
 EJECUCIONES = "general_facturacion_ejecuciones"
+COMPLEMENTOS = "general_facturacion_complementos_pago"
+COMPLEMENTO_FACTURAS = "general_facturacion_complementos_facturas"
 
 
 class FiscalConfig(BaseModel):
@@ -55,6 +58,8 @@ class GeneralCliente(BaseModel):
     regimen_fiscal: str = Field(pattern=r"^\d{3}$")
     uso_cfdi: str = Field(pattern=r"^[A-Z0-9]{3}$")
     email: Optional[EmailStr] = None
+    retencion_isr: bool = False
+    retencion_isr_tasa: Decimal = Field(default=Decimal("0.0125"), ge=0, le=1)
 
 
 class GeneralProducto(BaseModel):
@@ -65,6 +70,32 @@ class GeneralProducto(BaseModel):
     valor_unitario: Decimal = Field(ge=0)
     iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     objeto_imp: str = Field(default="02", pattern=r"^(01|02|03|04)$")
+    precio_incluye_iva: bool = False
+
+
+class PaymentStatusUpdate(BaseModel):
+    estado_pago: str = Field(pattern=r"^(pendiente|pagada)$")
+    fecha_pago: Optional[datetime] = None
+
+
+class DueDateUpdate(BaseModel):
+    fecha_vencimiento: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class ComplementInvoice(BaseModel):
+    factura_id: int
+    monto: Decimal = Field(gt=0)
+
+
+class PaymentComplementRequest(BaseModel):
+    fecha_pago: datetime
+    forma_pago: str = Field(default="03", pattern=r"^\d{2}$")
+    facturas: list[ComplementInvoice] = Field(min_length=1)
+
+
+class CancelGeneralRequest(BaseModel):
+    motivo: str = Field(default="02", pattern=r"^(01|02|03|04)$")
+    uuid_sustitucion: str = ""
 
 
 def _scope_required(authorization: str, x_perfil_id: str) -> dict:
@@ -241,6 +272,9 @@ async def timbrar_factura_general(
         "cfdi_json": cfdi,
         "pac_response": result.get("raw") or {},
         "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
+        "estado_pago": "pagada" if payload.factura.metodo_pago == "PUE" else "pendiente",
+        "fecha_pago": datetime.now(timezone.utc).isoformat() if payload.factura.metodo_pago == "PUE" else None,
+        "saldo_pendiente": 0 if payload.factura.metodo_pago == "PUE" else Decimal(str(cfdi.get("Total") or 0)),
     }))
     if not row:
         raise HTTPException(500, "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado.")
@@ -250,20 +284,143 @@ async def timbrar_factura_general(
 @router.get("/facturas")
 async def listar_facturas_generales(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    rows = _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True)
+    rows = (_sb_query(
+        FACTURAS, scope,
+        "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status"
+    ).order("created_at", desc=True).execute().data or [])
     return {"ok": True, "facturas": rows}
+
+
+@router.patch("/facturas/{factura_id}/pago")
+async def actualizar_pago_factura(
+    factura_id: int,
+    payload: PaymentStatusUpdate,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Actualiza sólo el control administrativo de cobro; no cambia el CFDI ante el SAT."""
+    scope = _scope_required(authorization, x_perfil_id)
+    factura = _sb_get(FACTURAS, factura_id, scope)
+    if not factura:
+        raise HTTPException(404, "Factura no encontrada.")
+    total = Decimal(str(((factura.get("cfdi_json") or {}).get("Total") or 0)))
+    values = {
+        "estado_pago": payload.estado_pago,
+        "fecha_pago": (
+            (payload.fecha_pago or datetime.now(timezone.utc)).isoformat()
+            if payload.estado_pago == "pagada" else None
+        ),
+        "saldo_pendiente": Decimal("0") if payload.estado_pago == "pagada" else total,
+    }
+    if not _sb_update(FACTURAS, factura_id, scope, values):
+        raise HTTPException(404, "Factura no encontrada.")
+    return {"ok": True, "factura_id": factura_id, **values}
+
+
+@router.patch("/facturas/{factura_id}/vencimiento")
+async def actualizar_vencimiento(factura_id: int, payload: DueDateUpdate, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _scope_required(authorization, x_perfil_id)
+    if not _sb_update(FACTURAS, factura_id, scope, {"fecha_vencimiento": payload.fecha_vencimiento}):
+        raise HTTPException(404, "Factura no encontrada.")
+    return {"ok": True, "factura_id": factura_id, "fecha_vencimiento": payload.fecha_vencimiento}
 
 
 @router.get("/facturas/{factura_id}/pdf")
 async def descargar_pdf_factura_general(factura_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    factura = next((row for row in _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True)
-                    if int(row.get("id") or 0) == factura_id), None)
+    factura = _sb_get(FACTURAS, factura_id, scope)
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
     pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""))
     filename = f"factura_{factura.get('uuid_sat') or factura_id}.pdf"
-    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, max-age=300"})
+
+
+@router.get("/facturas/{factura_id}/xml")
+async def descargar_xml_factura_general(factura_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    factura = _sb_get(FACTURAS, factura_id, _scope_required(authorization, x_perfil_id))
+    if not factura or not factura.get("xml_content"):
+        raise HTTPException(404, "El XML timbrado no está disponible.")
+    filename = f"factura_{factura.get('uuid_sat') or factura_id}.xml"
+    return Response(str(factura["xml_content"]), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, max-age=300"})
+
+
+@router.post("/facturas/{factura_id}/cancelar")
+async def cancelar_factura_general(factura_id: int, payload: CancelGeneralRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _scope_required(authorization, x_perfil_id)
+    factura = _sb_get(FACTURAS, factura_id, scope)
+    if not factura:
+        raise HTTPException(404, "Factura no encontrada.")
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    result = cancel_cfdi_universal(sb=get_supabase_admin(), module="general_facturacion", invoice_table=FACTURAS, invoice_id=factura_id, uuid_sat=factura.get("uuid_sat") or "", rfc_emisor=config.get("rfc") or "", motivo=payload.motivo, uuid_sustitucion=payload.uuid_sustitucion, user_id=scope["user_id"], perfil_id=scope.get("perfil_id"), tenant_id=scope.get("tenant_id"), requested_by=scope["user_id"])
+    values = {"status": "cancelada", "cancelacion_status": result.get("status") or "Cancelada", "cancelacion_resultado": result}
+    _sb_update(FACTURAS, factura_id, scope, values)
+    return {"ok": True, **values}
+
+
+@router.get("/complementos-pago")
+async def listar_complementos_pago(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _scope_required(authorization, x_perfil_id)
+    rows = (_sb_query(COMPLEMENTOS, scope, "id,uuid_sat,status,fecha_pago,forma_pago,monto,metadata,created_at").order("created_at", desc=True).execute().data or [])
+    return {"ok": True, "complementos": rows}
+
+
+@router.post("/complementos-pago")
+async def crear_complemento_pago(payload: PaymentComplementRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    from routes.internal_users_mod.core import _build_gas_lp_pago20_multi_xml
+
+    scope = _scope_required(authorization, x_perfil_id)
+    requested = {item.factura_id: item.monto for item in payload.facturas}
+    facturas = [row for row in _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True) if int(row.get("id") or 0) in requested]
+    if len(facturas) != len(requested):
+        raise HTTPException(404, "Una factura seleccionada no existe para esta empresa.")
+    receptor_rfc = ""
+    adapted = []
+    for row in facturas:
+        cfdi = row.get("cfdi_json") or {}
+        if cfdi.get("MetodoPago") != "PPD" or row.get("status") != "timbrada":
+            raise HTTPException(400, "Sólo se aceptan facturas PPD timbradas y vigentes.")
+        rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "")
+        if receptor_rfc and rfc != receptor_rfc:
+            raise HTTPException(400, "Selecciona facturas del mismo cliente.")
+        receptor_rfc = receptor_rfc or rfc
+        total = Decimal(str(cfdi.get("Total") or 0))
+        saldo = Decimal(str(row.get("saldo_pendiente") if row.get("saldo_pendiente") is not None else total))
+        if requested[int(row["id"])] > saldo:
+            raise HTTPException(400, "El pago no puede exceder el saldo pendiente.")
+        adapted.append({**row, "total": total, "saldo_insoluto": saldo, "rfc_receptor": rfc, "metadata": {"metodo_pago": "PPD", "saldo_insoluto": str(saldo)}})
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    issuer = {"rfc": config.get("rfc") or "", "nombre": config.get("nombre_razon_social") or "", "regimen": config.get("regimen_fiscal") or "", "cp": config.get("codigo_postal") or ""}
+    folio = str(int(datetime.now(timezone.utc).timestamp()))
+    xml, totals = _build_gas_lp_pago20_multi_xml(facturas=adapted, issuer=issuer, fecha_pago=payload.fecha_pago.isoformat(), forma_pago=payload.forma_pago, pagos=requested, serie="P", folio=folio)
+    result = timbrar_cfdi(xml)
+    if result.get("error"):
+        raise HTTPException(422, f"PAC rechazó el complemento: {result['error']}")
+    xml_timbrado = result.get("xml_timbrado") or xml
+    row = _sb_insert(COMPLEMENTOS, _scope_row(scope, {"uuid_sat": result.get("uuid") or "", "xml_content": xml_timbrado, "status": "timbrado", "fecha_pago": payload.fecha_pago.isoformat(), "forma_pago": payload.forma_pago, "monto": totals["monto"], "metadata": {"facturas": totals["facturas"], "serie": totals["serie"], "folio": totals["folio"]}}))
+    if not row:
+        raise HTTPException(500, "El complemento fue timbrado pero no se pudo guardar.")
+    for doc in totals["facturas"]:
+        _sb_insert(COMPLEMENTO_FACTURAS, _scope_row(scope, {"complemento_id": row["id"], "factura_id": doc["factura_id"], "uuid_relacionado": doc["uuid_relacionado"], "monto": doc["monto"], "saldo_anterior": doc["saldo_anterior"], "saldo_insoluto": doc["saldo_insoluto"]}))
+        _sb_update(FACTURAS, doc["factura_id"], scope, {"saldo_pendiente": doc["saldo_insoluto"], "estado_pago": "pagada" if Decimal(str(doc["saldo_insoluto"])) <= 0 else "parcial", "fecha_pago": payload.fecha_pago.isoformat() if Decimal(str(doc["saldo_insoluto"])) <= 0 else None})
+    return {"ok": True, "complemento": {k: v for k, v in row.items() if k != "xml_content"}}
+
+
+@router.get("/complementos-pago/{complemento_id}/xml")
+async def xml_complemento_pago(complemento_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    row = _sb_get(COMPLEMENTOS, complemento_id, _scope_required(authorization, x_perfil_id))
+    if not row or not row.get("xml_content"):
+        raise HTTPException(404, "Complemento no encontrado.")
+    return Response(str(row["xml_content"]), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="complemento_{row.get("uuid_sat") or complemento_id}.xml"', "Cache-Control": "private, max-age=300"})
+
+
+@router.get("/complementos-pago/{complemento_id}/pdf")
+async def pdf_complemento_pago(complemento_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    row = _sb_get(COMPLEMENTOS, complemento_id, _scope_required(authorization, x_perfil_id))
+    if not row or not row.get("xml_content"):
+        raise HTTPException(404, "Complemento no encontrado.")
+    pdf = generar_pdf_cfdi_desde_xml(row["xml_content"], title="Complemento de pago", template="pago")
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="complemento_{row.get("uuid_sat") or complemento_id}.pdf"', "Cache-Control": "private, max-age=300"})
 
 
 class ScheduleRequest(BaseModel):
