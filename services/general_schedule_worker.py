@@ -34,11 +34,15 @@ def next_execution(schedule: dict, *, after: datetime) -> datetime:
 
 
 def cfdi_for_execution(schedule: dict, *, now: datetime) -> dict:
-    """Copia el CFDI base y refresca Fecha para que nunca reutilice la del primer mes."""
+    """Copia el CFDI base y refresca los datos que cambian en cada ejecución."""
     cfdi = copy.deepcopy(schedule.get("payload_json") or {})
     tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
     local_now = now.astimezone(tz)
     cfdi["Fecha"] = local_now.replace(tzinfo=None, microsecond=0).isoformat()
+    informacion_global = cfdi.get("InformacionGlobal")
+    if isinstance(informacion_global, dict):
+        informacion_global["Meses"] = f"{local_now.month:02d}"
+        informacion_global["Año"] = str(local_now.year)
     return cfdi
 
 

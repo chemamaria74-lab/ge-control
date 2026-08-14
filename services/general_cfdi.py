@@ -58,6 +58,10 @@ class GeneralCfdiRequest(BaseModel):
     exportacion: Literal["01", "02", "03", "04"] = "01"
     serie: Optional[str] = Field(default=None, max_length=25)
     folio: Optional[str] = Field(default=None, max_length=40)
+    retencion_isr_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    informacion_global_periodicidad: Optional[str] = Field(default=None, pattern=r"^(01|02|03|04|05)$")
+    informacion_global_meses: Optional[str] = Field(default=None, pattern=r"^(0[1-9]|1[0-2])$")
+    informacion_global_anio: Optional[int] = Field(default=None, ge=2021, le=2100)
 
     @field_validator("moneda", "lugar_expedicion", "serie", "folio", mode="before")
     @classmethod
@@ -87,8 +91,14 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     errors = payload.validate_business_rules()
     if errors:
         raise ValueError("; ".join(errors))
-    subtotal = sum((item.cantidad * item.valor_unitario for item in payload.conceptos), Decimal("0"))
-    iva_total = sum((item.cantidad * item.valor_unitario * item.iva_tasa for item in payload.conceptos), Decimal("0"))
+    bases = [
+        item.valor_unitario / (Decimal("1") + item.iva_tasa)
+        if item.iva_incluido and item.iva_tasa > 0 else item.valor_unitario
+        for item in payload.conceptos
+    ]
+    subtotal = sum((item.cantidad * base for item, base in zip(payload.conceptos, bases)), Decimal("0"))
+    iva_total = sum((item.cantidad * base * item.iva_tasa for item, base in zip(payload.conceptos, bases)), Decimal("0"))
+    isr_total = subtotal * payload.retencion_isr_tasa
     receptor = {
         "Rfc": payload.receptor.rfc,
         "Nombre": payload.receptor.nombre,
@@ -103,11 +113,11 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "ClaveUnidad": item.clave_unidad,
         "Unidad": item.unidad or "",
         "Descripcion": item.descripcion,
-        "ValorUnitario": _money(item.valor_unitario),
-        "Importe": _money(item.cantidad * item.valor_unitario),
+        "ValorUnitario": _money(base),
+        "Importe": _money(item.cantidad * base),
         "ObjetoImp": item.objeto_imp,
-        **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * item.valor_unitario), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(item.iva_tasa), "Importe": _money(item.cantidad * item.valor_unitario * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
-    } for item in payload.conceptos]
+        **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(item.iva_tasa), "Importe": _money(item.cantidad * base * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
+    } for item, base in zip(payload.conceptos, bases)]
     result = {
         "Version": "4.0",
         "Serie": payload.serie or "",
@@ -117,7 +127,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "MetodoPago": payload.metodo_pago or "",
         "SubTotal": _money(subtotal),
         "Moneda": payload.moneda,
-        "Total": _money(subtotal + iva_total),
+        "Total": _money(subtotal + iva_total - isr_total),
         "TipoDeComprobante": payload.tipo_comprobante,
         "Exportacion": payload.exportacion,
         "LugarExpedicion": payload.lugar_expedicion,
@@ -131,6 +141,22 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     }
     if payload.tipo_cambio is not None:
         result["TipoCambio"] = str(payload.tipo_cambio)
-    if iva_total > 0:
-        result["Impuestos"] = {"TotalImpuestosTrasladados": _money(iva_total), "Traslados": [{"Impuesto": "002", "TipoFactor": "Tasa", "Importe": _money(iva_total)}]}
+    if payload.informacion_global_periodicidad:
+        if not payload.informacion_global_meses or not payload.informacion_global_anio:
+            raise ValueError("La factura global requiere mes y año.")
+        result["InformacionGlobal"] = {
+            "Periodicidad": payload.informacion_global_periodicidad,
+            "Meses": payload.informacion_global_meses,
+            "Año": str(payload.informacion_global_anio),
+        }
+    if iva_total > 0 or isr_total > 0:
+        result["Impuestos"] = {}
+        if iva_total > 0:
+            result["Impuestos"].update({"TotalImpuestosTrasladados": _money(iva_total), "Traslados": [{"Impuesto": "002", "TipoFactor": "Tasa", "Importe": _money(iva_total)}]})
+        if isr_total > 0:
+            result["Impuestos"].update({"TotalImpuestosRetenidos": _money(isr_total), "Retenciones": [{"Impuesto": "001", "Importe": _money(isr_total)}]})
+            for concept, item in zip(conceptos, payload.conceptos):
+                taxes = concept.setdefault("Impuestos", {})
+                base = Decimal(concept["Importe"])
+                taxes["Retenciones"] = [{"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)}]
     return result
