@@ -130,7 +130,7 @@ def test_expenses_frontend_tracks_refreshed_token_and_exits_on_401():
     assert "let token=" in js
     assert "ge:token-refreshed" in js
     assert "window.GESessionTimeout?.expire()" in js
-    assert "advance-paid-history-20260811" in html
+    assert "paid-table-actions-20260813" in html
 
 
 @pytest.mark.parametrize("module,profile_id", [("control_administrativo", 416), ("transporte", 410)])
@@ -602,7 +602,7 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "> Por pagar</button>" not in html
     assert "['pending_review','accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
-    assert 'data-select-party' in script and '>Preparar pago</button>' in script
+    assert 'data-select-party' in script and '>Pagar</button>' in script
     assert "Saldo a favor disponible" in script
     assert "Se podrá usar cuando exista una factura pendiente" in script
     assert 'id="paymentModal"' in html and 'aria-modal="true"' in html
@@ -640,9 +640,9 @@ def test_accounting_export_and_paid_view_make_payment_invoice_relationship_expli
     )[0]
     assert "Pago P-${esc(payment.id)}" in script
     assert "Pago total · varias facturas" in script
-    assert 'title="Cambiar fecha de pago"' in script
+    assert 'title="Editar fecha de pago"' in script
     assert 'title="Eliminar pago y regresar sus facturas a pendientes"' in script
-    assert 'title="Cambiar fecha de factura"' in script
+    assert 'title="Editar fecha de factura"' in script
     assert "Facturas incluidas en el pago P-${esc(payment.id)}" in script
     assert "$('exportPayments').hidden" not in script
     assert 'class="review-navigation"' in html
@@ -668,7 +668,7 @@ def test_paid_payments_allow_correcting_the_actual_payment_date():
     assert '@router.put("/gastos/payments/{payment_id}/paid-date")' in route
     assert '"payment_date_corrected"' in route
     assert "data-edit-payment-date" in script
-    assert 'title="Cambiar fecha de pago"' in script
+    assert 'title="Editar fecha de pago"' in script
     assert "correctPaymentDate" in script
 
 
@@ -686,7 +686,7 @@ def test_paid_view_has_visible_edit_and_safe_payment_reversal_actions():
     assert '@router.delete("/gastos/payments/{payment_id}")' in route
     assert '"deleted_payment_error"' in route
     assert 'data-delete-payment' in script and 'title="Eliminar pago y regresar sus facturas a pendientes"' in script
-    assert 'data-edit-paid-date' in script and 'title="Cambiar fecha de factura"' in script
+    assert 'data-edit-paid-date' in script and 'title="Editar fecha de factura"' in script
     assert '.paid-edit-action' in css and '.paid-delete-action' in css
     assert 'fa-circle-check"></i> Pagado' in script
     assert 'fa-arrow-right-arrow-left"></i> En pagos' in script
@@ -740,7 +740,7 @@ def test_paid_advances_appear_in_payment_history_and_accounting_export_without_d
     assert "Fecha de pago del anticipo" in script
     assert "guardado en Pagos; queda pendiente de factura" in script
     assert ".paid-payment .table-wrap tbody tr" in css
-    assert "advance-paid-history-20260811" in html
+    assert "paid-table-actions-20260813" in html
 
 
 def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
@@ -828,7 +828,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "advance-paid-history-20260811" in html
+    assert "paid-table-actions-20260813" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
