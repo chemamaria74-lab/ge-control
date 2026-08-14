@@ -46,6 +46,32 @@
 .logos-grid .logo-config { grid-template-columns:100px minmax(0,1fr); }
 .logos-grid .logo-config .secondary { grid-column:1 / -1; justify-self:start; }
 
+.helper { margin:-8px 0 14px; color:var(--muted); font-size:.86rem; }
+.compact { padding:7px 10px; font-size:.82rem; }
+.switch-row { display:flex; grid-column:1/-1; align-items:center; gap:9px; margin-top:14px; }
+.switch-row input { width:auto; accent-color:var(--wine); }
+.head-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; }
+.today-card { margin-top:18px; }
+.today-card table { min-width:520px; }
+.payment-btn.paid { border-color:#a6d9bd; background:#eaf7f0; color:var(--ok); }
+.config-grid > label { align-content:start; }
+.logo-config label { text-align:left; }
+.subtabs { display:flex; gap:8px; margin:-8px 0 18px; border-bottom:1px solid var(--line); }
+.subtab { border:0; border-bottom:3px solid transparent; background:transparent; padding:12px 16px; color:var(--muted); font-weight:850; cursor:pointer; }
+.subtab.active { color:var(--wine); border-bottom-color:var(--wine); }
+.invoice-subpanel { display:none; }
+.invoice-subpanel.active { display:block; }
+.date-cell,.amount-cell { border:1px solid var(--line); border-radius:7px; padding:7px; max-width:145px; }
+.danger-text { color:var(--bad); }
+.portfolio-kpis { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.payment-fields { margin:14px 0; max-width:680px; }
+.selection-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px; padding:15px; border-radius:10px; background:#faf6f2; border:1px solid var(--line); }
+.selection-bar b,.selection-bar small { display:block; }
+.selection-bar b { color:var(--wine); font-size:1.25rem; }
+
 @media (max-width: 700px) {
   .logo-config, .logos-grid, .logos-grid .logo-config { grid-template-columns: 1fr; }
+  .head-actions { width:100%; justify-content:flex-start; }
+  .subtabs { overflow:auto; }
+  .portfolio-kpis { grid-template-columns:1fr; }
 }
