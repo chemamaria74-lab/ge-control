@@ -54,3 +54,46 @@ def test_pue_rejects_forma_pago_99():
 def test_party_requires_sat_postal_code():
     with pytest.raises(ValidationError):
         base(receptor={**party(receptor=True), "codigo_postal": "1234"})
+
+
+def test_isr_retention_is_subtracted_and_itemized():
+    payload = build_general_cfdi(base(retencion_isr_tasa="0.0125"))
+
+    assert payload["SubTotal"] == "200.00"
+    assert payload["Impuestos"]["TotalImpuestosRetenidos"] == "2.50"
+    assert payload["Impuestos"]["Retenciones"][0]["Impuesto"] == "001"
+    assert payload["Conceptos"][0]["Impuestos"]["Retenciones"][0]["TasaOCuota"] == "0.0125"
+    assert payload["Total"] == "197.50"
+
+
+def test_price_with_iva_is_converted_to_tax_base_without_double_charging():
+    request = base(conceptos=[{
+        "clave_prod_serv": "47131811",
+        "cantidad": "2",
+        "clave_unidad": "H87",
+        "descripcion": "Detergente en hojas",
+        "valor_unitario": "116.00",
+        "iva_tasa": "0.16",
+        "iva_incluido": True,
+    }])
+
+    payload = build_general_cfdi(request)
+
+    assert payload["SubTotal"] == "200.00"
+    assert payload["Impuestos"]["TotalImpuestosTrasladados"] == "32.00"
+    assert payload["Total"] == "232.00"
+    assert payload["Conceptos"][0]["ValorUnitario"] == "100.00"
+
+
+def test_global_invoice_adds_sat_information_global():
+    payload = build_general_cfdi(base(
+        informacion_global_periodicidad="04",
+        informacion_global_meses="08",
+        informacion_global_anio=2026,
+    ))
+
+    assert payload["InformacionGlobal"] == {
+        "Periodicidad": "04",
+        "Meses": "08",
+        "Año": "2026",
+    }

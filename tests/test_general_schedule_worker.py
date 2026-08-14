@@ -29,6 +29,15 @@ def test_preserves_explicit_folio():
     assert result["Folio"] == "F123"
 
 
+def test_refreshes_global_invoice_month_and_year_for_each_execution():
+    original = schedule(payload_json={
+        "InformacionGlobal": {"Periodicidad": "04", "Meses": "09", "Año": "2026"}
+    })
+    result = cfdi_for_execution(original, now=datetime(2027, 1, 5, 15, 3, tzinfo=timezone.utc))
+    assert result["InformacionGlobal"] == {"Periodicidad": "04", "Meses": "01", "Año": "2027"}
+    assert original["payload_json"]["InformacionGlobal"]["Meses"] == "09"
+
+
 def test_reserves_simple_company_folio():
     class Response:
         data = [{"serie": "A", "folio": 1}]
