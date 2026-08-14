@@ -18,7 +18,7 @@
     <form id="loginForm"><div class="field"><label for="loginUser">Usuario</label><input id="loginUser" autocomplete="username" required autofocus></div><div class="field"><label for="loginPass">Contraseña</label><input id="loginPass" type="password" autocomplete="current-password" required></div><button class="login-button" id="loginButton" type="submit">Entrar</button></form>
     <div id="loginError" class="error" role="alert"></div><a class="back" href="/choice">Cambiar acceso</a>
   </main>
-  <script src="/static/js/session_timeout.js?v=two-hour-control-20260804"></script>
+  <script src="/static/js/session_timeout.js?v=cross-tab-refresh-20260814"></script>
   <script>
     const PORTALS={gastos:{description:'Gastos, pagos y control administrativo.',destination:'/control-administrativo'},facturacion:{description:'Facturas, clientes, productos y programaciones.',destination:'/control-administrativo/facturacion'}};
     let selectedPortal={{ portal_slug|tojson }};
