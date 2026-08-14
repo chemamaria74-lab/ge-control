@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
+MONTH_NAMES_ES = (
+    "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
 PROGRAMACIONES = "general_facturacion_programaciones"
 EJECUCIONES = "general_facturacion_ejecuciones"
 FACTURAS = "general_facturas"
@@ -43,6 +48,19 @@ def cfdi_for_execution(schedule: dict, *, now: datetime) -> dict:
     if isinstance(informacion_global, dict):
         informacion_global["Meses"] = f"{local_now.month:02d}"
         informacion_global["Año"] = str(local_now.year)
+    replacements = {
+        "{mes}": MONTH_NAMES_ES[local_now.month],
+        "{Mes}": MONTH_NAMES_ES[local_now.month].capitalize(),
+        "{MES}": MONTH_NAMES_ES[local_now.month].upper(),
+        "{año}": str(local_now.year),
+        "{anio}": str(local_now.year),
+        "{periodo}": f"{MONTH_NAMES_ES[local_now.month]} {local_now.year}",
+    }
+    for concept in cfdi.get("Conceptos") or []:
+        description = str(concept.get("Descripcion") or "")
+        for token, value in replacements.items():
+            description = description.replace(token, value)
+        concept["Descripcion"] = description
     return cfdi
 
 
