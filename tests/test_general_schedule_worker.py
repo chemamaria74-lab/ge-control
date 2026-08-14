@@ -38,6 +38,17 @@ def test_refreshes_global_invoice_month_and_year_for_each_execution():
     assert original["payload_json"]["InformacionGlobal"]["Meses"] == "09"
 
 
+def test_expands_month_and_year_tokens_in_scheduled_descriptions():
+    original = schedule(payload_json={"Conceptos": [
+        {"Descripcion": "Suscripción GE Control — {mes} {año}"},
+        {"Descripcion": "Servicio del periodo {periodo}"},
+    ]})
+    result = cfdi_for_execution(original, now=datetime(2026, 8, 15, 15, 0, tzinfo=timezone.utc))
+    assert result["Conceptos"][0]["Descripcion"] == "Suscripción GE Control — agosto 2026"
+    assert result["Conceptos"][1]["Descripcion"] == "Servicio del periodo agosto 2026"
+    assert original["payload_json"]["Conceptos"][0]["Descripcion"].endswith("{mes} {año}")
+
+
 def test_reserves_simple_company_folio():
     class Response:
         data = [{"serie": "A", "folio": 1}]
