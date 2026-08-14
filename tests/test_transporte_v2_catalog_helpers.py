@@ -244,7 +244,7 @@ def test_transport_admin_mobile_shell_and_module_scoped_logout_contract():
     assert "if (path.startsWith('/transporte-v2'))" in timeout
     assert "async function sessionIsInvalid()" in timeout
     assert "await sessionIsInvalid()" in timeout
-    assert "two-hour-all-portals-20260725" in (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
+    assert "cross-tab-refresh-20260814" in (root / "templates/transporte_v2.html").read_text(encoding="utf-8")
 
 
 def test_catalog_bootstrap_validates_once_and_expands_routes_without_extra_queries(monkeypatch):
