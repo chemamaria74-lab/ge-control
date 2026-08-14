@@ -1,3 +1,4 @@
+import copy
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Optional
@@ -431,6 +432,7 @@ class ScheduleRequest(BaseModel):
     factura: GeneralCfdiRequest
     email_destino: Optional[EmailStr] = None
     logo_slot: int = Field(default=1, ge=1, le=2)
+    descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ScheduleUpdate(BaseModel):
@@ -440,6 +442,7 @@ class ScheduleUpdate(BaseModel):
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
     email_destino: Optional[EmailStr] = None
     logo_slot: int = Field(default=1, ge=1, le=2)
+    descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.get("/programaciones")
@@ -459,6 +462,8 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
 async def crear_programacion(payload: ScheduleRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
     cfdi = build_general_cfdi(payload.factura)
+    if payload.descripcion_concepto and cfdi.get("Conceptos"):
+        cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
     email_destino = str(payload.email_destino or "")
     if not email_destino:
         receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
@@ -492,6 +497,11 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
     if not schedule:
         raise HTTPException(404, "Programación no encontrada.")
     values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or ""), "logo_slot": payload.logo_slot}
+    if payload.descripcion_concepto is not None:
+        cfdi = copy.deepcopy(schedule.get("payload_json") or {})
+        if cfdi.get("Conceptos"):
+            cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
+            values["payload_json"] = cfdi
     values["proxima_ejecucion_at"] = next_execution(values, after=datetime.now(timezone.utc)).isoformat()
     if not _sb_update(PROGRAMACIONES, programacion_id, scope, values):
         raise HTTPException(404, "Programación no encontrada.")
