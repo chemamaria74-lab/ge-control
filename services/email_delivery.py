@@ -122,6 +122,8 @@ def send_gas_lp_invoice_email(
     pdf_filename: str,
     serie_folio: str = "",
     volume_liters: float | int | str | None = None,
+    quantity: float | int | str | None = None,
+    unit_label: str = "",
     transfer_physical_control: dict[str, Any] | None = None,
 ) -> EmailDeliveryResult:
     recipient = _clean_email(to_email)
@@ -142,6 +144,14 @@ def send_gas_lp_invoice_email(
     safe_total = html.escape(str(total or "0"))
     safe_serie_folio = html.escape(serie_folio or "")
     safe_liters = html.escape(str(volume_liters or "0"))
+    safe_quantity = html.escape(str(quantity or "0"))
+    safe_unit = html.escape(unit_label or "Unidad")
+    if volume_liters is not None:
+        quantity_html = f"<br><b>Litros:</b> {safe_liters} L"
+    elif quantity is not None:
+        quantity_html = f"<br><b>Cantidad:</b> {safe_quantity}<br><b>Unidad:</b> {safe_unit}"
+    else:
+        quantity_html = ""
     physical = transfer_physical_control if isinstance(transfer_physical_control, dict) else {}
     physical_rows = []
     if physical:
@@ -199,7 +209,7 @@ def send_gas_lp_invoice_email(
         "html": (
             f"<p>Hola {safe_customer},</p>"
             f"<p>Adjuntamos su CFDI de {safe_issuer}.</p>"
-            f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}<br><b>Litros:</b> {safe_liters} L<br><b>Total:</b> ${safe_total}</p>"
+            f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}{quantity_html}<br><b>Total:</b> ${safe_total}</p>"
             f"{physical_html}"
             "<p>El XML y PDF fiscal se incluyen como archivos adjuntos.</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"

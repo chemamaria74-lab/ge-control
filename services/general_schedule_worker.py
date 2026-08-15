@@ -283,6 +283,8 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
                 pdf_bytes=pdf,
                 pdf_filename=f"factura_{data.get('uuid') or schedule['id']}.pdf",
                 serie_folio=f"{cfdi.get('Serie') or ''}{cfdi.get('Folio') or ''}",
+                quantity=sum(Decimal(str(item.get("Cantidad") or 0)) for item in (cfdi.get("Conceptos") or [])),
+                unit_label=(cfdi.get("Conceptos") or [{}])[0].get("Unidad") or (cfdi.get("Conceptos") or [{}])[0].get("ClaveUnidad") or "Unidad",
             ).as_metadata()
         except Exception as exc:
             email = {"ok": False, "skipped": False, "error": str(exc)[:500]}

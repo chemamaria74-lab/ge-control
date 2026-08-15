@@ -678,7 +678,6 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         Paragraph("<b>Descripción</b>", styles["HeaderTiny"]),
         Paragraph("<b>Valor unit.</b>", styles["HeaderTiny"]),
         Paragraph("<b>Precio c/IVA</b>", styles["HeaderTiny"]),
-        Paragraph("<b>Importe</b>", styles["HeaderTiny"]),
     ]]
     for c in conceptos[:35]:
         data.append([
@@ -688,15 +687,14 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
             Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
             Paragraph(f"${_text(_attr(c, 'ValorUnitario'))}", right_tiny),
             Paragraph(f"${_text(price_with_tax(c))}", right_tiny),
-            Paragraph(f"${_text(_format_money(_money_value(_attr(c, 'Importe', '0'))))}", right_tiny),
         ])
     if len(conceptos) > 35:
-        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", "", ""])
-    table = Table(data, colWidths=[0.75 * 72, 0.66 * 72, 0.84 * 72, 2.98 * 72, 0.77 * 72, 0.77 * 72, 0.83 * 72], repeatRows=1)
+        data.append(["", "", "", Paragraph(f"... {len(conceptos)-35} conceptos adicionales en XML.", styles["Tiny"]), "", ""])
+    table = Table(data, colWidths=[0.75 * 72, 0.68 * 72, 0.84 * 72, 3.72 * 72, 0.80 * 72, 0.81 * 72], repeatRows=1)
     table.setStyle(_detail_table_style(colors, wine, line))
     table.setStyle(TableStyle([
         ("ALIGN", (0, 1), (0, -1), "RIGHT"),
-        ("ALIGN", (4, 1), (6, -1), "RIGHT"),
+        ("ALIGN", (4, 1), (5, -1), "RIGHT"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FBFAF8")]),
     ]))
     return table
@@ -810,7 +808,9 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     if ret_total is None:
         ret_total = _sum_importes_value(display_retenciones)
     tax_text = "; ".join(_tax_line(t, "Traslado") for t in display_traslados[:8]) or "—"
-    ret_text = "; ".join(_tax_line(r, "Retención de") for r in display_retenciones[:8]) or "—"
+    concept_retenciones = _concept_tax_nodes(root, "Retencion")
+    detailed_retenciones = concept_retenciones if any(_attr(node, "TasaOCuota") for node in concept_retenciones) else display_retenciones
+    ret_text = "; ".join(_tax_line(r, "Retención de") for r in detailed_retenciones[:8]) or "—"
     total_value = _money_value(_attr(root, "Total", "0"))
     descuento_value = _money_value(_attr(root, "Descuento", "0"))
     conceptos = _all(root, "Concepto")
@@ -819,9 +819,11 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     unit_suffix = "/L" if unit_keys and all(key in {"LTR", "LITRO", "LITROS"} for key in unit_keys) else "/unidad"
     discount_detail = f" (${descuento_value / total_quantity:,.2f}{unit_suffix})" if descuento_value > 0 and total_quantity > 0 else ""
     traslado_rates = sorted({_money_value(_attr(node, "TasaOCuota", "0")) for node in display_traslados if _money_value(_attr(node, "TasaOCuota", "0")) > 0})
-    retencion_rates = sorted({_money_value(_attr(node, "TasaOCuota", "0")) for node in display_retenciones if _money_value(_attr(node, "TasaOCuota", "0")) > 0})
+    retencion_rates = sorted({_money_value(_attr(node, "TasaOCuota", "0")) for node in detailed_retenciones if _money_value(_attr(node, "TasaOCuota", "0")) > 0})
     iva_detail = f" ({traslado_rates[0] * 100:g}%)" if len(traslado_rates) == 1 else ""
     ret_detail = f" ({retencion_rates[0] * 100:g}%)" if len(retencion_rates) == 1 else ""
+    retained_tax_names = sorted({{"001": "ISR", "002": "IVA", "003": "IEPS"}.get(_attr(node, "Impuesto"), _attr(node, "Impuesto")) for node in display_retenciones})
+    retained_label = f"Retención de {retained_tax_names[0]}" if len(retained_tax_names) == 1 else "Retenciones"
     amount_words = _amount_to_spanish_mxn(total_value, _attr(root, "Moneda", "MXN"))
     left = Table([
         [Paragraph("<b>Importe con letra</b>", styles["TinyBold"])],
@@ -844,7 +846,7 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
         [Paragraph("Subtotal", styles["Small"]), Paragraph(f"${_text(_format_money(_money_value(_attr(root, 'SubTotal', '0'))))}", styles["Money"])],
         [Paragraph(f"Descuento{_text(discount_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(descuento_value))}" if descuento_value else "$0.00", styles["Money"])],
         [Paragraph(f"IVA trasladado{_text(iva_detail)}", styles["Small"]), Paragraph(f"${_text(_format_money(iva_total))}", styles["Money"])],
-        [Paragraph(f"Retención de ISR{_text(ret_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(ret_total))}" if ret_total else "$0.00", styles["Money"])],
+        [Paragraph(f"{_text(retained_label)}{_text(ret_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(ret_total))}" if ret_total else "$0.00", styles["Money"])],
         [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(f"${_text(_format_money(total_value))}", styles["MoneyBig"])],
     ], colWidths=[1.18 * 72, 1.64 * 72])
     right.setStyle(TableStyle([
