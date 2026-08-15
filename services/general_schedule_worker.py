@@ -144,11 +144,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         previous_row = previous[0]
         schedule_updated = _parse_timestamp(schedule.get("updated_at"))
         execution_updated = _parse_timestamp(previous_row.get("updated_at"))
-        retry_after_edit = previous_row.get("status") == "rechazada" and schedule_updated > execution_updated
+        previous_status = previous_row.get("status")
+        retry_after_edit = (
+            previous_status == "error"
+            or (previous_status == "rechazada" and schedule_updated > execution_updated)
+        )
         if retry_after_edit:
             claimed = sb.table(EJECUCIONES).update({
                 "status": "procesando", "error": "", "updated_at": now.isoformat()
-            }).eq("id", previous_row["id"]).eq("status", "rechazada").eq("updated_at", previous_row.get("updated_at")).execute().data or []
+            }).eq("id", previous_row["id"]).eq("status", previous_status).eq("updated_at", previous_row.get("updated_at")).execute().data or []
             if not claimed:
                 return {"ok": False, "reused": True, "error": "La programación ya está siendo procesada.", "ejecucion": previous_row}
             execution = claimed[0]
