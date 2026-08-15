@@ -109,6 +109,10 @@ class DueDateUpdate(BaseModel):
     fecha_vencimiento: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
+class InvoiceEmailRequest(BaseModel):
+    email: EmailStr
+
+
 class ComplementInvoice(BaseModel):
     factura_id: int
     monto: Decimal = Field(gt=0)
@@ -376,6 +380,52 @@ async def descargar_xml_factura_general(factura_id: int, authorization: str = He
         raise HTTPException(404, "El XML timbrado no está disponible.")
     filename = _document_filename(factura, "xml")
     return Response(str(factura["xml_content"]), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, max-age=300"})
+
+
+@router.post("/facturas/{factura_id}/enviar-correo")
+async def enviar_factura_general_por_correo(
+    factura_id: int,
+    payload: InvoiceEmailRequest,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Envía nuevamente el XML y la representación PDF; no vuelve a timbrar."""
+    scope = _scope_required(authorization, x_perfil_id)
+    factura = _sb_get(FACTURAS, factura_id, scope)
+    if not factura or factura.get("status") != "timbrada" or not factura.get("xml_content"):
+        raise HTTPException(404, "La factura timbrada o sus archivos no están disponibles.")
+    cfdi = factura.get("cfdi_json") or {}
+    concepts = cfdi.get("Conceptos") or []
+    units = {str(item.get("Unidad") or item.get("ClaveUnidad") or "Unidad") for item in concepts}
+    if len(units) == 1:
+        quantity = sum(Decimal(str(item.get("Cantidad") or 0)) for item in concepts)
+        unit_label = next(iter(units))
+    else:
+        quantity = len(concepts)
+        unit_label = "conceptos"
+    pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
+    pdf = generar_pdf_ingreso_desde_xml(
+        factura["xml_content"],
+        logo_data_url=str(factura.get("logo_data_url") or ""),
+        observaciones=str(factura.get("notas") or ""),
+        pdf_theme=pdf_theme,
+    )
+    result = send_gas_lp_invoice_email(
+        to_email=str(payload.email),
+        issuer_name=str((cfdi.get("Emisor") or {}).get("Nombre") or "GE Control"),
+        customer_name=str((cfdi.get("Receptor") or {}).get("Nombre") or "Cliente"),
+        uuid_sat=str(factura.get("uuid_sat") or ""),
+        total=cfdi.get("Total") or "0",
+        xml_content=str(factura["xml_content"]),
+        pdf_bytes=pdf,
+        pdf_filename=_document_filename(factura, "pdf"),
+        serie_folio="".join(filter(None, (str(factura.get("serie") or ""), str(factura.get("folio") or "")))),
+        quantity=quantity,
+        unit_label=unit_label,
+    )
+    if not result.ok:
+        raise HTTPException(502, result.error or "No se pudo enviar el correo.")
+    return {"ok": True, "email": str(payload.email), "message_id": result.message_id}
 
 
 @router.post("/facturas/{factura_id}/cancelar")
