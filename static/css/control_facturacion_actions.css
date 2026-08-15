@@ -14,6 +14,8 @@
   outline-offset: 2px;
 }
 
+.row-btn.icon-action[data-cancel] { color: var(--bad); }
+
 .logo-config {
   display: grid;
   grid-template-columns: 120px minmax(220px, 1fr) auto;
