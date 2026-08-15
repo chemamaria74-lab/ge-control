@@ -42,6 +42,9 @@ class FiscalConfig(BaseModel):
     logo_1_data_url: str = Field(default="", max_length=500_000)
     logo_2_nombre: str = Field(default="Alternativo", min_length=1, max_length=60)
     logo_2_data_url: str = Field(default="", max_length=500_000)
+    pdf_header_color: str = Field(default="#7A1E2C", pattern=r"^#[0-9A-Fa-f]{6}$")
+    pdf_header_text_color: str = Field(default="#FFFFFF", pattern=r"^#[0-9A-Fa-f]{6}$")
+    pdf_title_color: str = Field(default="#4E111C", pattern=r"^#[0-9A-Fa-f]{6}$")
 
     @field_validator("logo_data_url", "logo_1_data_url", "logo_2_data_url")
     @classmethod
@@ -255,8 +258,10 @@ async def timbrar_factura_general(
             "serie": cfdi.get("Serie") or "",
             "folio": cfdi.get("Folio") or "",
             "cfdi_json": cfdi,
+            "notas": str(payload.factura.notas or ""),
             "pac_response": result.get("pac_response") or {"error": result.get("error")},
             "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
+            "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C", "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF", "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
         }))
         raise HTTPException(422, {"message": result.get("error") or "SW Sapien rechazó el CFDI.", "factura": row})
 
@@ -271,8 +276,10 @@ async def timbrar_factura_general(
         "xml_content": data.get("cfdi") or "",
         "pdf_url": data.get("pdfUrl") or "",
         "cfdi_json": cfdi,
+        "notas": str(payload.factura.notas or ""),
         "pac_response": result.get("raw") or {},
         "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
+        "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C", "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF", "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
         "estado_pago": "pagada" if payload.factura.metodo_pago == "PUE" else "pendiente",
         "fecha_pago": datetime.now(timezone.utc).isoformat() if payload.factura.metodo_pago == "PUE" else None,
         "saldo_pendiente": 0 if payload.factura.metodo_pago == "PUE" else Decimal(str(cfdi.get("Total") or 0)),
@@ -332,7 +339,8 @@ async def descargar_pdf_factura_general(factura_id: int, authorization: str = He
     factura = _sb_get(FACTURAS, factura_id, scope)
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
-    pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""))
+    pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
+    pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""), observaciones=str(factura.get("notas") or ""), pdf_theme=pdf_theme)
     filename = f"factura_{factura.get('uuid_sat') or factura_id}.pdf"
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, max-age=300"})
 
