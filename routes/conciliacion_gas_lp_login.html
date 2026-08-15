@@ -16,8 +16,8 @@
     <h1>Conciliación Gas LP</h1>
     <div class="sub">Facturas, complementos y cancelación</div>
     <form id="loginForm">
-      <div class="field"><label>Usuario o correo</label><input id="code" autocomplete="username"></div>
-      <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password"></div>
+      <div class="field"><label>Usuario o correo</label><input id="code" name="username" autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input id="pin" name="password" type="password" autocomplete="current-password"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
     <div class="err" id="err"></div>
@@ -40,5 +40,6 @@
       } catch(ex) { err.textContent = ex.message; }
     });
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body>
 </html>
