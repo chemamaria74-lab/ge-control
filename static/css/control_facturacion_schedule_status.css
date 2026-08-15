@@ -1,0 +1,28 @@
+.execution-result {
+  min-width: 250px;
+  max-width: 360px;
+}
+
+.execution-result small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.execution-error {
+  margin-top: 7px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--bad);
+  border-radius: 5px;
+  background: #fff0f1;
+  color: #8e1823;
+  font-size: .78rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.execution-ok {
+  color: var(--ok);
+  font-size: .8rem;
+  font-weight: 800;
+}
