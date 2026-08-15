@@ -213,7 +213,9 @@ async def lifespan(app: FastAPI):
                 await asyncio.to_thread(run_due_schedules)
             except Exception:
                 logger.exception("Falló el ciclo de facturación general programada.")
-            await asyncio.sleep(300)
+            # Revisar cada minuto evita que una factura marcada, por ejemplo, a
+            # las 06:30 se quede esperando hasta cinco minutos para timbrarse.
+            await asyncio.sleep(60)
 
     schedule_task = asyncio.create_task(general_schedule_loop())
     try:
