@@ -81,6 +81,8 @@ def test_price_with_iva_is_converted_to_tax_base_without_double_charging():
 
     assert payload["SubTotal"] == "200.00"
     assert payload["Impuestos"]["TotalImpuestosTrasladados"] == "32.00"
+    assert payload["Impuestos"]["Traslados"][0]["TasaOCuota"] == "0.16"
+    assert payload["Impuestos"]["Traslados"][0]["Base"] == "200.00"
     assert payload["Total"] == "232.00"
     assert payload["Conceptos"][0]["ValorUnitario"] == "100.00"
 

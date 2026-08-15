@@ -49,6 +49,21 @@ def test_expands_month_and_year_tokens_in_scheduled_descriptions():
     assert original["payload_json"]["Conceptos"][0]["Descripcion"].endswith("{mes} {año}")
 
 
+def test_repairs_global_vat_group_from_scheduled_concepts():
+    original = schedule(payload_json={
+        "Conceptos": [{"Descripcion": "Servicio", "Impuestos": {"Traslados": [{
+            "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000", "Base": "2800.00", "Importe": "448.00"
+        }]}}],
+        "Impuestos": {"TotalImpuestosTrasladados": "448.00", "Traslados": [{
+            "Impuesto": "002", "TipoFactor": "Tasa", "Importe": "448.00"
+        }]},
+    })
+    result = cfdi_for_execution(original, now=datetime(2026, 8, 15, 15, 0, tzinfo=timezone.utc))
+    assert result["Impuestos"]["Traslados"] == [{
+        "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000", "Base": "2800.00", "Importe": "448.00"
+    }]
+
+
 def test_reserves_simple_company_folio():
     class Response:
         data = [{"serie": "A", "folio": 1}]
