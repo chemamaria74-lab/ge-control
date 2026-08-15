@@ -6,6 +6,7 @@ import calendar
 import copy
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,21 @@ def cfdi_for_execution(schedule: dict, *, now: datetime) -> dict:
         for token, value in replacements.items():
             description = description.replace(token, value)
         concept["Descripcion"] = description
+    traslado_groups: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    for concept in cfdi.get("Conceptos") or []:
+        for tax in ((concept.get("Impuestos") or {}).get("Traslados") or []):
+            key = (str(tax.get("Impuesto") or ""), str(tax.get("TipoFactor") or ""), str(tax.get("TasaOCuota") or ""))
+            group = traslado_groups.setdefault(key, {"base": Decimal("0"), "importe": Decimal("0")})
+            group["base"] += Decimal(str(tax.get("Base") or "0"))
+            group["importe"] += Decimal(str(tax.get("Importe") or "0"))
+    if traslado_groups:
+        impuestos = cfdi.setdefault("Impuestos", {})
+        impuestos["Traslados"] = [
+            {"Impuesto": tax, "TipoFactor": factor, "TasaOCuota": rate,
+             "Base": f"{amounts['base']:.2f}", "Importe": f"{amounts['importe']:.2f}"}
+            for (tax, factor, rate), amounts in sorted(traslado_groups.items())
+        ]
+        impuestos["TotalImpuestosTrasladados"] = f"{sum((x['importe'] for x in traslado_groups.values()), Decimal('0')):.2f}"
     return cfdi
 
 

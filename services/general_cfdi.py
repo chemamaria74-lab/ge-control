@@ -153,7 +153,26 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     if iva_total > 0 or isr_total > 0:
         result["Impuestos"] = {}
         if iva_total > 0:
-            result["Impuestos"].update({"TotalImpuestosTrasladados": _money(iva_total), "Traslados": [{"Impuesto": "002", "TipoFactor": "Tasa", "Importe": _money(iva_total)}]})
+            iva_rates = {item.iva_tasa for item in payload.conceptos if item.iva_tasa > 0}
+            result["Impuestos"].update({
+                "TotalImpuestosTrasladados": _money(iva_total),
+                "Traslados": [
+                    {
+                        "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(rate),
+                        "Base": _money(sum(
+                            item.cantidad * base
+                            for item, base in zip(payload.conceptos, bases)
+                            if item.iva_tasa == rate
+                        )),
+                        "Importe": _money(sum(
+                            item.cantidad * base * item.iva_tasa
+                            for item, base in zip(payload.conceptos, bases)
+                            if item.iva_tasa == rate
+                        )),
+                    }
+                    for rate in sorted(iva_rates)
+                ],
+            })
         if isr_total > 0:
             result["Impuestos"].update({"TotalImpuestosRetenidos": _money(isr_total), "Retenciones": [{"Impuesto": "001", "Importe": _money(isr_total)}]})
             for concept, item in zip(conceptos, payload.conceptos):
