@@ -48,7 +48,7 @@ def test_pdf_tax_summary_uses_global_transferred_tax_once():
     assert _global_tax_total(root, "TotalImpuestosTrasladados") == 660.41
     assert _sum_importes_value(global_traslados) == 660.41
     assert _sum_importes_value(concept_traslados + global_traslados) == 1320.82
-    assert _tax_line(global_traslados[0], "Traslado") == "Traslado 002 tasa 0.160000: $660.41"
+    assert _tax_line(global_traslados[0], "Traslado") == "Traslado IVA (16%): $660.41"
 
 
 def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():
