@@ -1,7 +1,10 @@
 (function () {
-  // Dos horas sin actividad. El backend sigue siendo la autoridad: cualquier 401
-  // también cierra la sesión, aunque el reloj del navegador sea incorrecto.
-  const TIMEOUT_MS = 2 * 60 * 60 * 1000;
+  // Dos horas sin actividad, o hasta 24 horas cuando el usuario eligió mantener
+  // la sesión en su dispositivo. El backend sigue siendo la autoridad.
+  const REMEMBER_SESSION_KEY = 'ge_remember_session';
+  const TIMEOUT_MS = localStorage.getItem(REMEMBER_SESSION_KEY) === 'true'
+    ? 24 * 60 * 60 * 1000
+    : 2 * 60 * 60 * 1000;
   const LAST_ACTIVITY_PREFIX = 'ge_session_last_activity:';
   const SESSION_EXPIRED_REASON = 'session_expired';
   const REFRESH_LOCK_NAME = 'ge-session-refresh';
