@@ -226,6 +226,9 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
             "logo_slot": logo_slot,
             "logo_nombre": logo_name,
             "logo_data_url": logo_data,
+            "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C",
+            "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF",
+            "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
         }))
         .execute()
         .data
@@ -235,7 +238,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
     email = {"ok": False, "skipped": True, "error": "Sin correo de destino o XML timbrado."}
     if data.get("cfdi") and str(schedule.get("email_destino") or "").strip():
         try:
-            pdf = generar_pdf_ingreso_desde_xml(data["cfdi"], logo_data_url=logo_data)
+            pdf = generar_pdf_ingreso_desde_xml(data["cfdi"], logo_data_url=logo_data, pdf_theme={key: config.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")})
             email = send_gas_lp_invoice_email(
                 to_email=schedule["email_destino"],
                 issuer_name=(cfdi.get("Emisor") or {}).get("Nombre") or "Empresa",

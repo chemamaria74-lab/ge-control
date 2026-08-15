@@ -62,6 +62,7 @@ class GeneralCfdiRequest(BaseModel):
     informacion_global_periodicidad: Optional[str] = Field(default=None, pattern=r"^(01|02|03|04|05)$")
     informacion_global_meses: Optional[str] = Field(default=None, pattern=r"^(0[1-9]|1[0-2])$")
     informacion_global_anio: Optional[int] = Field(default=None, ge=2021, le=2100)
+    notas: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("moneda", "lugar_expedicion", "serie", "folio", mode="before")
     @classmethod

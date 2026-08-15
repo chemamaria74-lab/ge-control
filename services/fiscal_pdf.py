@@ -123,6 +123,7 @@ def generar_pdf_cfdi_desde_xml(
     theme = pdf_theme or {}
     wine = colors.HexColor(_theme_hex(theme, "pdf_header_color", "color_encabezado_pdf", default="#7A1E2C"))
     wine_dark = colors.HexColor(_theme_hex(theme, "pdf_title_color", "color_titulos_pdf", default="#4E111C"))
+    header_text = colors.HexColor(_theme_hex(theme, "pdf_header_text_color", "color_texto_encabezado_pdf", default="#FFFFFF"))
     cream = colors.HexColor("#F8F6F2")
     line = colors.HexColor("#DED7CE")
     ink = colors.HexColor("#1F2933")
@@ -134,7 +135,7 @@ def generar_pdf_cfdi_desde_xml(
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=8.7, leading=9.8, textColor=wine_dark, spaceBefore=7, spaceAfter=3))
     styles.add(ParagraphStyle(name="Tiny", parent=styles["Normal"], fontSize=6.4, leading=7.5, textColor=ink))
     styles.add(ParagraphStyle(name="TinyBold", parent=styles["Tiny"], fontName="Helvetica-Bold"))
-    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=colors.white, fontSize=6.7, leading=7.8))
+    styles.add(ParagraphStyle(name="HeaderTiny", parent=styles["TinyBold"], textColor=header_text, fontSize=6.7, leading=7.8))
     styles.add(ParagraphStyle(name="Label", parent=styles["Tiny"], fontName="Helvetica-Bold", textColor=muted, fontSize=6.2, leading=7.0))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.4, leading=8.8, textColor=ink))
     styles.add(ParagraphStyle(name="SmallBold", parent=styles["Small"], fontName="Helvetica-Bold"))
@@ -207,8 +208,8 @@ def generar_pdf_cfdi_desde_xml(
     return buffer.getvalue()
 
 
-def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "") -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, template="ingreso")
+def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", observaciones: str = "", pdf_theme: dict[str, Any] | None = None) -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, observaciones=observaciones, template="ingreso", pdf_theme=pdf_theme)
 
 
 def generar_pdf_ingreso_carta_porte_desde_xml(
