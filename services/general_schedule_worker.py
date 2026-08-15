@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar
 import copy
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ PROGRAMACIONES = "general_facturacion_programaciones"
 EJECUCIONES = "general_facturacion_ejecuciones"
 FACTURAS = "general_facturas"
 CONFIG = "general_fiscal_config"
+CLIENTES = "general_facturacion_clientes"
 
 
 def next_execution(schedule: dict, *, after: datetime) -> datetime:
@@ -230,6 +231,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         return {"ok": False, "reused": False, "error": error, "ejecucion": execution}
 
     data = result.get("data") or {}
+    receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
+    clients = (
+        sb.table(CLIENTES).select("rfc,dias_credito")
+        .eq("tenant_id", schedule.get("tenant_id")).eq("perfil_id", schedule["perfil_id"])
+        .eq("activo", True).execute().data or []
+    )
+    client = next((row for row in clients if str(row.get("rfc") or "").strip().upper() == receptor_rfc), {})
+    credit_days = max(0, min(365, int(client.get("dias_credito") or 0)))
+    is_paid = str(cfdi.get("MetodoPago") or "") == "PUE"
     factura = (
         sb.table(FACTURAS)
         .insert(_scope_row(schedule, {
@@ -249,6 +259,10 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
             "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C",
             "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF",
             "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
+            "estado_pago": "pagada" if is_paid else "pendiente",
+            "fecha_pago": now.isoformat() if is_paid else None,
+            "fecha_vencimiento": None if is_paid else (date.today() + timedelta(days=credit_days)).isoformat(),
+            "saldo_pendiente": Decimal("0") if is_paid else Decimal(str(cfdi.get("Total") or 0)),
         }))
         .execute()
         .data

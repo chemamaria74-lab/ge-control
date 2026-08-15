@@ -669,7 +669,7 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
                 traslado = node
                 break
         rate = _money_value(_attr(traslado, "TasaOCuota", "0")) if traslado is not None else 0
-        return f"{unit_net * (1 + rate):.4f}"
+        return _format_money(unit_net * (1 + rate))
 
     data = [[
         Paragraph("<b>Cantidad</b>", styles["HeaderTiny"]),
@@ -810,7 +810,7 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     if ret_total is None:
         ret_total = _sum_importes_value(display_retenciones)
     tax_text = "; ".join(_tax_line(t, "Traslado") for t in display_traslados[:8]) or "—"
-    ret_text = "; ".join(_tax_line(r, "Retención") for r in display_retenciones[:8]) or "—"
+    ret_text = "; ".join(_tax_line(r, "Retención de") for r in display_retenciones[:8]) or "—"
     total_value = _money_value(_attr(root, "Total", "0"))
     descuento_value = _money_value(_attr(root, "Descuento", "0"))
     conceptos = _all(root, "Concepto")
@@ -844,7 +844,7 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
         [Paragraph("Subtotal", styles["Small"]), Paragraph(f"${_text(_format_money(_money_value(_attr(root, 'SubTotal', '0'))))}", styles["Money"])],
         [Paragraph(f"Descuento{_text(discount_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(descuento_value))}" if descuento_value else "$0.00", styles["Money"])],
         [Paragraph(f"IVA trasladado{_text(iva_detail)}", styles["Small"]), Paragraph(f"${_text(_format_money(iva_total))}", styles["Money"])],
-        [Paragraph(f"Retenciones{_text(ret_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(ret_total))}" if ret_total else "$0.00", styles["Money"])],
+        [Paragraph(f"Retención de ISR{_text(ret_detail)}", styles["Small"]), Paragraph(f"-${_text(_format_money(ret_total))}" if ret_total else "$0.00", styles["Money"])],
         [Paragraph("<b>Total</b>", styles["SmallBold"]), Paragraph(f"${_text(_format_money(total_value))}", styles["MoneyBig"])],
     ], colWidths=[1.18 * 72, 1.64 * 72])
     right.setStyle(TableStyle([
@@ -1093,8 +1093,10 @@ def _global_tax_total(root, attr_name: str) -> float | None:
 def _tax_line(node, label: str) -> str:
     importe = _format_money(float(str(_attr(node, "Importe", "0")).replace(",", "") or 0))
     tasa = _attr(node, "TasaOCuota")
-    tasa_text = f" tasa {tasa}" if tasa else ""
-    return f"{label} {_attr(node, 'Impuesto')}{tasa_text}: ${importe}"
+    tax_code = _attr(node, "Impuesto")
+    tax_name = {"001": "ISR", "002": "IVA", "003": "IEPS"}.get(tax_code, tax_code)
+    tasa_text = f" ({_money_value(tasa) * 100:g}%)" if tasa else ""
+    return f"{label} {tax_name}{tasa_text}: ${importe}"
 
 
 def _append_template_intro(story, template, Paragraph, styles, colors, Table, TableStyle, Spacer):
