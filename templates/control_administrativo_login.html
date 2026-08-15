@@ -15,10 +15,10 @@
       <button class="portal-tab" type="button" data-portal="gastos" role="tab">Gastos y pagos</button>
       <button class="portal-tab" type="button" data-portal="facturacion" role="tab">Facturación</button>
     </div>
-    <form id="loginForm"><div class="field"><label for="loginUser">Usuario</label><input id="loginUser" autocomplete="username" required autofocus></div><div class="field"><label for="loginPass">Contraseña</label><input id="loginPass" type="password" autocomplete="current-password" required></div><button class="login-button" id="loginButton" type="submit">Entrar</button></form>
+    <form id="loginForm" method="post"><div class="field"><label for="loginUser">Usuario</label><input id="loginUser" name="username" autocomplete="username" required autofocus></div><div class="field"><label for="loginPass">Contraseña</label><input id="loginPass" name="password" type="password" autocomplete="current-password" required></div><button class="login-button" id="loginButton" type="submit">Entrar</button></form>
     <div id="loginError" class="error" role="alert"></div><a class="back" href="/choice">Cambiar acceso</a>
   </main>
-  <script src="/static/js/session_timeout.js?v=cross-tab-refresh-20260814"></script>
+  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
   <script>
     const PORTALS={gastos:{description:'Gastos, pagos y control administrativo.',destination:'/control-administrativo'},facturacion:{description:'Facturas, clientes, productos y programaciones.',destination:'/control-administrativo/facturacion'}};
     let selectedPortal={{ portal_slug|tojson }};
@@ -28,4 +28,5 @@
     document.querySelector(`[data-portal="${selectedPortal}"]`).click();
     document.getElementById('loginForm').addEventListener('submit',async event=>{event.preventDefault();const button=document.getElementById('loginButton'),error=document.getElementById('loginError'),username=document.getElementById('loginUser').value.trim(),password=document.getElementById('loginPass').value;error.textContent='';button.disabled=true;button.textContent='Verificando…';try{const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,modulo:'control_administrativo'})}),data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.detail||'Usuario o contraseña incorrectos.');localStorage.setItem('sat_token',data.token);localStorage.setItem('zc_token',data.token);localStorage.setItem('sat_user_id',data.user_id||'');localStorage.setItem('sat_modulo','control_administrativo');if(data.display_name)localStorage.setItem('sat_display_name',data.display_name);window.GESessionTimeout?.markLogin();location.replace(PORTALS[selectedPortal].destination)}catch(err){error.textContent=err.message||'No se pudo iniciar sesión.';button.disabled=false;button.textContent='Entrar'}});
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body></html>

@@ -23,8 +23,8 @@
     <h1>Operador Transporte</h1>
     <div class="sub">Acceso con código y PIN</div>
     <form id="loginForm">
-      <div class="field"><label>Código de operador</label><input class="code" id="code" autocomplete="username" placeholder="TR-ABC123"></div>
-      <div class="field"><label>PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••••"></div>
+      <div class="field"><label>Código de operador</label><input class="code" id="code" name="username" autocomplete="username" placeholder="TR-ABC123"></div>
+      <div class="field"><label>PIN</label><input id="pin" name="password" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••••"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
     <div class="err" id="err"></div>
@@ -54,5 +54,6 @@
       }
     });
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body>
 </html>

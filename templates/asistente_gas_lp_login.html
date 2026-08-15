@@ -25,8 +25,8 @@
     <h1>Asistente Gas LP</h1>
     <div class="sub">Acceso con usuario y contraseña</div>
     <form id="loginForm">
-      <div class="field"><label>Usuario</label><input class="code" id="code" autocomplete="username" placeholder="Tu usuario"></div>
-      <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="field"><label>Usuario</label><input class="code" id="code" name="username" autocomplete="username" placeholder="Tu usuario"></div>
+      <div class="field"><label>Contraseña</label><input id="pin" name="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
     <div class="err" id="err"></div>
@@ -36,7 +36,7 @@
     <strong>GE CONTROL</strong>
     <span class="ge-legal-links"><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></span>
   </footer>
-  <script src="/static/js/session_timeout.js?v=cross-tab-refresh-20260814"></script>
+  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
   <script>
     document.getElementById('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
@@ -58,5 +58,6 @@
       }
     });
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body>
 </html>

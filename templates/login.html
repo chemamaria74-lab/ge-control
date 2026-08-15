@@ -216,11 +216,11 @@
     <form id="loginForm">
       <div class="field">
         <label>Usuario</label>
-        <input type="text" id="loginUser" placeholder="usuario" autocomplete="username">
+        <input type="text" id="loginUser" name="username" placeholder="usuario" autocomplete="username">
       </div>
       <div class="field">
         <label>Contraseña</label>
-        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+        <input type="password" id="loginPass" name="password" placeholder="••••••••" autocomplete="current-password">
       </div>
       <input type="hidden" id="modulo" value="{{ modulo }}">
       <button type="submit" class="btn-login">Iniciar sesión</button>
@@ -230,7 +230,7 @@
       <a href="/choice"><i class="fa-solid fa-arrow-left"></i> Cambiar módulo</a>
     </div>
   </div>
-  <script src="/static/js/session_timeout.js?v=cross-tab-refresh-20260814"></script>
+  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
   <script>
     function currentLoginLang() {
       const urlLang = new URLSearchParams(location.search).get('lang');
@@ -299,5 +299,6 @@
       } catch(e) { errEl.textContent = e.message || 'Error de conexión.'; }
     });
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body>
 </html>

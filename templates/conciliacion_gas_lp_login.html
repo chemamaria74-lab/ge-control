@@ -21,14 +21,14 @@
       <button type="button" data-area="flotilla">Flotilla</button>
     </div>
     <form id="loginForm">
-      <div class="field"><label>Correo del cliente</label><input id="code" type="email" autocomplete="username" placeholder="correo@empresa.com"></div>
-      <div class="field"><label>Contraseña</label><input id="pin" type="password" autocomplete="current-password"></div>
+      <div class="field"><label>Correo del cliente</label><input id="code" name="username" type="email" autocomplete="username" placeholder="correo@empresa.com"></div>
+      <div class="field"><label>Contraseña</label><input id="pin" name="password" type="password" autocomplete="current-password"></div>
       <button class="btn" type="submit">Entrar</button>
     </form>
     <div class="err" id="err"></div>
     <div class="back"><a href="/modulo/gas-lp/roles">Cambiar acceso</a></div>
   </main>
-  <script src="/static/js/session_timeout.js?v=cross-tab-refresh-20260814"></script>
+  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
   <script>
     const AREA_CONFIG = {
       contable:{description:'Facturas, complementos, consultas y cancelación.',roles:['admin','conciliacion','asistente_facturacion'],destination:'/conciliacion/gas-lp'},
@@ -86,5 +86,6 @@
       } catch(ex) { err.textContent = ex.message; }
     });
   </script>
+  <script src="/static/js/remember_session.js?v=20260815-2"></script>
 </body>
 </html>
