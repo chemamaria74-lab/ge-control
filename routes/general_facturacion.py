@@ -1,6 +1,8 @@
 import copy
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+import re
+import unicodedata
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Response
@@ -64,6 +66,27 @@ class GeneralCliente(BaseModel):
     email: Optional[EmailStr] = None
     retencion_isr: bool = False
     retencion_isr_tasa: Decimal = Field(default=Decimal("0.0125"), ge=0, le=1)
+    dias_credito: int = Field(default=0, ge=0, le=365)
+
+
+def _client_due_date(scope: dict, receptor_rfc: str) -> str:
+    """Calcula el vencimiento administrativo usando el plazo del receptor."""
+    target = str(receptor_rfc or "").strip().upper()
+    client = next((row for row in _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
+                   if str(row.get("rfc") or "").strip().upper() == target), {})
+    days = max(0, min(365, int(client.get("dias_credito") or 0)))
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
+def _document_filename(factura: dict, extension: str) -> str:
+    cfdi = factura.get("cfdi_json") or {}
+    receptor = cfdi.get("Receptor") or {}
+    name = str(receptor.get("Nombre") or receptor.get("Rfc") or "CLIENTE")
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_").upper() or "CLIENTE"
+    folio = "-".join(filter(None, (str(factura.get("serie") or "").strip(), str(factura.get("folio") or "").strip())))
+    safe_folio = re.sub(r"[^A-Za-z0-9-]+", "_", folio).strip("_") or str(factura.get("uuid_sat") or factura.get("id") or "CFDI")
+    return f"{safe_name}_{safe_folio}.{extension}"
 
 
 class GeneralProducto(BaseModel):
@@ -282,6 +305,7 @@ async def timbrar_factura_general(
         "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C", "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF", "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
         "estado_pago": "pagada" if payload.factura.metodo_pago == "PUE" else "pendiente",
         "fecha_pago": datetime.now(timezone.utc).isoformat() if payload.factura.metodo_pago == "PUE" else None,
+        "fecha_vencimiento": None if payload.factura.metodo_pago == "PUE" else _client_due_date(scope, (cfdi.get("Receptor") or {}).get("Rfc") or ""),
         "saldo_pendiente": 0 if payload.factura.metodo_pago == "PUE" else Decimal(str(cfdi.get("Total") or 0)),
     }))
     if not row:
@@ -341,7 +365,7 @@ async def descargar_pdf_factura_general(factura_id: int, authorization: str = He
         raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
     pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
     pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""), observaciones=str(factura.get("notas") or ""), pdf_theme=pdf_theme)
-    filename = f"factura_{factura.get('uuid_sat') or factura_id}.pdf"
+    filename = _document_filename(factura, "pdf")
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, max-age=300"})
 
 
@@ -350,7 +374,7 @@ async def descargar_xml_factura_general(factura_id: int, authorization: str = He
     factura = _sb_get(FACTURAS, factura_id, _scope_required(authorization, x_perfil_id))
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "El XML timbrado no está disponible.")
-    filename = f"factura_{factura.get('uuid_sat') or factura_id}.xml"
+    filename = _document_filename(factura, "xml")
     return Response(str(factura["xml_content"]), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, max-age=300"})
 
 
