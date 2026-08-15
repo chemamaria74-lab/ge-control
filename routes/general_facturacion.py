@@ -453,6 +453,30 @@ class ScheduleUpdate(BaseModel):
     descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
 
 
+def _validate_schedule_spacing(schedules: list[dict], *, day: int, local_time: str, exclude_id: int | None = None) -> None:
+    """Evita que una empresa intente enviar dos CFDI al PAC casi al mismo tiempo."""
+    hour, minute = (int(part) for part in local_time[:5].split(":"))
+    requested = hour * 60 + minute
+    for schedule in schedules:
+        if exclude_id is not None and int(schedule.get("id") or 0) == exclude_id:
+            continue
+        if schedule.get("status") == "cancelada" or int(schedule.get("dia_mes") or 0) != day:
+            continue
+        existing_time = str(schedule.get("hora_local") or "")[:5]
+        try:
+            existing_hour, existing_minute = (int(part) for part in existing_time.split(":"))
+        except (TypeError, ValueError):
+            continue
+        if abs(requested - (existing_hour * 60 + existing_minute)) < 5:
+            suggested = (existing_hour * 60 + existing_minute + 5) % (24 * 60)
+            raise HTTPException(
+                409,
+                f"Ese horario está demasiado cerca de otra programación ({existing_time}). "
+                "Deja al menos 5 minutos entre facturas; por ejemplo, usa "
+                f"{suggested // 60:02d}:{suggested % 60:02d}.",
+            )
+
+
 @router.get("/programaciones")
 async def listar_programaciones(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
@@ -469,6 +493,11 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
 @router.post("/programaciones")
 async def crear_programacion(payload: ScheduleRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
+    _validate_schedule_spacing(
+        _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True),
+        day=payload.dia_mes,
+        local_time=payload.hora_local,
+    )
     cfdi = build_general_cfdi(payload.factura)
     if payload.descripcion_concepto and cfdi.get("Conceptos"):
         cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
@@ -504,6 +533,12 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
     schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
     if not schedule:
         raise HTTPException(404, "Programación no encontrada.")
+    _validate_schedule_spacing(
+        schedules,
+        day=payload.dia_mes,
+        local_time=payload.hora_local,
+        exclude_id=programacion_id,
+    )
     values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or ""), "logo_slot": payload.logo_slot}
     if payload.descripcion_concepto is not None:
         cfdi = copy.deepcopy(schedule.get("payload_json") or {})
