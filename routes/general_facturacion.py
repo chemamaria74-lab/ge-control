@@ -4,11 +4,13 @@ from datetime import date, datetime, timedelta, timezone
 import re
 import unicodedata
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
+from services.general_cfdi_preview import general_cfdi_preview_xml
 from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import send_gas_lp_invoice_email
@@ -645,6 +647,50 @@ async def cambiar_estado_programacion(programacion_id: int, status: str, authori
     if not _sb_update(PROGRAMACIONES, programacion_id, scope, {"status": status}):
         raise HTTPException(404, "Programación no encontrada.")
     return {"ok": True, "programacion_id": programacion_id, "status": status}
+
+
+@router.get("/programaciones/{programacion_id}/vista-previa.pdf")
+async def vista_previa_programacion_pdf(
+    programacion_id: int,
+    periodo: Optional[str] = None,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Genera el PDF programado sin reservar folio, persistir factura ni llamar al PAC."""
+    scope = _scope_required(authorization, x_perfil_id)
+    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
+    if not schedule:
+        raise HTTPException(404, "Programación no encontrada.")
+    tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
+    if periodo is None:
+        next_at = schedule.get("proxima_ejecucion_at")
+        target = datetime.fromisoformat(str(next_at).replace("Z", "+00:00")).astimezone(tz) if next_at else datetime.now(tz)
+        periodo = target.strftime("%Y-%m")
+    if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", periodo or ""):
+        raise HTTPException(422, "El periodo debe tener formato AAAA-MM.")
+    year, month = (int(part) for part in periodo.split("-"))
+    hour, minute = (int(part) for part in str(schedule.get("hora_local") or "09:00")[:5].split(":"))
+    target = datetime(year, month, min(int(schedule.get("dia_mes") or 1), 28), hour, minute, tzinfo=tz)
+    cfdi = cfdi_for_execution(schedule, now=target.astimezone(timezone.utc))
+    xml_preview = general_cfdi_preview_xml(cfdi)
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    _logo_name, logo_data = selected_general_logo(config, int(schedule.get("logo_slot") or 1))
+    pdf_theme = {key: config.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
+    pdf = generar_pdf_ingreso_desde_xml(
+        xml_preview,
+        logo_data_url=logo_data,
+        observaciones=str(cfdi.get("Notas") or ""),
+        pdf_theme=pdf_theme,
+        preview=True,
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", str(schedule.get("nombre") or "factura")).strip("_")
+    filename = f"vista_previa_{safe_name}_{periodo}.pdf"
+    return Response(
+        pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/programaciones/{programacion_id}/ejecutar")

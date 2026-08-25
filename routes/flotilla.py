@@ -560,15 +560,24 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         "id,vehicle_number,motive_id,current_driver_name,status,availability_status,odometer_km,engine_hours"
     ).eq("tenant_id", tenant_id).execute().data or []
     vehicle_by_id = {int(row["id"]): row for row in vehicles}
+    vehicle_id_by_motive_id = {
+        int(row["motive_id"]): int(row["id"])
+        for row in vehicles if row.get("motive_id") is not None
+    }
     allowed_vehicle_ids = _scoped_vehicle_ids(ctx, group_id)
 
     def attach(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result = []
         for row in rows:
             vehicle_id = row.get("vehicle_id")
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            if vehicle_id is None and motive_vehicle_id is not None:
+                vehicle_id = vehicle_id_by_motive_id.get(int(motive_vehicle_id))
             if allowed_vehicle_ids is not None and (vehicle_id is None or int(vehicle_id) not in allowed_vehicle_ids):
                 continue
             item = dict(row)
+            if vehicle_id is not None:
+                item["vehicle_id"] = int(vehicle_id)
             if not item.get("vehicle_number") and vehicle_id:
                 item["vehicle_number"] = vehicle_by_id.get(int(vehicle_id), {}).get("vehicle_number", "")
             result.append(item)
@@ -668,7 +677,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         if not row.get("cleared_at")
         and str(row.get("status") or "").strip().casefold() not in closed_fault_statuses
     ]
-    inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km,driver_name"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
+    inspections = _collect(_between(sb.table("fleet_inspections").select("id,vehicle_id,motive_vehicle_id,inspected_at,inspection_type,status,is_rejected,odometer_km,driver_name"), "inspected_at", start, end).eq("tenant_id", tenant_id).order("inspected_at", desc=True))
     selected_inspections = attach(inspections)
     inspection_vehicle = {int(row["id"]): row.get("vehicle_id") for row in selected_inspections}
     inspection_ids = list(inspection_vehicle)
