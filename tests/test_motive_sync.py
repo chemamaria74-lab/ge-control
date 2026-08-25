@@ -6,7 +6,7 @@ from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates,
-    _merge_motive_events, _official_requester_uuid,
+    _merge_motive_events, _official_requester_uuid, normalize_currency,
 )
 from services.motive import motive_get_all_pages_flexible
 
@@ -47,10 +47,18 @@ def test_fast_safety_sync_is_bounded_to_recent_event_window():
     assert '"/v1/speeding_events"' in fast_sync
     assert '"/v2/inspection_reports"' in fast_sync
     assert '"inspection_reports"' in fast_sync
+    assert '"/v1/fuel_purchases"' in fast_sync
+    assert '"/v1/fault_codes"' in fast_sync
     assert '"updated_after": event_start_date' not in fast_sync
     assert "progress=event_progress" in fast_sync
     assert '"/v1/driving_periods"' not in fast_sync
-    assert '"/v1/fuel_purchases"' not in fast_sync
+
+
+def test_fuel_normalizer_accepts_mexican_peso_currency_labels():
+    assert normalize_currency("Mexican Pesos") == "MXN"
+    assert normalize_currency("MX$") == "MXN"
+    row = normalize_fuel_purchase({"id": 5, "purchased_at": "2026-08-25T10:00:00Z", "fuel": "45", "fuel_unit": "ltr", "currency": "Mexican Peso", "vehicle": {"id": 8}}, integration_id=1, tenant_id="tenant")
+    assert row["currency"] == "MXN"
 
 
 def test_vehicle_normalizer_keeps_only_dashboard_fields():

@@ -153,6 +153,8 @@ def test_fleet_reports_exclude_discarded_events_and_closed_faults():
     assert '"uncoachable", "un_coachable"' in backend
     assert "if not row.get(\"cleared_at\")" in backend
     assert '"closed", "cleared", "resolved", "inactive", "dismissed"' in backend
+    assert '"current_driver_name", "")' in backend
+    assert "Un código PID abierto debe mostrarse" in backend
 
 
 def test_motive_sync_refreshes_events_by_updated_after():
