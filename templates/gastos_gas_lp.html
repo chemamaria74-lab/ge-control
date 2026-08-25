@@ -5,7 +5,7 @@
   <title>GE CONTROL | Gastos y pagos</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=paid-left-aligned-20260824">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=paid-left-aligned-20260824-pending-reminder">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
 </head>
 <body>
@@ -124,6 +124,9 @@
   <div id="paymentModal" class="expense-modal-layer" hidden role="dialog" aria-modal="true" aria-labelledby="paymentSelectionCount">
     <form id="batchPaymentForm" class="payment-confirm-card expense-modal-card"><div class="payment-confirm-heading"><div><span class="eyebrow">Registrar transferencia</span><strong id="paymentSelectionCount">0 facturas seleccionadas</strong><small id="paymentSelectionHint">Selecciona facturas del mismo destinatario.</small></div><button class="btn secondary" id="cancelPayment" type="button">Cancelar</button></div><div class="payment-confirm-fields"><label>Fecha de pago<input id="paymentDate" type="date" required></label><label>Monto realmente pagado<input id="paymentAmount" type="text" inputmode="decimal" autocomplete="off" required></label><label>Método<input id="paymentMethod" value="Transferencia" readonly></label><label>Referencia<input id="paymentReference" placeholder="Folio bancario"></label><label class="wide">Concepto del pago (opcional)<input id="paymentNotes" placeholder="Ej. Anticipo"></label><div class="wide payment-difference-summary"><span>Aplicado a facturas: <strong id="paymentAppliedAmount">$0.00</strong></span><span>Diferencia: <strong id="paymentDifference">$0.00</strong></span><small>El excedente se registra sin aumentar lo aplicado a las facturas.</small></div></div><div class="actions"><button class="btn primary" type="submit">Registrar pago</button></div></form>
   </div>
+  <div id="pendingPayablesModal" class="expense-modal-layer" hidden role="dialog" aria-modal="true" aria-labelledby="pendingPayablesTitle">
+    <article class="payment-confirm-card expense-modal-card pending-payables-card"><div class="pending-payables-icon"><i class="fa-solid fa-receipt" aria-hidden="true"></i></div><span class="eyebrow">Antes de preparar el pago</span><h3 id="pendingPayablesTitle">Ya hay más facturas pendientes</h3><p id="pendingPayablesMessage"></p><div class="pending-payables-total"><span>Total pendiente para este destinatario</span><strong id="pendingPayablesTotal">$0.00</strong><small id="pendingPayablesCount">0 facturas</small></div><div class="actions"><button class="btn primary" id="viewPendingPayables" type="button">Ver y sumar en Pagos</button><button class="btn secondary" id="closePendingPayables" type="button">Seguir capturando</button></div></article>
+  </div>
   <div id="expenseEditModal" class="expense-modal-layer" hidden role="dialog" aria-modal="true" aria-labelledby="expenseEditTitle">
     <form id="expenseEditForm" class="payment-confirm-card expense-modal-card"><input id="expenseEditId" type="hidden"><input id="expenseEditProfile" type="hidden"><div class="payment-confirm-heading"><div><span class="eyebrow">Corregir gasto</span><strong id="expenseEditTitle">Editar gasto</strong><small>Los cambios se reflejan también en pendientes de pago.</small></div><button class="btn secondary" id="cancelExpenseEdit" type="button">Cancelar</button></div><div class="payment-confirm-fields"><label>Folio<input id="expenseEditFolio" maxlength="100" required></label><label>Fecha de factura<input id="expenseEditDate" type="date" required></label><label>Total<input id="expenseEditTotal" type="number" min=".01" step=".01" required></label><label class="wide">Descripción (opcional)<input id="expenseEditDescription" maxlength="500"></label><label class="wide">Observación (opcional)<textarea id="expenseEditObservation" maxlength="500"></textarea></label></div><div class="actions"><button class="btn primary" type="submit">Guardar cambios</button></div></form>
   </div>
@@ -134,5 +137,5 @@
     </form>
   </div>
   <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=compact-payables-credit-tab-20260824"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=compact-payables-credit-tab-20260824-pending-reminder"></script>
 </body></html>
