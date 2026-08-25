@@ -235,6 +235,10 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     for row in data.get("vehicles", []):
         item = unit(row.get("vehicle_number"))
         item["driver_name"] = _text(row.get("current_driver_name"))
+        if item["driver_name"]:
+            # Mantener visible el conductor asignado aun cuando durante el
+            # periodo tenga cero eventos. No se incluye en capacitación.
+            driver(item["driver_name"], item["vehicle_number"])
     # Activity is a reliable fallback for identifying the actual driver when the
     # event feed omits driver_name. Resolve it before attributing safety events.
     for row in data.get("activity", []):

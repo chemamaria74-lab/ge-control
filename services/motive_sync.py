@@ -17,6 +17,15 @@ MILES_TO_KM = Decimal("1.609344")
 GALLONS_TO_LITERS = Decimal("3.785411784")
 
 
+def normalize_currency(value: Any) -> str:
+    """Conserva códigos ISO y reconoce las etiquetas que Motive usa para MXN."""
+    raw = str(value or "").strip().upper()
+    compact = "".join(character for character in raw if character.isalnum())
+    if compact in {"MX", "MXN", "MXP", "MEXICANPESO", "MEXICANPESOS", "PESOMEXICANO", "PESOSMEXICANOS"}:
+        return "MXN"
+    return raw or "MXN"
+
+
 def _inner(item: Any, key: str) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {}
@@ -157,7 +166,7 @@ def normalize_fuel_purchase(item: Any, *, integration_id: int, tenant_id: str) -
         "fuel_type": str(purchase.get("fuel_type") or ""),
         "quantity_liters": _number(quantity) or 0,
         "total_cost": _number(_decimal(purchase.get("total_cost")) or Decimal(0)) or 0,
-        "currency": str(purchase.get("currency") or ""),
+        "currency": normalize_currency(purchase.get("currency")),
         "vendor": str(purchase.get("vendor") or ""),
         "odometer_km": _number(odometer, 3),
         "source": str(purchase.get("source") or ""),
@@ -403,7 +412,10 @@ def normalize_fault(item: Any, *, integration_id: int, tenant_id: str) -> dict[s
         "code_label": str(fault.get("code_label") or ""), "description": str(fault.get("code_description") or ""),
         "severity": str(fault.get("type") or ""), "status": str(fault.get("status") or ""),
         "occurrence_count": _integer(fault.get("occurrence_count") or fault.get("num_observations")),
-        "occurred_at": _iso(fault.get("first_observed_at")),
+        "occurred_at": _iso(
+            fault.get("first_observed_at") or fault.get("first_observed_time")
+            or fault.get("occurred_at") or fault.get("created_at")
+        ),
         "cleared_at": _iso(fault.get("last_observed_at")) if str(fault.get("status") or "").lower() == "closed" else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -427,7 +439,7 @@ def normalize_card_expense(item: Any, *, integration_id: int, tenant_id: str) ->
         "fuel_type": next((value for value in product_types if value.lower() in {"gasoline", "diesel", "liquid propane gas (lpg)"}), ""),
         "quantity_liters": _number(liters) if liters else None, "amount_mxn": _number(_decimal(tx.get("total_amount")) or Decimal(0)) or 0,
         "submitted_by": str(tx.get("driver_id") or ""),
-        "raw_metadata": {"motive_vehicle_id": tx.get("vehicle_id"), "currency": tx.get("currency"), "status": tx.get("transaction_status")},
+        "raw_metadata": {"motive_vehicle_id": tx.get("vehicle_id"), "currency": normalize_currency(tx.get("currency")), "status": tx.get("transaction_status")},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -669,7 +681,7 @@ def queue_motive_sync(tenant_id: str, requested_by: str | None = None, *, full: 
 
 
 def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
-    """Actualización rápida del informe: seguridad, velocidad e inspecciones recientes."""
+    """Actualización rápida: seguridad, inspecciones, combustible y fallas vigentes."""
     from supabase_config import get_supabase_admin
 
     sb = get_supabase_admin()
@@ -800,15 +812,42 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
             datasets["defects"] = _upsert(
                 sb, "fleet_inspection_defects", defects, "inspection_id,source_key"
             )
+
+        # Las cargas que se hacen en Motive Driver se publican como fuel_purchases.
+        # Se revisan en cada actualización del gerente, no sólo en una carga completa.
+        fuel_items = _optional_pages(
+            datasets, "fuel_purchases", "/v1/fuel_purchases", "fuel_purchases",
+            params={"start_date": event_start_date, "end_date": event_end_date},
+        )
+        fuels = [normalize_fuel_purchase(item, integration_id=integration_id, tenant_id=tenant_id) for item in fuel_items]
+        for row in fuels:
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
+        if not isinstance(datasets.get("fuel_purchases"), dict):
+            datasets["fuel_purchases"] = _upsert(
+                sb, "fleet_fuel_purchases", fuels, "integration_id,motive_id"
+            )
+
+        # Los PID abiertos pueden haberse originado antes del periodo elegido;
+        # pedir la lista vigente evita que desaparezcan por una ventana de fechas corta.
+        fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes")
+        faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
+        for row in faults:
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
+        if not isinstance(datasets.get("fault_codes"), dict):
+            datasets["fault_codes"] = _upsert(
+                sb, "fleet_fault_codes", faults, "integration_id,source_key"
+            )
         datasets.pop("sync_progress", None)
 
         unavailable = [
-            name for name in ("driver_events", "speeding_events", "inspections")
+            name for name in ("driver_events", "speeding_events", "inspections", "fuel_purchases", "fault_codes")
             if isinstance(datasets.get(name), dict)
         ]
-        if len(unavailable) == 3:
+        if len(unavailable) == 5:
             details = "; ".join(str(datasets[name].get("detail") or name) for name in unavailable)
-            raise MotiveAPIError(502, f"Motive no permitió actualizar seguridad, velocidad ni inspecciones: {details[:220]}")
+            raise MotiveAPIError(502, f"Motive no permitió actualizar los datos de flotilla: {details[:220]}")
 
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
@@ -998,7 +1037,9 @@ def sync_motive_tenant(
             datasets["vehicle_utilization"] = 0
         pulse()
 
-        fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes", params={"start_date": start_date, "end_date": end_date})
+        # Los códigos abiertos se reportan por estado actual, no por la fecha de
+        # su primera detección: un PID viejo que sigue activo requiere atención.
+        fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes")
         faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
         for row in faults:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
