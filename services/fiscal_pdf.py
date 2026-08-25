@@ -84,6 +84,7 @@ def generar_pdf_cfdi_desde_xml(
     observaciones: str = "",
     template: str = "ingreso",
     pdf_theme: dict[str, Any] | None = None,
+    preview: bool = False,
 ) -> bytes:
     """Genera representacion impresa fiscal basica desde XML timbrado CFDI 4.0.
 
@@ -107,7 +108,7 @@ def generar_pdf_cfdi_desde_xml(
     traslados = _all(root, "Traslado")
     retenciones = _all(root, "Retencion")
     tipo_cfdi = _attr(root, "TipoDeComprobante", "")
-    display_title = "COMPLEMENTO DE PAGO" if tipo_cfdi == "P" else _display_title(title, root)
+    display_title = "VISTA PREVIA DE FACTURA" if preview else ("COMPLEMENTO DE PAGO" if tipo_cfdi == "P" else _display_title(title, root))
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -149,6 +150,8 @@ def generar_pdf_cfdi_desde_xml(
     logo = _logo_flowable(logo_data_url, Image)
     permiso_cre = _printed_cre_permit(root)
     story = []
+    if preview:
+        story += [_bar("VISTA PREVIA - DOCUMENTO SIN TIMBRAR", Table, TableStyle, colors, wine), Spacer(1, 6)]
     story += [
         _modern_header(display_title, logo, root, emisor, timbre, Table, TableStyle, Paragraph, styles, colors, wine, wine_dark, cream, line),
         Spacer(1, 8),
@@ -200,16 +203,17 @@ def generar_pdf_cfdi_desde_xml(
         story.append(_observaciones_block(observaciones_pdf, Table, TableStyle, Paragraph, styles, colors, line))
     story.append(_totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, styles, colors, cream, line))
     story.append(Spacer(1, 4))
-    story.append(_seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
-    story.append(Spacer(1, 5))
-    footer = "Generado por GE Control © 2026" if template == "resico_saas" else "Este documento es una representación impresa de un CFDI generado por GE Control."
+    if not preview:
+        story.append(_seals_block(root, timbre, qr, Table, TableStyle, Paragraph, styles, colors, wine, cream, line))
+        story.append(Spacer(1, 5))
+    footer = "Vista previa generada por GE Control. No es un comprobante fiscal y no tiene validez ante el SAT." if preview else ("Generado por GE Control © 2026" if template == "resico_saas" else "Este documento es una representación impresa de un CFDI generado por GE Control.")
     story.append(Paragraph(_text(footer), styles["Footer"]))
     doc.build(story, onFirstPage=_draw_pdf_page_background, onLaterPages=_draw_pdf_page_background)
     return buffer.getvalue()
 
 
-def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", observaciones: str = "", pdf_theme: dict[str, Any] | None = None) -> bytes:
-    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, observaciones=observaciones, template="ingreso", pdf_theme=pdf_theme)
+def generar_pdf_ingreso_desde_xml(xml_content: str | bytes, *, logo_data_url: str = "", observaciones: str = "", pdf_theme: dict[str, Any] | None = None, preview: bool = False) -> bytes:
+    return generar_pdf_cfdi_desde_xml(xml_content, title="Factura CFDI de ingreso", logo_data_url=logo_data_url, observaciones=observaciones, template="ingreso", pdf_theme=pdf_theme, preview=preview)
 
 
 def generar_pdf_ingreso_carta_porte_desde_xml(

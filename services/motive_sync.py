@@ -669,7 +669,7 @@ def queue_motive_sync(tenant_id: str, requested_by: str | None = None, *, full: 
 
 
 def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
-    """Actualización rápida del informe: sólo seguridad y velocidad recientes."""
+    """Actualización rápida del informe: seguridad, velocidad e inspecciones recientes."""
     from supabase_config import get_supabase_admin
 
     sb = get_supabase_admin()
@@ -749,12 +749,66 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
             row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
         if not isinstance(datasets.get("speeding_events"), dict):
             datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+
+        speed_pages = int((datasets.get("sync_progress") or {}).get("pages_done") or 0)
+
+        def inspection_progress(page: int, records: int, total: int | None) -> None:
+            total_pages = ((total + 99) // 100) if total is not None else None
+            now = datetime.now(timezone.utc).isoformat()
+            datasets["sync_progress"] = {
+                "phase": "Inspecciones", "pages_done": page,
+                "total_pages": total_pages, "records_seen": records,
+            }
+            sb.table("fleet_sync_runs").update({
+                "heartbeat_at": now, "pages_processed": event_pages + speed_pages + page,
+                "records_processed": sum(
+                    int(value) for value in datasets.values() if isinstance(value, int)
+                ) + records,
+                "datasets": datasets,
+            }).eq("id", run_id).execute()
+
+        inspection_items = _optional_pages(
+            datasets, "inspections", "/v2/inspection_reports", "inspection_reports",
+            params={"start_date": event_start_date, "end_date": event_end_date},
+            progress=inspection_progress,
+        )
+        normalized_inspections = [
+            normalize_inspection(item, integration_id=integration_id, tenant_id=tenant_id)
+            for item in inspection_items
+        ]
+        inspections = [row for row, _ in normalized_inspections]
+        for row in inspections:
+            motive_vehicle_id = row.get("motive_vehicle_id")
+            row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
+        if not isinstance(datasets.get("inspections"), dict):
+            datasets["inspections"] = _upsert(
+                sb, "fleet_inspections", inspections, "integration_id,motive_id"
+            )
+            stored_inspections = (
+                sb.table("fleet_inspections").select("id,motive_id")
+                .eq("integration_id", integration_id).execute().data or []
+            )
+            inspection_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_inspections}
+            defects: list[dict[str, Any]] = []
+            for inspection, inspection_defects in normalized_inspections:
+                inspection_id = inspection_ids.get(int(inspection["motive_id"]))
+                if inspection_id is None:
+                    continue
+                for defect in inspection_defects:
+                    defect["inspection_id"] = inspection_id
+                    defects.append(defect)
+            datasets["defects"] = _upsert(
+                sb, "fleet_inspection_defects", defects, "inspection_id,source_key"
+            )
         datasets.pop("sync_progress", None)
 
-        unavailable = [name for name in ("driver_events", "speeding_events") if isinstance(datasets.get(name), dict)]
-        if len(unavailable) == 2:
+        unavailable = [
+            name for name in ("driver_events", "speeding_events", "inspections")
+            if isinstance(datasets.get(name), dict)
+        ]
+        if len(unavailable) == 3:
             details = "; ".join(str(datasets[name].get("detail") or name) for name in unavailable)
-            raise MotiveAPIError(502, f"Motive no permitió actualizar seguridad ni velocidad: {details[:220]}")
+            raise MotiveAPIError(502, f"Motive no permitió actualizar seguridad, velocidad ni inspecciones: {details[:220]}")
 
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
