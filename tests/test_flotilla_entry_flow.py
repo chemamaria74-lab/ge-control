@@ -104,6 +104,8 @@ def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_ex
     assert "await loadReportCatalog({prepare:false,scroll:false})" not in script
     assert "$('executiveDashboard').hidden=true" in script
     assert "$('syncButton').hidden=false" in script
+    assert "GE CONTROL | Portal de Gerentes" in script
+    assert "GE CONTROL | Supervisión de Flotilla" in script
 
 
 def test_fleet_restores_only_the_last_analysis_generated_today():
@@ -117,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260824-manager-focus" in template
+    assert "flotilla.js?v=20260824-manager-focus-2" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -128,7 +130,8 @@ def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervisio
     assert "Esta zona no tiene un análisis guardado" in script
     assert "'/gas-lp/conciliacion?area=flotilla'" in script
     assert "data-driver-search" in script
-    assert "runExplorer(button.dataset.driverSearch||'')" in script
+    assert "runExplorer(button.dataset.driverSearch||'',target)" in script
+    assert "renderCompactDriverDetail(data,target)" in script
 
 
 def test_fleet_expiry_returns_supervision_to_supervision_login():

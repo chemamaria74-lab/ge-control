@@ -130,7 +130,7 @@ def test_expenses_frontend_tracks_refreshed_token_and_exits_on_401():
     assert "let token=" in js
     assert "ge:token-refreshed" in js
     assert "window.GESessionTimeout?.expire()" in js
-    assert "paid-table-actions-20260813" in html
+    assert "payment-layout-fix-20260824" in html
 
 
 @pytest.mark.parametrize("module,profile_id", [("control_administrativo", 416), ("transporte", 410)])
@@ -633,7 +633,8 @@ def test_credit_notes_live_in_expenses_and_payable_cards_are_compact():
     assert 'data-review-filter="credit"' not in html
     assert 'id="expenseCreditRows"' in html and "function renderCreditNotes()" in script
     assert 'class="payment-group payable-group"' in script
-    assert ".payable-group>summary" in css and ".credit-apply-compact" in css
+    assert ".payable-group>summary" in css and ".credit-inline" in css
+    assert 'class="paid-summary"' in script and ".paid-payment>.paid-summary" in css
     assert "Nota de crédito':x.expense_type==='voucher'?'Factura con vales':'Factura" in script
 
 
@@ -755,7 +756,7 @@ def test_paid_advances_appear_in_payment_history_and_accounting_export_without_d
     assert "Fecha de pago del anticipo" in script
     assert "guardado en Pagos; queda pendiente de factura" in script
     assert ".paid-payment .table-wrap tbody tr" in css
-    assert "paid-table-actions-20260813" in html
+    assert "payment-layout-fix-20260824" in html
 
 
 def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue():
@@ -843,7 +844,7 @@ def test_expense_portals_send_explicit_module_scope_and_support_atomic_batch_cap
     assert "IS_STANDALONE?localStorage.getItem('sat_token'):localStorage.getItem('ge_gaslp_conciliacion_token')" in script
     assert "const q=path=>IS_STANDALONE?path:path+" in script
     assert "const authHeaders=()=>IS_STANDALONE&&token?{Authorization:`Bearer ${token}`}" in script
-    assert "paid-table-actions-20260813" in html
+    assert "payment-layout-fix-20260824" in html
     assert 'requested_expense_module not in {"", "gas_lp", "transporte", "control_administrativo"}' in route
     assert "requested_expense_module not in modules" in route
     assert 'id="singleCaptureMode"' in html and 'id="batchCaptureMode"' in html
