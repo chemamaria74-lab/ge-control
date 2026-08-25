@@ -690,8 +690,8 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
                 "records_processed": records, "datasets": datasets,
             }).eq("id", run_id).execute()
 
-        event_items = motive_get_all_pages(
-            "/v2/driver_performance_events", collection_key="driver_performance_events",
+        event_items = _optional_pages(
+            datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events",
             params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"},
             progress=event_progress,
         )
@@ -702,11 +702,12 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
         for row in driver_events:
             motive_vehicle_id = row.get("motive_vehicle_id")
             row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
-        datasets["driver_events"] = _upsert(sb, "fleet_driver_events", driver_events, "integration_id,motive_id")
+        if not isinstance(datasets.get("driver_events"), dict):
+            datasets["driver_events"] = _upsert(sb, "fleet_driver_events", driver_events, "integration_id,motive_id")
 
         heartbeat = datetime.now(timezone.utc).isoformat()
         sb.table("fleet_sync_runs").update({
-            "heartbeat_at": heartbeat, "records_processed": datasets["driver_events"], "datasets": datasets,
+            "heartbeat_at": heartbeat, "records_processed": int(datasets.get("driver_events") or 0) if not isinstance(datasets.get("driver_events"), dict) else 0, "datasets": datasets,
         }).eq("id", run_id).execute()
 
         event_pages = int((datasets.get("sync_progress") or {}).get("pages_done") or 0)
@@ -720,11 +721,11 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
             }
             sb.table("fleet_sync_runs").update({
                 "heartbeat_at": now, "pages_processed": event_pages + page,
-                "records_processed": datasets["driver_events"] + records, "datasets": datasets,
+                "records_processed": (int(datasets.get("driver_events") or 0) if not isinstance(datasets.get("driver_events"), dict) else 0) + records, "datasets": datasets,
             }).eq("id", run_id).execute()
 
-        speeding_items = motive_get_all_pages(
-            "/v1/speeding_events", collection_key="speeding_events",
+        speeding_items = _optional_pages(
+            datasets, "speeding_events", "/v1/speeding_events", "speeding_events",
             params={"start_date": event_start_date, "end_date": event_end_date},
             progress=speed_progress,
         )
@@ -732,11 +733,17 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
         for row in speeding:
             motive_vehicle_id = row.get("motive_vehicle_id")
             row["vehicle_id"] = vehicle_ids.get(int(motive_vehicle_id)) if motive_vehicle_id is not None else None
-        datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
+        if not isinstance(datasets.get("speeding_events"), dict):
+            datasets["speeding_events"] = _upsert(sb, "fleet_speeding_events", speeding, "integration_id,motive_id")
         datasets.pop("sync_progress", None)
 
+        unavailable = [name for name in ("driver_events", "speeding_events") if isinstance(datasets.get(name), dict)]
+        if len(unavailable) == 2:
+            details = "; ".join(str(datasets[name].get("detail") or name) for name in unavailable)
+            raise MotiveAPIError(502, f"Motive no permitió actualizar seguridad ni velocidad: {details[:220]}")
+
         finished = datetime.now(timezone.utc).isoformat()
-        total = sum(int(value) for value in datasets.values())
+        total = sum(int(value) for value in datasets.values() if isinstance(value, int))
         sb.table("fleet_sync_runs").update({
             "status": "succeeded", "finished_at": finished, "heartbeat_at": finished,
             "records_processed": total, "datasets": datasets,

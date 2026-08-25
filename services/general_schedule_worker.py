@@ -233,11 +233,12 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
     data = result.get("data") or {}
     receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
     clients = (
-        sb.table(CLIENTES).select("rfc,dias_credito")
+        sb.table(CLIENTES).select("rfc,email,dias_credito")
         .eq("tenant_id", schedule.get("tenant_id")).eq("perfil_id", schedule["perfil_id"])
         .eq("activo", True).execute().data or []
     )
     client = next((row for row in clients if str(row.get("rfc") or "").strip().upper() == receptor_rfc), {})
+    destination_email = str(client.get("email") or schedule.get("email_destino") or "").strip()
     credit_days = max(0, min(365, int(client.get("dias_credito") or 0)))
     is_paid = str(cfdi.get("MetodoPago") or "") == "PUE"
     factura = (
@@ -270,11 +271,11 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
     )[0]
 
     email = {"ok": False, "skipped": True, "error": "Sin correo de destino o XML timbrado."}
-    if data.get("cfdi") and str(schedule.get("email_destino") or "").strip():
+    if data.get("cfdi") and destination_email:
         try:
             pdf = generar_pdf_ingreso_desde_xml(data["cfdi"], logo_data_url=logo_data, pdf_theme={key: config.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")})
             email = send_gas_lp_invoice_email(
-                to_email=schedule["email_destino"],
+                to_email=destination_email,
                 issuer_name=(cfdi.get("Emisor") or {}).get("Nombre") or "Empresa",
                 customer_name=(cfdi.get("Receptor") or {}).get("Nombre") or "Cliente",
                 uuid_sat=data.get("uuid") or "",
