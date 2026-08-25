@@ -868,6 +868,13 @@ def report_catalog(
     inspection_details = []
     for inspection in data.get("inspections", []):
         inspection_id = int(inspection["id"])
+        open_defects = [
+            defect for defect in defects_by_inspection.get(inspection_id, [])
+            if not defect.get("resolved_at")
+            and str(defect.get("status") or "").casefold() in {"open", "pending", "unresolved", "with_defects"}
+        ]
+        if not open_defects:
+            continue
         inspection_details.append({
             "id": inspection_id,
             "date": inspection.get("inspected_at"),
@@ -881,7 +888,7 @@ def report_catalog(
                 "notes": defect.get("notes"), "severity": defect.get("severity"),
                 "status": defect.get("status"), "resolved_at": defect.get("resolved_at"),
                 "open": not defect.get("resolved_at") and str(defect.get("status") or "").casefold() in {"open", "pending", "unresolved", "with_defects"},
-            } for defect in defects_by_inspection.get(inspection_id, [])],
+            } for defect in open_defects],
         })
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")

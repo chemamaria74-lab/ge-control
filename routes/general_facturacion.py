@@ -555,11 +555,19 @@ def _validate_schedule_spacing(schedules: list[dict], *, day: int, local_time: s
 async def listar_programaciones(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
     schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    clients = _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
+    clients_by_rfc = {str(client.get("rfc") or "").strip().upper(): client for client in clients}
     executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
     latest_by_schedule = {}
     for execution in executions:
         latest_by_schedule.setdefault(str(execution.get("programacion_id")), execution)
     for schedule in schedules:
+        receptor_rfc = str(((schedule.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "").strip().upper()
+        client = clients_by_rfc.get(receptor_rfc) or {}
+        client_email = str(client.get("email") or "").strip()
+        if client_email:
+            schedule["email_destino"] = client_email
+        schedule["correo_cliente"] = client_email
         schedule["ultima_ejecucion"] = latest_by_schedule.get(str(schedule.get("id")))
     return {"ok": True, "programaciones": schedules}
 
