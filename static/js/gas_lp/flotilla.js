@@ -50,6 +50,7 @@
       state.identity=data;
       $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
       const internal=data.identity_type==='internal';
+      document.title=internal?'GE CONTROL | Portal de Gerentes':'GE CONTROL | Supervisión de Flotilla';
       document.body.classList.toggle('manager-fixed-zone',internal);
       $('syncButton').hidden=false;
       $('fleetBack').hidden=internal;
@@ -308,6 +309,7 @@
   }
 
   function renderDashboard(analytics){
+    const internal=state.identity?.identity_type==='internal';
     const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
     const inspectionMap=new Map();
     inspectionDetails.forEach(item=>{const key=`${item.driver_name}\u0000${item.vehicle_number}`;const current=inspectionMap.get(key)||{driver_name:item.driver_name,vehicle_number:item.vehicle_number,inspections:0};current.inspections+=1;inspectionMap.set(key,current);});
@@ -316,18 +318,26 @@
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
       const behavior=row.top_behavior||row.primary_behavior||'Conducta por revisar';
-      return `<button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button>`;
+      return `<div class="driver-risk-item"><button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
     $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
       const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span> ${esc(defect.title||defect.category||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
       return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle disponible.</div>'}</div></details>`;
-    }).join(''):'<div class="empty">No hay inspecciones abiertas en el periodo.</div>';
-    $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
+    }).join(''):'<div class="empty">No hay pendientes abiertos de inspección en este periodo.</div>';
+    $('behaviorRanking').innerHTML=internal?behaviorListHtml(behaviors):behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
-      runExplorer(button.dataset.driverSearch||'');
+      const target=button.closest('.driver-risk-item')?.querySelector('.driver-inline-detail');
+      document.querySelectorAll('.driver-inline-detail').forEach(detail=>{if(detail!==target){detail.hidden=true;detail.innerHTML='';}});
+      if(target&&!target.hidden){target.hidden=true;target.innerHTML='';return;}
+      runExplorer(button.dataset.driverSearch||'',target);
     }));
+  }
+
+  function behaviorListHtml(rows){
+    if(!rows.length)return '<div class="empty">No hay conductas registradas.</div>';
+    return `<div class="simple-list">${rows.slice(0,5).map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.label)}</b></span><strong>${fmt(row.count)} eventos</strong></div>`).join('')}</div>`;
   }
 
   function behaviorDonutHtml(rows){
@@ -384,18 +394,28 @@
     if(currentDriver)$('explorerDriver').value=currentDriver;
   }
 
-  async function runExplorer(driverName=''){
+  async function runExplorer(driverName='',target=null){
     const p=params({entity_type:'driver'});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
     const selectedDriver=driverName||$('explorerDriver').value;
     if(!selectedDriver)return notice('Selecciona un chofer para analizar.','error');
     p.set('driver_name',selectedDriver);
+    if(target){target.hidden=false;target.innerHTML='<div class="empty">Cargando detalle…</div>';}
     $('runExplorer').disabled=true;$('runExplorer').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analizando…';
     try{
       const data=await api(`/reports/explore?${p}`);
-      renderExplorer(data,driverName?$('driverDetailPanel'):null);notice('');
-    }catch(error){notice(error.message,'error');}
+      if(target&&state.identity?.identity_type==='internal')renderCompactDriverDetail(data,target);
+      else renderExplorer(data,target);notice('');
+    }catch(error){if(target)target.innerHTML=`<div class="empty">${esc(error.message)}</div>`;notice(error.message,'error');}
     finally{$('runExplorer').disabled=false;$('runExplorer').innerHTML='<i class="fa-solid fa-chart-simple"></i> Ver desempeño';}
+  }
+
+  function renderCompactDriverDetail(data,target){
+    const k=data.kpis||{}, behaviors=(data.behaviors||[]).slice(0,4);
+    target.hidden=false;
+    target.innerHTML=`<div class="driver-detail-head"><div><strong>${esc(data.entity?.name||'Detalle del chofer')}</strong><br><span>${esc(data.period?.start)} al ${esc(data.period?.end)}</span></div><button class="driver-detail-close" type="button">Cerrar</button></div><div class="driver-detail-stats"><span><b>${fmt(k.events||0)}</b> eventos</span><span><b>${fmt(k.critical_high||0)}</b> críticos/altos</span><span><b>${fmt(k.inspections||0)}</b> inspecciones</span></div><strong>Conductas más frecuentes</strong>${behaviors.length?`<ol class="driver-detail-behaviors">${behaviors.map(row=>`<li>${esc(row.label)}: <b>${fmt(row.count)}</b></li>`).join('')}</ol>`:'<p class="empty">Sin conductas registradas.</p>'}`;
+    target.querySelector('.driver-detail-close').onclick=()=>{target.hidden=true;target.innerHTML='';};
+    target.scrollIntoView({behavior:'smooth',block:'nearest'});
   }
 
   function renderExplorer(data,target=null){
