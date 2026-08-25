@@ -6,7 +6,7 @@ from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates,
-    _merge_motive_events,
+    _merge_motive_events, _official_requester_uuid,
 )
 from services.motive import motive_get_all_pages_flexible
 
@@ -21,6 +21,13 @@ def test_event_window_can_be_configured(monkeypatch):
     monkeypatch.setenv("MOTIVE_EVENT_LOOKBACK_DAYS", "21")
     start, end = _event_lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 21
+
+
+def test_sync_requester_rejects_internal_ids_and_keeps_auth_uuid():
+    auth_uuid = "2883a5c0-1e8c-416f-a13a-6dc525825374"
+    assert _official_requester_uuid("internal:41") is None
+    assert _official_requester_uuid(None) is None
+    assert _official_requester_uuid(auth_uuid) == auth_uuid
 
 
 def test_updated_motive_event_wins_when_status_changes_to_dismissed():

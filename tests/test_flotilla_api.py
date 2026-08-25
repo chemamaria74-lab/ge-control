@@ -162,3 +162,28 @@ def test_incremental_button_dispatches_fast_safety_sync(monkeypatch):
     assert result["run_id"] == 123
     assert len(tasks.tasks) == 1
     assert tasks.tasks[0].func is flotilla.sync_motive_safety
+
+
+def test_internal_manager_sync_does_not_write_non_uuid_requester(monkeypatch):
+    sb = FakeSupabase({
+        "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],
+        "fleet_sync_runs": [],
+    })
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "tenant_id": "tenant-safe", "user_id": "internal:42",
+        "identity_type": "internal", "sb": sb,
+    })
+    monkeypatch.setattr(flotilla, "motive_is_configured", lambda: True)
+    queued = {}
+
+    def capture_queue(tenant_id, requested_by, *, full=False):
+        queued.update(tenant_id=tenant_id, requested_by=requested_by, full=full)
+        return 321
+
+    monkeypatch.setattr(flotilla, "queue_motive_sync", capture_queue)
+    result = flotilla.request_sync(
+        BackgroundTasks(), full=False,
+        authorization="", x_flotilla_access="manager-token",
+    )
+    assert result["run_id"] == 321
+    assert queued == {"tenant_id": "tenant-safe", "requested_by": None, "full": False}

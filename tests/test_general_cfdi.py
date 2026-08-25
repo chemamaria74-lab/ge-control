@@ -83,6 +83,30 @@ def test_isr_retention_is_subtracted_and_itemized():
     assert payload["Total"] == "197.50"
 
 
+def test_isr_and_iva_retentions_are_subtracted_and_itemized():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "80131500",
+            "cantidad": "1",
+            "clave_unidad": "E48",
+            "descripcion": "RENTA",
+            "valor_unitario": "60000",
+            "iva_tasa": "0.16",
+        }],
+        retencion_isr_tasa="0.10",
+        retencion_iva_tasa="0.106667",
+    ))
+
+    assert payload["Impuestos"]["TotalImpuestosTrasladados"] == "9600.00"
+    assert payload["Impuestos"]["TotalImpuestosRetenidos"] == "12400.02"
+    assert payload["Impuestos"]["Retenciones"] == [
+        {"Impuesto": "001", "Importe": "6000.00"},
+        {"Impuesto": "002", "Importe": "6400.02"},
+    ]
+    assert payload["Conceptos"][0]["Impuestos"]["Retenciones"][1]["TasaOCuota"] == "0.106667"
+    assert payload["Total"] == "57199.98"
+
+
 def test_price_with_iva_is_converted_to_tax_base_without_double_charging():
     request = base(conceptos=[{
         "clave_prod_serv": "47131811",
