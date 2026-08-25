@@ -12,10 +12,10 @@
 .manager-fixed-zone .report-download[data-format="pdf"]{display:none}
 .manager-fixed-zone .download-product>div{display:block!important}
 .manager-fixed-zone .bar-row{grid-template-columns:minmax(170px,1.4fr) minmax(100px,1.6fr) minmax(105px,auto)}
-.manager-fixed-zone #directionDownloads,.manager-fixed-zone .report-stats,.manager-fixed-zone #dataStatus,.manager-fixed-zone #noGpsPanel,.manager-fixed-zone #operationalPanel,.manager-fixed-zone .manager-brief{display:none!important}
+.manager-fixed-zone #directionDownloads,.manager-fixed-zone .report-stats,.manager-fixed-zone #dataStatus,.manager-fixed-zone #operationalPanel,.manager-fixed-zone .manager-brief{display:none!important}
 .manager-fixed-zone .report-heading{grid-template-columns:minmax(280px,1fr) minmax(260px,420px)!important;align-items:center!important}
 .manager-fixed-zone .report-downloads{grid-template-columns:1fr!important}
-.manager-fixed-zone .dashboard-grid{grid-template-columns:1.2fr .8fr}
+.manager-fixed-zone .dashboard-grid{grid-template-columns:1fr 1fr}
 .manager-fixed-zone .fleet-hero{padding:16px 20px;align-items:center}.manager-fixed-zone .fleet-hero h2{font-size:clamp(21px,2.2vw,28px);margin:5px 0 3px}.manager-fixed-zone .fleet-hero p{font-size:13px}.manager-fixed-zone .fleet-hero .eyebrow{font-size:11px}.manager-fixed-zone .sync-box{padding:11px 13px}
 .driver-risk-item{display:grid;gap:0;border-bottom:1px solid #eee9e2}.driver-risk-item .bar-row{border-bottom:0}
 .driver-inline-detail{margin:4px 5px 10px;padding:12px 14px;border:1px solid #e7ded3;border-radius:9px;background:#faf8f5}
