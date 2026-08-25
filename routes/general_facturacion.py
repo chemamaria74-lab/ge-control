@@ -67,6 +67,8 @@ class GeneralCliente(BaseModel):
     email: Optional[EmailStr] = None
     retencion_isr: bool = False
     retencion_isr_tasa: Decimal = Field(default=Decimal("0.0125"), ge=0, le=1)
+    retencion_iva: bool = False
+    retencion_iva_tasa: Decimal = Field(default=Decimal("0.106667"), ge=0, le=1)
     dias_credito: int = Field(default=0, ge=0, le=365)
 
 

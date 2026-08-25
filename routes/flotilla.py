@@ -511,13 +511,17 @@ def request_sync(
         except ValueError:
             pass
     try:
-        run_id = queue_motive_sync(ctx["tenant_id"], ctx["user_id"], full=full)
+        # fleet_sync_runs.requested_by referencia usuarios oficiales (UUID). Los
+        # gerentes internos se autentican con un ID numérico separado, por lo que
+        # no debe enviarse el marcador "internal:<id>" a esa columna.
+        requested_by = None if ctx.get("identity_type") == "internal" else ctx["user_id"]
+        run_id = queue_motive_sync(ctx["tenant_id"], requested_by, full=full)
     except Exception as exc:
         raise HTTPException(503, f"No fue posible programar la actualización: {str(exc)[:160]}") from exc
     background_tasks.add_task(
         sync_motive_tenant if full else sync_motive_safety,
         ctx["tenant_id"],
-        **({"requested_by": ctx["user_id"], "full": True, "queued_run_id": run_id} if full else {"queued_run_id": run_id}),
+        **({"requested_by": requested_by, "full": True, "queued_run_id": run_id} if full else {"queued_run_id": run_id}),
     )
     return {"accepted": True, "reused": False, "status": "queued", "run_id": run_id}
 
