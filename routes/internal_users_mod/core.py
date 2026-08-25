@@ -2537,6 +2537,7 @@ def _gas_lp_company_facturas_rows_impl(
     discounted_only: bool = False,
     receptor_rfc: str = "",
     realized_date: str = "",
+    fetch_all: bool = False,
 ) -> list[dict]:
     filters: list[dict] = []
     created_range = _gas_lp_month_created_range(month)
@@ -2579,12 +2580,10 @@ def _gas_lp_company_facturas_rows_impl(
             .order("fecha_timbrado" if realized_range else "fecha_emision", desc=True)
             .order("created_at", desc=True)
         )
-        if ppd_pending:
-            # La cartera PPD abarca todos los meses. Supabase/PostgREST entrega
-            # como máximo 1,000 filas por solicitud y `fecha_emision DESC`
-            # puede colocar primero registros legados con fecha nula. Recorrer
-            # todas las páginas evita que facturas PPD recientes desaparezcan
-            # antes de aplicar la normalización de pago y complementos.
+        if ppd_pending or fetch_all:
+            # Supabase/PostgREST entrega como máximo 1,000 filas por solicitud.
+            # La cartera PPD y la carga mensual completa deben recorrer todas
+            # las páginas antes de normalizar pagos o construir filtros.
             rows = []
             offset = 0
             while True:

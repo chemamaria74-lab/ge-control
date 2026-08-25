@@ -406,6 +406,7 @@ async def gas_lp_internal_facturas(
     receptor_rfc: str | None = None,
     carta_porte: bool = False,
     realizadas_fecha: str | None = None,
+    all_month: bool = False,
 ):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
@@ -457,6 +458,7 @@ async def gas_lp_internal_facturas(
             discounted_only=bool(descuentos),
             receptor_rfc=clean_receptor_rfc,
             realized_date=realized_date,
+            fetch_all=bool(all_month and month),
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
@@ -539,6 +541,7 @@ async def gas_lp_internal_facturas(
         "carta_porte": bool(carta_porte),
         "receptor_rfc": clean_receptor_rfc,
         "realizadas_fecha": realized_date,
+        "all_month": bool(all_month and month),
         "ppd_diagnostics": ppd_diagnostics,
     })
 
