@@ -684,11 +684,16 @@ def _conceptos_table(conceptos, Table, TableStyle, Paragraph, styles, colors, wi
         Paragraph("<b>Precio c/IVA</b>", styles["HeaderTiny"]),
     ]]
     for c in conceptos[:35]:
+        cuenta_predial = next((node for node in c.iter() if _local_name(node) == "CuentaPredial"), None)
+        predial_label = _attr(cuenta_predial, "Numero", "") if cuenta_predial is not None else ""
+        descripcion = _text(_attr(c, "Descripcion"))
+        if predial_label:
+            descripcion += f"<br/><font size='5.8'>Cuenta predial: {_text(predial_label)}</font>"
         data.append([
             Paragraph(_text(_attr(c, "Cantidad")), right_tiny),
             Paragraph(_text(_attr(c, "Unidad", _attr(c, "ClaveUnidad"))), styles["Tiny"]),
             Paragraph(_text(_attr(c, "ClaveProdServ")), styles["Tiny"]),
-            Paragraph(_text(_attr(c, "Descripcion")), styles["Tiny"]),
+            Paragraph(descripcion, styles["Tiny"]),
             Paragraph(f"${_text(_attr(c, 'ValorUnitario'))}", right_tiny),
             Paragraph(f"${_text(price_with_tax(c))}", right_tiny),
         ])

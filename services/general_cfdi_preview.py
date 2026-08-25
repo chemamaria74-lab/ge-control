@@ -48,5 +48,8 @@ def general_cfdi_preview_xml(cfdi: dict) -> str:
     for values in cfdi.get("Conceptos") or []:
         concepto = ET.SubElement(conceptos, f"{{{CFDI_NS}}}Concepto", _attributes(values))
         _taxes(concepto, values.get("Impuestos") or {})
+        cuenta_predial = values.get("CuentaPredial") or {}
+        if isinstance(cuenta_predial, dict) and cuenta_predial.get("Numero"):
+            ET.SubElement(concepto, f"{{{CFDI_NS}}}CuentaPredial", _attributes(cuenta_predial))
     _taxes(root, cfdi.get("Impuestos") or {})
     return ET.tostring(root, encoding="unicode", xml_declaration=True)

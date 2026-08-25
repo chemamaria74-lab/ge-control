@@ -380,6 +380,18 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         unit_rows.values(),
         key=lambda row: (-(row["security"] + row["speeding"]), row["vehicle_number"]),
     )
+    # No es correcto llamar "excelente" a una unidad sin telemetría. Sólo se
+    # reconoce la ausencia de eventos cuando Motive sí reportó datos/GPS.
+    drivers_without_events = [
+        {
+            "driver_name": row["driver_name"],
+            "vehicle_number": row["vehicle_number"],
+            "inspections": row["inspections"],
+        }
+        for row in units
+        if row["driver_name"] and row["telemetry_available"]
+        and not (row["security"] + row["speeding"])
+    ]
     totals = {
         "expenses_mxn": sum(row["expense_mxn"] for row in units),
         "maintenance_mxn": sum(row["maintenance_mxn"] for row in units),
@@ -442,6 +454,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "inspection_credits": inspection_credit_rows,
         "drivers": driver_rows,
         "training_drivers": training_drivers,
+        "drivers_without_events": drivers_without_events,
         "behaviors": [{"label": name, "count": count} for name, count in behaviors.most_common()],
         "severity": [{"label": name, "count": count} for name, count in severity.most_common()],
         "daily": [{"date": day, "count": daily[day]} for day in sorted(daily)],
