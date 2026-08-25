@@ -157,6 +157,18 @@ def test_fleet_reports_exclude_discarded_events_and_closed_faults():
     assert "Un código PID abierto debe mostrarse" in backend
 
 
+def test_fleet_dashboard_distinguishes_zero_event_drivers_from_missing_gps():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    analytics = (ROOT / "services/fleet_reports.py").read_text(encoding="utf-8")
+
+    assert "Choferes sin eventos registrados" in template
+    assert 'id="safeDrivers"' in template
+    assert "drivers_without_events" in frontend
+    assert "drivers_without_events" in analytics
+    assert "defect.category" in frontend
+
+
 def test_motive_sync_refreshes_events_by_updated_after():
     backend = Path("services/motive_sync.py").read_text()
     assert '"updated_after": event_start_date' not in backend

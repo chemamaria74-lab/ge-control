@@ -23,6 +23,7 @@ def sample_cfdi():
         "Conceptos": [{
             "ClaveProdServ": "80131500", "Cantidad": "1.00", "ClaveUnidad": "E48",
             "Unidad": "SERVICIO", "Descripcion": "RENTA — septiembre 2026",
+            "CuentaPredial": {"Numero": "0010202501200"},
             "ValorUnitario": "60000.00", "Importe": "60000.00", "ObjetoImp": "02",
             "Impuestos": {
                 "Traslados": [{"Base": "60000.00", "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000", "Importe": "9600.00"}],
@@ -48,6 +49,7 @@ def test_preview_xml_preserves_cfdi_parties_concepts_and_taxes_without_timbre():
     assert root.tag == f"{{{CFDI_NS}}}Comprobante"
     assert root.find(f"{{{CFDI_NS}}}Emisor").attrib["Rfc"] == "MUCE450904J94"
     assert root.find(f".//{{{CFDI_NS}}}Concepto").attrib["Descripcion"] == "RENTA — septiembre 2026"
+    assert root.find(f".//{{{CFDI_NS}}}CuentaPredial").attrib["Numero"] == "0010202501200"
     assert len(root.findall(f".//{{{CFDI_NS}}}Retencion")) == 4
     assert root.find(".//{http://www.sat.gob.mx/TimbreFiscalDigital}TimbreFiscalDigital") is None
 

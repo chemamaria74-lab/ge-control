@@ -56,6 +56,23 @@ def test_preserves_optional_internal_product_identifier():
     assert payload["Conceptos"][0]["NoIdentificacion"] == "2122"
 
 
+def test_adds_cuenta_predial_to_rental_concept():
+    request = base(conceptos=[{
+        "clave_prod_serv": "80131502",
+        "cantidad": "1",
+        "clave_unidad": "E48",
+        "unidad": "SERVICIO",
+        "descripcion": "RENTA DE LOCAL",
+        "cuenta_predial": "0010202501200",
+        "valor_unitario": "1000",
+        "iva_tasa": "0.16",
+    }])
+
+    payload = build_general_cfdi(request)
+
+    assert payload["Conceptos"][0]["CuentaPredial"] == {"Numero": "0010202501200"}
+
+
 def test_ppd_requires_forma_pago_99():
     request = base(metodo_pago="PPD", forma_pago="03")
     with pytest.raises(ValueError, match="PPD"):
