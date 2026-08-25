@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260825-sync-success-1" in template
+    assert "flotilla.js?v=20260825-manager-followup-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -167,6 +167,26 @@ def test_fleet_dashboard_distinguishes_zero_event_drivers_from_missing_gps():
     assert "drivers_without_events" in frontend
     assert "drivers_without_events" in analytics
     assert "defect.category" in frontend
+
+
+def test_manager_dashboard_orders_operational_cards_by_priority():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+
+    assert template.index('id="driverPrioritiesPanel"') < template.index('id="inspectionPanel"')
+    assert template.index('id="inspectionPanel"') < template.index('id="behaviorRanking"')
+    assert template.index('id="behaviorRanking"') < template.index('id="safeDriversPanel"')
+    assert template.index('id="safeDriversPanel"') < template.index('id="noGpsPanel"')
+    assert "Unidades sin GPS o por revisar" in template
+
+
+def test_manager_dashboard_includes_zone_expense_card():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert 'id="expensesPanel"' in template
+    assert "Gastos registrados" in template
+    assert 'id="expenseSummary"' in template
+    assert "registeredExpenses" in frontend
 
 
 def test_motive_sync_refreshes_events_by_updated_after():
