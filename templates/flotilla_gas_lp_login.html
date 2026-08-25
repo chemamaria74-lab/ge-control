@@ -46,6 +46,7 @@
     const FLOTILLA_ACCESS_KEY = 'ge_flotilla_access';
     sessionStorage.removeItem(FLOTILLA_ACCESS_KEY);
     sessionStorage.removeItem('ge_flotilla_expires_at');
+    sessionStorage.removeItem('ge_flotilla_auth_mode');
     async function readJson(response) {
       try { return await response.json(); } catch (_error) { return {}; }
     }
@@ -72,10 +73,9 @@
             ? 'Usuario o contraseña incorrectos.'
             : (session.detail || 'No fue posible iniciar sesión.'));
         }
-        ['sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key => localStorage.removeItem(key));
         localStorage.setItem('sat_modulo', 'gas_lp');
-        localStorage.setItem('sat_display_name', session.display_name || '');
         sessionStorage.setItem(FLOTILLA_ACCESS_KEY, session.token);
+        sessionStorage.setItem('ge_flotilla_auth_mode', 'internal');
         sessionStorage.setItem('ge_flotilla_expires_at', String(session.expires_at || ''));
         sessionStorage.setItem('ge_flotilla_identity', JSON.stringify({
           role: session.role,

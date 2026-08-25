@@ -40,6 +40,7 @@
     let selectedArea = 'contable';
     [CONCILIACION_TOKEN_KEY,'sat_token','zc_token','sat_user_id','sat_email','sat_role','sat_assigned_perfil_id'].forEach(key=>localStorage.removeItem(key));
     [FLOTILLA_ACCESS_KEY,'ge_flotilla_expires_at','ge_flotilla_identity'].forEach(key=>sessionStorage.removeItem(key));
+    sessionStorage.removeItem('ge_flotilla_auth_mode');
     document.querySelectorAll('[data-area]').forEach(button => button.onclick=()=>{
       selectedArea=button.dataset.area;
       document.querySelectorAll('[data-area]').forEach(item=>item.classList.toggle('active',item===button));
@@ -80,6 +81,7 @@
           if(!grantResponse.ok||!grant.access) throw new Error(grant.detail||'No se pudo habilitar la supervisión de flotilla.');
           sessionStorage.setItem(FLOTILLA_ACCESS_KEY,grant.access);
           sessionStorage.setItem('ge_flotilla_expires_at',String(grant.expires_at||''));
+          sessionStorage.setItem('ge_flotilla_auth_mode','official');
         }
         window.GESessionTimeout?.markLogin();
         location.href = AREA_CONFIG[selectedArea].destination;
