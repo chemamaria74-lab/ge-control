@@ -850,3 +850,13 @@ def test_expense_capture_prevents_duplicate_submissions_and_allocation_checks_us
     assert route.count('gas_lp_expense_payment_allocations").select("payment_id")') >= 2
     assert "insert(rows).execute()" in route
     assert "Hay folios repetidos dentro de la captura múltiple" in route
+
+
+def test_successful_batch_capture_stays_in_batch_mode_and_keeps_shared_context():
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    batch_success = script.split("if(usedMode==='batch')", 1)[1].split("}else{e.target.reset()", 1)[0]
+    assert "resetBatchRows()" in batch_success
+    assert "setCaptureMode('batch')" in batch_success
+    assert "e.target.reset()" not in batch_success
+    assert "Puedes continuar capturando más facturas del mismo proveedor" in script
