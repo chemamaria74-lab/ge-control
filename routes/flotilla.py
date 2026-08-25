@@ -484,8 +484,8 @@ def request_sync(
     x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
 ):
     ctx = _context(authorization, x_flotilla_access)
-    if ctx.get("identity_type") == "internal":
-        raise HTTPException(403, "La sincronización con Motive solo puede iniciarla el administrador.")
+    # Los gerentes de flotilla autenticados pueden solicitar la actualización de
+    # la fuente compartida. Su alcance de lectura continúa limitado a sus zonas.
     if not motive_is_configured():
         raise HTTPException(503, "La integración Motive no está configurada en el servidor.")
     sb = ctx["sb"]
@@ -532,7 +532,7 @@ def sync_status(
     rows = ctx["sb"].table("fleet_sync_runs").select("id,status,sync_type,started_at,finished_at,heartbeat_at,pages_processed,records_processed,datasets,error_code,error_message").eq("tenant_id", ctx["tenant_id"]).eq("id", run_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Sincronización no encontrada.")
-    return rows[0]
+    return _visible_sync(rows[0])
 
 
 def _between(query: Any, column: str, start: date, end: date) -> Any:
