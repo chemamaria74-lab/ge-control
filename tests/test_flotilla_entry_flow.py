@@ -103,19 +103,21 @@ def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_ex
     assert "$('managerExpensesLink').hidden=true" in script
     assert "await loadReportCatalog({prepare:false,scroll:false})" not in script
     assert "$('executiveDashboard').hidden=true" in script
+    assert "$('syncButton').hidden=false" in script
 
 
-def test_fleet_restores_the_last_complete_analysis_for_twelve_hours():
+def test_fleet_restores_only_the_last_analysis_generated_today():
     script = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
     template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
 
-    assert "REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000" in script
+    assert "REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000" in script
     assert "ge_fleet_report_cache:" in script
     assert "saved_at:Date.now()" in script
     assert "data," in script
     assert "renderReportCatalog(cached.data)" in script
-    assert "Se conservará durante 12 horas" in script
-    assert "flotilla.js?v=20260804-inspection-detail" in template
+    assert "cached.saved_day===todayKey" in script
+    assert "No se volverá a generar hasta que presiones" in script
+    assert "flotilla.js?v=20260824-manager-focus" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -126,7 +128,7 @@ def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervisio
     assert "Esta zona no tiene un análisis guardado" in script
     assert "'/gas-lp/conciliacion?area=flotilla'" in script
     assert "data-driver-search" in script
-    assert "runExplorer();" in script
+    assert "runExplorer(button.dataset.driverSearch||'')" in script
 
 
 def test_fleet_expiry_returns_supervision_to_supervision_login():
@@ -135,7 +137,7 @@ def test_fleet_expiry_returns_supervision_to_supervision_login():
 
     assert "localStorage.getItem('ge_gaslp_conciliacion_token')" in timeout
     assert "'/gas-lp/conciliacion?area=flotilla'" in timeout
-    assert "const destination=loginUrl()" in fleet
+    assert "authMode==='official'?SUPERVISION_LOGIN_URL:MANAGER_LOGIN_URL" in fleet
 
 
 def test_fleet_reports_exclude_discarded_events_and_closed_faults():

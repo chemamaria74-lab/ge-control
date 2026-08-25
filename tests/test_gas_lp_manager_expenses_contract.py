@@ -304,7 +304,8 @@ def test_expense_pages_enforce_the_shared_two_hour_session_policy():
 
     assert "session_timeout.js" in manager_html
     assert "session_timeout.js" in admin_html
-    assert "const TIMEOUT_MS = 2 * 60 * 60 * 1000" in timeout
+    assert "? 24 * 60 * 60 * 1000" in timeout
+    assert ": 2 * 60 * 60 * 1000" in timeout
     assert "if (path.startsWith('/gas-lp/gastos'))" in timeout
     assert "login: '/gas-lp/conciliacion?area=gastos'" in timeout
     assert "token.split('.').length !== 3" in timeout
@@ -603,7 +604,7 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "['pending_review','accepted','sent_to_accountant'].includes(x.status)" in script
     assert "function paymentGroupsHtml()" in script
     assert 'data-select-party' in script and '>Pagar</button>' in script
-    assert "Saldo a favor disponible" in script
+    assert "Aplicar saldo" in script
     assert "Se podrá usar cuando exista una factura pendiente" in script
     assert 'id="paymentModal"' in html and 'aria-modal="true"' in html
     assert 'data-select-all-party' in script
@@ -620,6 +621,20 @@ def test_payment_flow_groups_payables_and_keeps_email_confirmation():
     assert "await api('/payments'" in payment_submit
     assert "state.reviewStatus==='paid'?loadPayments():loadInvoices('',false)" in script
     assert '"accept": ({"pending_review", "observed"}, "sent_to_accountant")' in route
+
+
+def test_credit_notes_live_in_expenses_and_payable_cards_are_compact():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
+
+    assert 'data-subpanel="credit-notes"' in html
+    assert 'data-subcontent="credit-notes"' in html
+    assert 'data-review-filter="credit"' not in html
+    assert 'id="expenseCreditRows"' in html and "function renderCreditNotes()" in script
+    assert 'class="payment-group payable-group"' in script
+    assert ".payable-group>summary" in css and ".credit-apply-compact" in css
+    assert "Nota de crédito':x.expense_type==='voucher'?'Factura con vales':'Factura" in script
 
 
 def test_accounting_export_and_paid_view_make_payment_invoice_relationship_explicit():

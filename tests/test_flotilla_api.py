@@ -104,7 +104,9 @@ def test_vehicle_search_is_local_and_query_is_tenant_scoped(monkeypatch):
     assert result["total"] == 1
     assert result["items"][0]["vehicle_number"] == "U-01"
     assert ("eq", "tenant_id", "tenant-safe") in sb.calls
-    assert [call for call in sb.calls if call[0] == "table"] == [("table", "fleet_vehicles")]
+    assert [call for call in sb.calls if call[0] == "table"] == [
+        ("table", "fleet_vehicles"), ("table", "fleet_driving_periods")
+    ]
 
 
 def test_sync_reuses_active_run_and_does_not_schedule(monkeypatch):
