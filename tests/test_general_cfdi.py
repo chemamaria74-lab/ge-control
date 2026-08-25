@@ -39,6 +39,23 @@ def test_builds_general_cfdi_40_payload():
     assert payload["Conceptos"][0]["ObjetoImp"] == "02"
 
 
+def test_preserves_optional_internal_product_identifier():
+    request = base(conceptos=[{
+        "clave_prod_serv": "72102900",
+        "cantidad": "1",
+        "clave_unidad": "E48",
+        "unidad": "SERVICIO",
+        "descripcion": "MANTENIMIENTO",
+        "no_identificacion": "2122",
+        "valor_unitario": "30000",
+        "iva_tasa": "0.16",
+    }])
+
+    payload = build_general_cfdi(request)
+
+    assert payload["Conceptos"][0]["NoIdentificacion"] == "2122"
+
+
 def test_ppd_requires_forma_pago_99():
     request = base(metodo_pago="PPD", forma_pago="03")
     with pytest.raises(ValueError, match="PPD"):
