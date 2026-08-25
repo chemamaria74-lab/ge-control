@@ -100,6 +100,7 @@ class GeneralProducto(BaseModel):
     unidad: str = Field(default="", max_length=20)
     descripcion: str = Field(min_length=1, max_length=1000)
     no_identificacion: str = Field(default="", max_length=100)
+    cuenta_predial: str = Field(default="", pattern=r"^$|^\d{1,150}$")
     valor_unitario: Decimal = Field(ge=0)
     iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     objeto_imp: str = Field(default="02", pattern=r"^(01|02|03|04)$")
@@ -531,6 +532,7 @@ class ScheduleUpdate(BaseModel):
     email_destino: Optional[EmailStr] = None
     logo_slot: int = Field(default=1, ge=1, le=2)
     descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
+    cuenta_predial: Optional[str] = Field(default=None, pattern=r"^$|^\d{1,150}$")
 
 
 def _validate_schedule_spacing(schedules: list[dict], *, day: int, local_time: str, exclude_id: int | None = None) -> None:
@@ -632,6 +634,18 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
         cfdi = copy.deepcopy(schedule.get("payload_json") or {})
         if cfdi.get("Conceptos"):
             cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
+            if payload.cuenta_predial:
+                cfdi["Conceptos"][0]["CuentaPredial"] = {"Numero": payload.cuenta_predial}
+            elif payload.cuenta_predial == "":
+                cfdi["Conceptos"][0].pop("CuentaPredial", None)
+            values["payload_json"] = cfdi
+    elif payload.cuenta_predial is not None:
+        cfdi = copy.deepcopy(schedule.get("payload_json") or {})
+        if cfdi.get("Conceptos"):
+            if payload.cuenta_predial:
+                cfdi["Conceptos"][0]["CuentaPredial"] = {"Numero": payload.cuenta_predial}
+            else:
+                cfdi["Conceptos"][0].pop("CuentaPredial", None)
             values["payload_json"] = cfdi
     values["proxima_ejecucion_at"] = next_execution(values, after=datetime.now(timezone.utc)).isoformat()
     if not _sb_update(PROGRAMACIONES, programacion_id, scope, values):
