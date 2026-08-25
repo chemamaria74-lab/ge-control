@@ -31,6 +31,7 @@
         <button class="active" data-subpanel="capture"><i class="fa-solid fa-plus"></i> Agregar gasto</button>
         <button data-subpanel="all-expenses"><i class="fa-solid fa-list-check"></i> Todos los gastos</button>
         <button data-subpanel="advances"><i class="fa-solid fa-hand-holding-dollar"></i> Anticipos pendientes de factura</button>
+        <button data-subpanel="credit-notes"><i class="fa-solid fa-file-circle-minus"></i> Notas de crédito</button>
         <button data-subpanel="vouchers" hidden><i class="fa-solid fa-file-invoice"></i> Complemento de vales</button>
       </div>
 
@@ -63,6 +64,14 @@
         </article>
       </div>
 
+      <div class="subpanel" data-subcontent="credit-notes">
+        <article class="card"><div class="card-heading"><div><h3>Notas de crédito</h3><p>Consulta los saldos a favor y corrige o elimina únicamente las notas que todavía no se han aplicado.</p></div><button class="btn primary" id="loadCreditNotes" type="button"><i class="fa-solid fa-rotate"></i> Cargar notas</button></div>
+          <label class="review-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Buscar notas de crédito</span><input id="creditNoteSearch" type="search" autocomplete="off" placeholder="Buscar proveedor, folio o importe"></label>
+          <div class="advance-summary"><span>Saldo en notas</span><strong id="creditNoteGrandTotal">$0.00</strong><small id="creditNoteCount">0 notas</small></div>
+          <div id="expenseCreditRows"><div class="empty">Presiona Cargar notas.</div></div>
+        </article>
+      </div>
+
       <div class="subpanel" data-subcontent="all-expenses">
         <article class="card"><div class="card-heading"><div><h3>Todos los gastos</h3><p>Consulta, corrige y administra los gastos capturados.</p></div></div>
           <div class="filter-grid"><label class="filter-search">Buscar<input id="expenseSearch" placeholder="Folio, proveedor, persona o vale"></label><label>Origen<select id="expenseTypeFilter"><option value="">Todos</option><option value="voucher">Con vales</option><option value="direct">Gasto directo</option></select></label><label>Mes de captura<input id="expenseMonthFilter" type="month"></label><label>Fecha de captura<input id="expenseSpecificDate" type="date"></label><div class="actions"><button class="btn primary compact-search" id="searchExpenses" type="button" title="Buscar gastos"><i class="fa-solid fa-magnifying-glass"></i><span>Buscar</span></button></div></div>
@@ -81,7 +90,7 @@
     </section>
 
     <section class="panel" data-content="review">
-      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="credit"><i class="fa-solid fa-file-circle-minus"></i> Notas de crédito</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div>
+      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div>
       <article class="card"><div class="card-heading"><div><h3 id="paymentsHeading">Pendientes por destinatario</h3><p id="paymentsHelp">Selecciona un proveedor o persona para revisar las facturas y preparar su transferencia.</p></div><div class="toolbar-inline"><button class="btn primary" id="searchReview" type="button">Cargar pendientes</button></div></div><label class="review-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Buscar en pagos</span><input id="paymentSearch" type="search" autocomplete="off" placeholder="Buscar proveedor, persona, folio o referencia"></label><div class="status" id="reviewLoadStatus">Presiona Cargar pendientes para consultar.</div><div class="payment-summary compact"><span id="paymentSummaryLabel">Total pendiente</span><strong id="payableGrandTotal">$0.00</strong><small id="payableInvoiceCount">0 gastos</small></div><div id="reviewRows" class="payment-groups"><div class="empty">Presiona Cargar pendientes.</div></div></article>
     </section>
 
@@ -125,5 +134,5 @@
     </form>
   </div>
   <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=batch-stay-open-20260824"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=compact-payables-credit-tab-20260824"></script>
 </body></html>
