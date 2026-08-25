@@ -8,7 +8,7 @@
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 3;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -105,8 +105,9 @@
     let remaining='Calculando tiempo restante…';
     if(done>0&&total>=done&&sync?.started_at){
       const elapsed=Math.max((Date.now()-new Date(sync.started_at).getTime())/1000,1);
-      const seconds=Math.max(Math.round((elapsed/done)*(total-done)),0);
-      remaining=seconds<60?`menos de 1 min restante`:`aprox. ${Math.ceil(seconds/60)} min restantes`;
+      const estimated=Math.max(Math.round((elapsed/done)*(total-done)),0);
+      state.syncEtaSeconds=state.syncEtaSeconds==null?estimated:Math.min(state.syncEtaSeconds,estimated);
+      remaining=state.syncEtaSeconds<45?'Finalizando…':state.syncEtaSeconds<60?'menos de 1 min restante':`aprox. ${Math.ceil(state.syncEtaSeconds/60)} min restantes`;
     }
     const pages=total?` · página ${done} de ${total}`:(done?` · página ${done}`:'');
     return `${phase}${pages} · ${fmt(records)} registros · ${remaining}`;
@@ -212,6 +213,7 @@
   function closeDrawer(){ $('detailDrawer').classList.remove('open'); $('drawerBackdrop').classList.remove('open'); $('detailDrawer').setAttribute('aria-hidden','true'); }
 
   async function requestSync(){
+    state.syncEtaSeconds=null;
     $('syncButton').disabled=true; notice('Solicitando actualización a Motive…');
     try{
       const data=await api('/sync',{method:'POST'});
@@ -240,11 +242,13 @@
           }
           await loadOverview();
           $('syncButton').disabled=false;
+          state.syncEtaSeconds=null;
           if(sync.status==='failed'){
             notice(`Motive no pudo actualizarse: ${sync.error_message||'la integración devolvió un error.'} Tu sesión y el análisis guardado se conservaron.`,'error');
             return;
           }
-          notice('Motive se actualizó correctamente. El análisis guardado se conserva; presiona “Generar análisis” cuando quieras recalcularlo.');
+          setSync('ok','Actualización completada',`Datos actualizados: ${dateText(sync.finished_at)}`);
+          notice('Motive se actualizó correctamente. El análisis guardado se conserva; presiona “Generar análisis” cuando quieras recalcularlo.','success');
         }catch(error){
           $('syncButton').disabled=false;
           notice(`No pudimos comprobar la actualización: ${error.message} Tu sesión sigue activa.`,'error');
