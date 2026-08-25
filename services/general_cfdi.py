@@ -60,6 +60,7 @@ class GeneralCfdiRequest(BaseModel):
     serie: Optional[str] = Field(default=None, max_length=25)
     folio: Optional[str] = Field(default=None, max_length=40)
     retencion_isr_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    retencion_iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     informacion_global_periodicidad: Optional[str] = Field(default=None, pattern=r"^(01|02|03|04|05)$")
     informacion_global_meses: Optional[str] = Field(default=None, pattern=r"^(0[1-9]|1[0-2])$")
     informacion_global_anio: Optional[int] = Field(default=None, ge=2021, le=2100)
@@ -101,6 +102,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     subtotal = sum((item.cantidad * base for item, base in zip(payload.conceptos, bases)), Decimal("0"))
     iva_total = sum((item.cantidad * base * item.iva_tasa for item, base in zip(payload.conceptos, bases)), Decimal("0"))
     isr_total = subtotal * payload.retencion_isr_tasa
+    iva_retenido_total = subtotal * payload.retencion_iva_tasa
     receptor = {
         "Rfc": payload.receptor.rfc,
         "Nombre": payload.receptor.nombre,
@@ -130,7 +132,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "MetodoPago": payload.metodo_pago or "",
         "SubTotal": _money(subtotal),
         "Moneda": payload.moneda,
-        "Total": _money(subtotal + iva_total - isr_total),
+        "Total": _money(subtotal + iva_total - isr_total - iva_retenido_total),
         "TipoDeComprobante": payload.tipo_comprobante,
         "Exportacion": payload.exportacion,
         "LugarExpedicion": payload.lugar_expedicion,
@@ -152,7 +154,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
             "Meses": payload.informacion_global_meses,
             "Año": str(payload.informacion_global_anio),
         }
-    if iva_total > 0 or isr_total > 0:
+    if iva_total > 0 or isr_total > 0 or iva_retenido_total > 0:
         result["Impuestos"] = {}
         if iva_total > 0:
             iva_rates = {item.iva_tasa for item in payload.conceptos if item.iva_tasa > 0}
@@ -175,10 +177,23 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
                     for rate in sorted(iva_rates)
                 ],
             })
-        if isr_total > 0:
-            result["Impuestos"].update({"TotalImpuestosRetenidos": _money(isr_total), "Retenciones": [{"Impuesto": "001", "Importe": _money(isr_total)}]})
-            for concept, item in zip(conceptos, payload.conceptos):
+        if isr_total > 0 or iva_retenido_total > 0:
+            summary_retenciones = []
+            if isr_total > 0:
+                summary_retenciones.append({"Impuesto": "001", "Importe": _money(isr_total)})
+            if iva_retenido_total > 0:
+                summary_retenciones.append({"Impuesto": "002", "Importe": _money(iva_retenido_total)})
+            result["Impuestos"].update({
+                "TotalImpuestosRetenidos": _money(isr_total + iva_retenido_total),
+                "Retenciones": summary_retenciones,
+            })
+            for concept in conceptos:
                 taxes = concept.setdefault("Impuestos", {})
                 base = Decimal(concept["Importe"])
-                taxes["Retenciones"] = [{"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)}]
+                concept_retenciones = []
+                if payload.retencion_isr_tasa > 0:
+                    concept_retenciones.append({"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)})
+                if payload.retencion_iva_tasa > 0:
+                    concept_retenciones.append({"Base": _money(base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_iva_tasa), "Importe": _money(base * payload.retencion_iva_tasa)})
+                taxes["Retenciones"] = concept_retenciones
     return result

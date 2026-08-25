@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -633,6 +634,16 @@ def sync_vehicle_mileage_range(
     )
 
 
+def _official_requester_uuid(requested_by: str | None) -> str | None:
+    """fleet_sync_runs.requested_by sólo acepta auth.users UUID, nunca IDs internos."""
+    if not requested_by:
+        return None
+    try:
+        return str(uuid.UUID(str(requested_by)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def queue_motive_sync(tenant_id: str, requested_by: str | None = None, *, full: bool = False) -> int:
     """Crea el registro visible antes de despachar el trabajo de fondo."""
     from supabase_config import get_supabase_admin
@@ -641,14 +652,17 @@ def queue_motive_sync(tenant_id: str, requested_by: str | None = None, *, full: 
     integrations = sb.table("fleet_integrations").select("id,status").eq("tenant_id", tenant_id).eq("provider", "motive").limit(1).execute().data or []
     if not integrations or integrations[0].get("status") != "active":
         raise RuntimeError("El tenant no tiene una integración Motive activa.")
-    rows = sb.table("fleet_sync_runs").insert({
+    payload = {
         "integration_id": int(integrations[0]["id"]),
         "tenant_id": tenant_id,
-        "requested_by": requested_by,
         "sync_type": "full" if full else "incremental",
         "status": "queued",
         "started_at": datetime.now(timezone.utc).isoformat(),
-    }).execute().data or []
+    }
+    official_requester = _official_requester_uuid(requested_by)
+    if official_requester:
+        payload["requested_by"] = official_requester
+    rows = sb.table("fleet_sync_runs").insert(payload).execute().data or []
     if not rows:
         raise RuntimeError("No fue posible registrar la sincronización Motive.")
     return int(rows[0]["id"])
