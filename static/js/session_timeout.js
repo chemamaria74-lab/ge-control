@@ -60,10 +60,10 @@
       renewable: true,
     };
     if (path.startsWith('/gas-lp/flotilla') || path.startsWith('/gas-lp/gerentes')) return {
-      tokenKeys: ['sat_token', 'zc_token'],
+      tokenKeys: (sessionStorage.getItem('ge_flotilla_auth_mode') === 'internal' || sessionStorage.getItem('ge_flotilla_identity')) ? [] : ['ge_gaslp_conciliacion_token', 'sat_token', 'zc_token'],
       // Supervisión oficial entra desde Conciliación; los gerentes con acceso
       // limitado usan el portal dedicado. Se decide antes de limpiar la sesión.
-      login: localStorage.getItem('ge_gaslp_conciliacion_token')
+      login: sessionStorage.getItem('ge_flotilla_auth_mode') === 'official' || (!sessionStorage.getItem('ge_flotilla_identity') && localStorage.getItem('ge_gaslp_conciliacion_token'))
         ? '/gas-lp/conciliacion?area=flotilla'
         : '/gas-lp/flotilla/acceso',
       sessionTokenKey: 'ge_flotilla_access',
@@ -97,10 +97,13 @@
   }
 
   function clearStoredSession() {
-    AUTH_KEYS.forEach(key => localStorage.removeItem(key));
+    const isolatedFleetManager = (location.pathname.startsWith('/gas-lp/flotilla') || location.pathname.startsWith('/gas-lp/gerentes'))
+      && (sessionStorage.getItem('ge_flotilla_auth_mode') === 'internal' || Boolean(sessionStorage.getItem('ge_flotilla_identity')));
+    if (!isolatedFleetManager) AUTH_KEYS.forEach(key => localStorage.removeItem(key));
     sessionStorage.removeItem('ge_flotilla_access');
     sessionStorage.removeItem('ge_flotilla_expires_at');
     sessionStorage.removeItem('ge_flotilla_identity');
+    sessionStorage.removeItem('ge_flotilla_auth_mode');
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(LAST_ACTIVITY_PREFIX)) localStorage.removeItem(key);
     });
