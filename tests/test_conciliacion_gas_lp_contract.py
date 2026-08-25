@@ -1904,10 +1904,12 @@ def test_assistant_manual_month_load_bypasses_stale_browser_cache():
     end = html.index("async function refreshComplementosPagoData", start)
 
     assert "force:true" in html[start:end]
+    assert "allMonth:true" in html[start:end]
+    assert "&all_month=1" in html
     assert "loadFacturas(month" in html[start:end]
     assert "loadComplementos(month, {force:true})" in html[start:end]
     assert "Promise.allSettled" in html[start:end]
-    assert "50_facturas_pagos.js?v=facturas-complementos-20260810" in shell
+    assert "50_facturas_pagos.js?v=facturas-mes-completo-20260825" in shell
 
 
 def test_cancelled_payment_complement_reopens_linked_ppd_invoices():
