@@ -5,7 +5,7 @@
   const MANAGER_LOGIN_URL = '/gas-lp/flotilla/acceso';
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
-  const REPORT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+  const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 3;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, identity:null};
@@ -51,7 +51,7 @@
       $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
       const internal=data.identity_type==='internal';
       document.body.classList.toggle('manager-fixed-zone',internal);
-      $('syncButton').hidden=internal;
+      $('syncButton').hidden=false;
       $('fleetBack').hidden=internal;
       if($('directionDownloads')) $('directionDownloads').hidden=internal;
       if(!internal){
@@ -125,19 +125,23 @@
     if(!groupId)return null;
     let cached=null;
     try{cached=JSON.parse(localStorage.getItem(reportCacheKey(groupId))||'null');}catch(_error){cached=null;}
+    const todayKey=(()=>{const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;})();
     const valid=cached
       && cached.version===REPORT_CACHE_VERSION
       && Number.isFinite(Number(cached.saved_at))
       && Date.now()-Number(cached.saved_at)<REPORT_CACHE_TTL_MS
+      && cached.saved_day===todayKey
       && cached.start&&cached.end&&cached.group&&cached.data;
     if(valid)return cached;
     if(cached)try{localStorage.removeItem(reportCacheKey(groupId));}catch(_error){}
     return null;
   }
   function saveReportCache(data){
+    const now=new Date();
     const cached={
       version:REPORT_CACHE_VERSION,
       saved_at:Date.now(),
+      saved_day:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
       start:$('startDate').value,
       end:$('endDate').value,
       group:$('reportGroup').value,
@@ -161,7 +165,7 @@
     renderReportCatalog(cached.data);
     if(announce){
       const savedAt=dateText(new Date(Number(cached.saved_at)).toISOString());
-      notice(`Mostrando el análisis guardado de esta zona, generado ${savedAt}. Se conservará durante 12 horas.`);
+      notice(`Mostrando el último análisis guardado, generado ${savedAt}. No se volverá a generar hasta que presiones “Generar análisis”.`);
     }
     return true;
   }
@@ -210,14 +214,42 @@
     $('syncButton').disabled=true; notice('Solicitando actualización a Motive…');
     try{
       const data=await api('/sync',{method:'POST'});
-      if(data.cooldown_seconds){ notice(`Los datos ya están recientes. Podrás actualizar nuevamente en ${Math.ceil(data.cooldown_seconds/60)} minutos.`); }
-      else notice(data.reused?'Ya existe una actualización en curso.':'Actualización iniciada. Puedes seguir usando el portal.');
+      if(data.cooldown_seconds){
+        notice(`Los datos ya están recientes. Podrás actualizar nuevamente en ${Math.ceil(data.cooldown_seconds/60)} minutos.`);
+        await loadOverview();
+        $('syncButton').disabled=false;
+        return;
+      }
+      notice(data.reused?'Ya existe una actualización en curso.':'Actualización iniciada. Puedes seguir usando el portal.');
       setSync('warn','Actualizando desde Motive…','El último dato válido seguirá disponible.');
       if(!$('executiveDashboard').hidden){
         $('dataStatus').className='data-status warn';
         $('dataStatus').innerHTML='<strong>Sincronización en curso.</strong> Conservamos el último análisis válido mientras Motive termina de entregar las fuentes.';
       }
-      clearInterval(state.syncPoll); state.syncPoll=setInterval(async()=>{ await loadOverview(); const text=$('syncTitle').textContent; if(!text.includes('Actualizando')){clearInterval(state.syncPoll);await loadReportCatalog();$('syncButton').disabled=false;} },5000);
+      const runId=Number(data.run_id||data.sync?.id||0);
+      clearTimeout(state.syncPoll);
+      const poll=async()=>{
+        try{
+          const sync=runId?await api(`/sync/${runId}`):null;
+          if(!sync){await loadOverview();state.syncPoll=setTimeout(poll,5000);return;}
+          if(sync.status==='queued'||sync.status==='running'){
+            setSync('warn','Actualizando desde Motive…',syncProgressText(sync));
+            state.syncPoll=setTimeout(poll,5000);
+            return;
+          }
+          await loadOverview();
+          $('syncButton').disabled=false;
+          if(sync.status==='failed'){
+            notice(`Motive no pudo actualizarse: ${sync.error_message||'la integración devolvió un error.'} Tu sesión y el análisis guardado se conservaron.`,'error');
+            return;
+          }
+          notice('Motive se actualizó correctamente. El análisis guardado se conserva; presiona “Generar análisis” cuando quieras recalcularlo.');
+        }catch(error){
+          $('syncButton').disabled=false;
+          notice(`No pudimos comprobar la actualización: ${error.message} Tu sesión sigue activa.`,'error');
+        }
+      };
+      state.syncPoll=setTimeout(poll,2000);
     }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
   }
 
@@ -443,9 +475,10 @@
   }
 
   function initializeDates(){
-    const today=new Date(), first=new Date(today.getFullYear(),today.getMonth(),1);
-    $('endDate').value=today.toISOString().slice(0,10);
-    $('startDate').value=first.toISOString().slice(0,10);
+    const today=new Date(), start=new Date(today.getFullYear(),today.getMonth(),today.getDate()-14);
+    const localDate=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+    $('endDate').value=localDate(today);
+    $('startDate').value=localDate(start);
   }
   async function loadGroups(){
     try{
@@ -465,7 +498,10 @@
         $('queryHelp').textContent='Tu zona ya está asignada. Ajusta las fechas sólo si lo necesitas.';
         $('unitQuery').hidden=true;
         if(cached&&String(cached.group)===String(group.id))restoreZoneAnalysis(cached.group);
-        else await loadReportCatalog({prepare:false,scroll:false});
+        else{
+          $('executiveDashboard').hidden=true;
+          notice('La zona quedó seleccionada. Presiona “Generar análisis” cuando quieras crear el informe de los últimos 15 días.');
+        }
       }else if(cached&&groups.some(g=>String(g.id)===String(cached.group))){
         $('reportGroup').value=String(cached.group);
         restoreZoneAnalysis(cached.group);
