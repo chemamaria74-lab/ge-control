@@ -40,6 +40,7 @@ async function restoreLastFacturasFromCache(){
 }
 async function loadFacturas(month='', opts={}){
   const realizadasHoy = !!opts.realizadasHoy;
+  const allMonth = !!opts.allMonth;
   const selectedMonth = opts.allMonths || realizadasHoy ? '' : String(month || document.getElementById('facturaMes')?.value || todayKey().slice(0,7)).slice(0,7);
   if(document.getElementById('facturaMes') && !facturaMes.value) facturaMes.value = selectedMonth;
   const limit = Math.max(1, Math.min(Number(opts.limit || 300) || 300, 1000));
@@ -50,7 +51,7 @@ async function loadFacturas(month='', opts={}){
   const descuentos = !!opts.descuentos;
   const cartaPorte = !!opts.cartaPorte;
   const realizadasFecha = realizadasHoy ? todayKey() : '';
-  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}:${cartaPorte ? 'cp' : ''}:${realizadasFecha}`;
+  const loadKey = `${selectedMonth || 'current'}:${limit}:${deep ? 'deep' : 'fast'}:${receptorRfc}:${complementos ? 'comp' : ''}:${credito ? 'cred' : ''}:${descuentos ? 'desc' : ''}:${cartaPorte ? 'cp' : ''}:${allMonth ? 'all-month' : ''}:${realizadasFecha}`;
   if(FACTURAS_LOAD_PROMISE && FACTURAS_LOAD_KEY === loadKey) return FACTURAS_LOAD_PROMISE;
   if(FACTURAS_LOAD_CONTROLLER) FACTURAS_LOAD_CONTROLLER.abort();
   FACTURAS_LOAD_KEY = loadKey;
@@ -67,6 +68,7 @@ async function loadFacturas(month='', opts={}){
     + (descuentos ? '&descuentos=1' : '')
     + (cartaPorte ? '&carta_porte=1' : '')
     + (realizadasFecha ? '&realizadas_fecha=' + encodeURIComponent(realizadasFecha) : '')
+    + (allMonth ? '&all_month=1' : '')
     + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   const cacheKey = qs;
   if(!opts.force){
@@ -233,7 +235,7 @@ async function loadFacturasSelectedMonth(opts={}){
   // juntos; antes el resultado dependía de haber abierto la otra pestaña.
   const month = facturaMes?.value || '';
   const [facturasResult] = await Promise.allSettled([
-    loadFacturas(month, {limit:300, deep:true, receptorRfc:selectedFacturaClientRfc(), force:true, ...opts}),
+    loadFacturas(month, {limit:300, deep:true, allMonth:true, force:true, ...opts}),
     loadComplementos(month, {force:true}),
   ]);
   applyFacturasFilters();
