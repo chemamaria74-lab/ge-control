@@ -33,12 +33,13 @@ class CfdiConcept(BaseModel):
     clave_unidad: str = Field(min_length=2, max_length=3)
     unidad: Optional[str] = Field(default=None, max_length=20)
     descripcion: str = Field(min_length=1, max_length=1000)
+    no_identificacion: Optional[str] = Field(default=None, max_length=100)
     valor_unitario: Decimal = Field(ge=0)
     objeto_imp: Literal["01", "02", "03", "04"] = "02"
     iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     iva_incluido: bool = False
 
-    @field_validator("clave_prod_serv", "clave_unidad", "unidad", "descripcion", mode="before")
+    @field_validator("clave_prod_serv", "clave_unidad", "unidad", "descripcion", "no_identificacion", mode="before")
     @classmethod
     def strip_text(cls, value):
         return value.strip() if isinstance(value, str) else value
@@ -114,6 +115,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "ClaveUnidad": item.clave_unidad,
         "Unidad": item.unidad or "",
         "Descripcion": item.descripcion,
+        **({"NoIdentificacion": item.no_identificacion} if item.no_identificacion else {}),
         "ValorUnitario": _money(base),
         "Importe": _money(item.cantidad * base),
         "ObjetoImp": item.objeto_imp,
