@@ -45,6 +45,8 @@ def test_fast_safety_sync_is_bounded_to_recent_event_window():
     fast_sync = source[start:end]
     assert '"/v2/driver_performance_events"' in fast_sync
     assert '"/v1/speeding_events"' in fast_sync
+    assert '"/v2/inspection_reports"' in fast_sync
+    assert '"inspection_reports"' in fast_sync
     assert '"updated_after": event_start_date' not in fast_sync
     assert "progress=event_progress" in fast_sync
     assert '"/v1/driving_periods"' not in fast_sync

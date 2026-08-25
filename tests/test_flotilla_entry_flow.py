@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260824-manager-focus-3" in template
+    assert "flotilla.js?v=20260825-sync-success-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -166,6 +166,9 @@ def test_fleet_sync_ui_shows_phase_pages_and_remaining_time():
     assert "function syncProgressText(sync)" in frontend
     assert "Calculando tiempo restante" in frontend
     assert "min restantes" in frontend
+    assert "Math.min(state.syncEtaSeconds,estimated)" in frontend
+    assert "Actualización completada" in frontend
+    assert "'success'" in frontend
 
 
 def test_legacy_flotilla_login_redirects_to_dedicated_access():
