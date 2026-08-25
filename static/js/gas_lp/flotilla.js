@@ -1,5 +1,6 @@
 (function(){
-  const token = localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '';
+  const authMode = sessionStorage.getItem('ge_flotilla_auth_mode') || (sessionStorage.getItem('ge_flotilla_identity') ? 'internal' : (localStorage.getItem('ge_gaslp_conciliacion_token') ? 'official' : 'internal'));
+  const token = authMode === 'official' ? (localStorage.getItem('ge_gaslp_conciliacion_token') || localStorage.getItem('sat_token') || localStorage.getItem('zc_token') || '') : '';
   const portalAccess = sessionStorage.getItem('ge_flotilla_access') || '';
   const MANAGER_LOGIN_URL = '/gas-lp/flotilla/acceso';
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
@@ -21,11 +22,12 @@
     sessionStorage.removeItem('ge_flotilla_access');
     sessionStorage.removeItem('ge_flotilla_expires_at');
     sessionStorage.removeItem('ge_flotilla_identity');
+    sessionStorage.removeItem('ge_flotilla_auth_mode');
   }
   function clearOfficialSession(){
     ['sat_token','zc_token','sat_user_id','sat_email','sat_display_name','sat_role','sat_assigned_perfil_id','sat_modulo'].forEach(key=>localStorage.removeItem(key));
   }
-  function redirectToLogin(){ const destination=loginUrl(); clearPortalAccess(); clearOfficialSession(); location.replace(destination); }
+  function redirectToLogin(){ const destination=authMode==='official'?SUPERVISION_LOGIN_URL:MANAGER_LOGIN_URL; clearPortalAccess(); if(authMode==='official')clearOfficialSession(); location.replace(destination); }
   function showAuthGate(title,message,{retry=true}={}){
     document.documentElement.classList.add('fleet-auth-pending');
     $('fleetAuthTitle').textContent=title;
@@ -48,6 +50,7 @@
       state.identity=data;
       $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
       const internal=data.identity_type==='internal';
+      document.body.classList.toggle('manager-fixed-zone',internal);
       $('syncButton').hidden=internal;
       $('fleetBack').hidden=internal;
       if($('directionDownloads')) $('directionDownloads').hidden=internal;
@@ -68,7 +71,12 @@
   }
 
   async function api(path, options={}){
-    const response = await fetch(`/api/flotilla${path}`, {...options, headers:{...headers(),...(options.headers||{})}});
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),Number(options.timeoutMs||120000));
+    let response;
+    try{response=await fetch(`/api/flotilla${path}`, {...options,signal:controller.signal,headers:{...headers(),...(options.headers||{})}});}
+    catch(error){if(error.name==='AbortError')throw new Error('La operación tardó más de 2 minutos. Tu sesión sigue activa; puedes reintentar.');throw error;}
+    finally{clearTimeout(timeout);}
     const data = await response.json().catch(()=>({detail:'Respuesta inválida del servidor.'}));
     if(response.status===401){
       throw new Error(data.detail||'No se pudo validar la sesión. Reintenta; si expiró, el sistema solicitará acceso nuevamente.');
@@ -85,7 +93,7 @@
     const destination=state.identity?.identity_type==='official'
       ? '/gas-lp/conciliacion?area=flotilla'
       : MANAGER_LOGIN_URL;
-    window.GESessionTimeout?.clear(); clearPortalAccess(); clearOfficialSession(); location.replace(destination);
+    window.GESessionTimeout?.clear(); clearPortalAccess(); if(authMode==='official')clearOfficialSession(); location.replace(destination);
   }
   function params(extra={}){ const p=new URLSearchParams(extra); if($('startDate').value)p.set('start_date',$('startDate').value); if($('endDate').value)p.set('end_date',$('endDate').value); return p; }
   function notice(message,type=''){ const el=$('fleetNotice'); el.textContent=message||''; el.className=`fleet-notice${message?' show':''}${type?' '+type:''}`; }
@@ -220,8 +228,15 @@
     }
     const p=params(); if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
     $('runAnalysis').disabled=true;
-    $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Consultando…';
-    notice('Preparando el análisis gerencial…');
+    const startedAt=Date.now();
+    const updateWait=()=>{
+      const elapsed=Math.floor((Date.now()-startedAt)/1000);
+      const remaining=Math.max(60-elapsed,0);
+      $('runAnalysis').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> '+(remaining?`Aprox. ${remaining} s`:'Finalizando…');
+      notice(remaining?`Generando análisis · aproximadamente ${remaining} segundos restantes…`:'Generando análisis · estamos terminando…');
+    };
+    updateWait();
+    const waitTimer=setInterval(updateWait,1000);
     try{
       if(prepare) await api(`/reports/prepare?${p}`,{method:'POST'});
       const data=await api(`/reports/catalog?${p}`);
@@ -230,7 +245,7 @@
       notice('');
       if(scroll)$('executiveDashboard').scrollIntoView({behavior:'smooth',block:'start'});
     }catch(error){ notice(error.message,'error'); }
-    finally{$('runAnalysis').disabled=false;$('runAnalysis').innerHTML='<i class="fa-solid fa-chart-column"></i> Generar análisis';}
+    finally{clearInterval(waitTimer);$('runAnalysis').disabled=false;$('runAnalysis').innerHTML='<i class="fa-solid fa-chart-column"></i> Generar análisis';}
   }
 
   function renderReportCatalog(data){
@@ -261,25 +276,25 @@
   }
 
   function renderDashboard(analytics){
-    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], inspectionDetails=analytics.inspection_details||[], behaviors=analytics.behaviors||[];
+    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
+    const inspectionMap=new Map();
+    inspectionDetails.forEach(item=>{const key=`${item.driver_name}\u0000${item.vehicle_number}`;const current=inspectionMap.get(key)||{driver_name:item.driver_name,vehicle_number:item.vehicle_number,inspections:0};current.inspections+=1;inspectionMap.set(key,current);});
+    const inspections=[...inspectionMap.values()];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
       const behavior=row.top_behavior||row.primary_behavior||'Conducta por revisar';
-      return `<button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)}</strong></button>`;
+      return `<button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
     $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
-      const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).length?(item.defects||[]).map(defect=>`<p><span class="pill ${defect.open?'error':''}">${defect.open?'Abierto':'Cerrado'}</span> ${esc(defect.title||defect.category||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join(''):'<p><small>Sin defectos ni observaciones reportadas.</small></p>'}</div>`).join('');
+      const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span> ${esc(defect.title||defect.category||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
       return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle disponible.</div>'}</div></details>`;
-    }).join(''):'<div class="empty">No hay inspecciones registradas en el periodo.</div>';
+    }).join(''):'<div class="empty">No hay inspecciones abiertas en el periodo.</div>';
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
-      $('explorerDriver').value=button.dataset.driverSearch||'';
-      $('explorerResults').hidden=true;
-      $('runExplorer').scrollIntoView({behavior:'smooth',block:'center'});
-      runExplorer();
+      runExplorer(button.dataset.driverSearch||'');
     }));
   }
 
@@ -337,21 +352,22 @@
     if(currentDriver)$('explorerDriver').value=currentDriver;
   }
 
-  async function runExplorer(){
+  async function runExplorer(driverName=''){
     const p=params({entity_type:'driver'});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    if(!$('explorerDriver').value)return notice('Selecciona un chofer para analizar.','error');
-    p.set('driver_name',$('explorerDriver').value);
+    const selectedDriver=driverName||$('explorerDriver').value;
+    if(!selectedDriver)return notice('Selecciona un chofer para analizar.','error');
+    p.set('driver_name',selectedDriver);
     $('runExplorer').disabled=true;$('runExplorer').innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Analizando…';
     try{
       const data=await api(`/reports/explore?${p}`);
-      renderExplorer(data);notice('');
+      renderExplorer(data,driverName?$('driverDetailPanel'):null);notice('');
     }catch(error){notice(error.message,'error');}
     finally{$('runExplorer').disabled=false;$('runExplorer').innerHTML='<i class="fa-solid fa-chart-simple"></i> Ver desempeño';}
   }
 
-  function renderExplorer(data){
-    const result=$('explorerResults'), k=data.kpis||{}, behaviors=data.behaviors||[], daily=data.daily||[], timeline=data.timeline||[], time=data.time_analysis||{};
+  function renderExplorer(data,target=null){
+    const result=target||$('explorerResults'), k=data.kpis||{}, behaviors=data.behaviors||[], daily=data.daily||[], timeline=data.timeline||[], time=data.time_analysis||{};
     const hours=time.hourly||[], weekdays=time.weekdays||[];
     const value=v=>v==null?'No disponible':fmt(v);
     const behaviorHtml=behaviorDonutHtml(behaviors);
@@ -440,11 +456,20 @@
       let lastGroup='';
       try{lastGroup=localStorage.getItem(lastReportGroupKey())||'';}catch(_error){}
       const cached=readReportCache(lastGroup);
-      if(cached&&groups.some(g=>String(g.id)===String(cached.group))){
+      if(internal&&groups.length===1){
+        const group=groups[0];
+        $('reportGroup').value=String(group.id);
+        $('managerZone').hidden=false;
+        $('managerZone').textContent=`Zona asignada: ${group.path||group.name||'Sin nombre'}`;
+        $('queryTitle').textContent='Periodo del análisis';
+        $('queryHelp').textContent='Tu zona ya está asignada. Ajusta las fechas sólo si lo necesitas.';
+        $('unitQuery').hidden=true;
+        if(cached&&String(cached.group)===String(group.id))restoreZoneAnalysis(cached.group);
+        else await loadReportCatalog({prepare:false,scroll:false});
+      }else if(cached&&groups.some(g=>String(g.id)===String(cached.group))){
         $('reportGroup').value=String(cached.group);
         restoreZoneAnalysis(cached.group);
       }else{
-        if(internal&&groups.length===1)$('reportGroup').value=String(groups[0].id);
         $('executiveDashboard').hidden=true;
         notice('');
       }
