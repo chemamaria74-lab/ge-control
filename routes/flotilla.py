@@ -580,6 +580,10 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
                 item["vehicle_id"] = int(vehicle_id)
             if not item.get("vehicle_number") and vehicle_id:
                 item["vehicle_number"] = vehicle_by_id.get(int(vehicle_id), {}).get("vehicle_number", "")
+            if not item.get("driver_name") and vehicle_id:
+                # Motive a veces omite el conductor en un evento con cero
+                # incidencias; la asignación vigente de la unidad es el respaldo.
+                item["driver_name"] = vehicle_by_id.get(int(vehicle_id), {}).get("current_driver_name", "")
             result.append(item)
         return result
 
@@ -670,7 +674,9 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
     ]
     speeding = _collect(_between(sb.table("fleet_speeding_events").select("vehicle_id,started_at,ended_at,driver_name,severity,duration_seconds,location,posted_limit_kph,max_over_kph,avg_over_kph,avg_speed_kph,distance_km"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     activity = _collect(_between(sb.table("fleet_driving_periods").select("vehicle_id,started_at,ended_at,driver_name,status,period_type,origin,destination,distance_km,notes"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
-    faults = _collect(_between(sb.table("fleet_fault_codes").select("vehicle_id,code,code_label,description,severity,status,occurrence_count,occurred_at,cleared_at"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    # Un código PID abierto debe mostrarse aunque se haya detectado antes del
+    # periodo del análisis: sigue siendo una acción pendiente de la zona.
+    faults = _collect(sb.table("fleet_fault_codes").select("vehicle_id,code,code_label,description,severity,status,occurrence_count,occurred_at,cleared_at").eq("tenant_id", tenant_id).order("occurred_at", desc=True))
     closed_fault_statuses = {"closed", "cleared", "resolved", "inactive", "dismissed"}
     faults = [
         row for row in faults
@@ -989,6 +995,13 @@ def explore_report_entity(
             ]
             filtered[key] = rows
             related_vehicle_ids.update(int(row["vehicle_id"]) for row in rows if row.get("vehicle_id") is not None)
+        # Aunque el chofer no tenga eventos en el periodo, conserva la unidad a
+        # la que Motive lo tiene asignado para que su detalle no salga anónimo.
+        related_vehicle_ids.update(
+            int(row["id"]) for row in data.get("vehicles", [])
+            if str(row.get("current_driver_name") or "").strip().casefold() == selected_key
+            and row.get("id") is not None
+        )
         for key, rows in data.items():
             if key.startswith("_") or key in filtered:
                 continue

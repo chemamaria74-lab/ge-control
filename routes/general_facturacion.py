@@ -15,8 +15,8 @@ from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
-from services.general_schedule_worker import (acquire_general_stamp_slot, execute_schedule, next_execution,
-                                                reserve_general_folio, selected_general_logo)
+from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, execute_schedule,
+                                                next_execution, reserve_general_folio, selected_general_logo)
 from supabase_config import get_supabase_admin
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_get, _sb_insert, _sb_list, _sb_query, _sb_update
 
