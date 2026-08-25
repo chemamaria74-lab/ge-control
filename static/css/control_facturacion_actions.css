@@ -16,6 +16,31 @@
 
 .row-btn.icon-action[data-cancel] { color: var(--bad); }
 
+.schedule-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 32px);
+  gap: 6px;
+  width: max-content;
+  justify-content: center;
+}
+.schedule-actions .row-btn.icon-action {
+  width: 32px;
+  height: 32px;
+  font-size: .95rem;
+}
+.schedule-actions [data-preview-schedule] {
+  color: var(--wine);
+  background: #fff8f8;
+}
+
+.row-actions [data-pdf] { order: 1; }
+.row-actions [data-xml] { order: 2; }
+.row-actions [data-email-invoice] { order: 3; }
+.row-actions [data-cancel] { order: 4; }
+.row-btn.file-action { min-width: 46px; height: 36px; padding: 0 9px; }
+.row-btn[data-payment] { font-size: 0; }
+.row-btn[data-payment]::after { content: "Pagada"; font-size: .82rem; }
+
 .logo-config {
   display: grid;
   grid-template-columns: 120px minmax(220px, 1fr) auto;
