@@ -309,11 +309,7 @@
   }
 
   function renderDashboard(analytics){
-    const internal=state.identity?.identity_type==='internal';
-    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
-    const inspectionMap=new Map();
-    inspectionDetails.forEach(item=>{const key=`${item.driver_name}\u0000${item.vehicle_number}`;const current=inspectionMap.get(key)||{driver_name:item.driver_name,vehicle_number:item.vehicle_number,inspections:0};current.inspections+=1;inspectionMap.set(key,current);});
-    const inspections=[...inspectionMap.values()];
+    const drivers=analytics.training_drivers||analytics.drivers||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
@@ -324,20 +320,15 @@
     $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
       const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span> ${esc(defect.title||defect.category||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
-      return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle disponible.</div>'}</div></details>`;
-    }).join(''):'<div class="empty">No hay pendientes abiertos de inspección en este periodo.</div>';
-    $('behaviorRanking').innerHTML=internal?behaviorListHtml(behaviors):behaviorDonutHtml(behaviors);
+      return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Este chofer no tiene pendientes abiertos.</div>'}</div></details>`;
+    }).join(''):'<div class="empty">No hay inspecciones registradas en este periodo.</div>';
+    $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
       const target=button.closest('.driver-risk-item')?.querySelector('.driver-inline-detail');
       document.querySelectorAll('.driver-inline-detail').forEach(detail=>{if(detail!==target){detail.hidden=true;detail.innerHTML='';}});
       if(target&&!target.hidden){target.hidden=true;target.innerHTML='';return;}
       runExplorer(button.dataset.driverSearch||'',target);
     }));
-  }
-
-  function behaviorListHtml(rows){
-    if(!rows.length)return '<div class="empty">No hay conductas registradas.</div>';
-    return `<div class="simple-list">${rows.slice(0,5).map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.label)}</b></span><strong>${fmt(row.count)} eventos</strong></div>`).join('')}</div>`;
   }
 
   function behaviorDonutHtml(rows){
