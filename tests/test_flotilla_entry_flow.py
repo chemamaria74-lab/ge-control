@@ -189,6 +189,17 @@ def test_manager_dashboard_includes_zone_expense_card():
     assert "registeredExpenses" in frontend
 
 
+def test_manager_dashboard_exposes_only_excel_and_server_rejects_pdf():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+
+    assert 'id="zonePdfDownload"' in template
+    assert 'data-format="pdf" type="button" hidden' in template
+    assert "$('zonePdfDownload').hidden=internal" in frontend
+    assert 'ctx.get("identity_type") == "internal" and format != "xlsx"' in backend
+
+
 def test_motive_sync_refreshes_events_by_updated_after():
     backend = Path("services/motive_sync.py").read_text()
     assert '"updated_after": event_start_date' not in backend
