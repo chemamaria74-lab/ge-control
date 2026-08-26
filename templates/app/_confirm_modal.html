@@ -22,6 +22,31 @@
   </div>
 </div>
 
+<!-- Decisión cuando el inventario calculado supera el límite de capacidad -->
+<div id="histCapacityDecisionModal" role="dialog" aria-modal="true" aria-labelledby="histCapacityDecisionTitle" style="
+  display:none;position:fixed;inset:0;z-index:9200;background:rgba(15,23,42,.66);
+  backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:1rem">
+  <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;overflow:hidden;box-shadow:0 22px 60px rgba(15,23,42,.3);font-family:inherit;border:1px solid #fecaca">
+    <div style="height:5px;background:#b91c1c"></div>
+    <div style="padding:1.3rem 1.45rem">
+      <div style="display:flex;align-items:flex-start;gap:.8rem">
+        <div style="width:40px;height:40px;flex:0 0 40px;border-radius:10px;background:#fef2f2;color:#b91c1c;display:grid;place-items:center"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <div>
+          <h3 id="histCapacityDecisionTitle" style="margin:0;color:#1e293b;font-size:1.02rem">El inventario supera el límite</h3>
+          <p id="histCapacityDecisionMessage" style="margin:.45rem 0 0;color:#475569;font-size:.8rem;line-height:1.55"></p>
+        </div>
+      </div>
+      <div id="histCapacityDecisionNumbers" style="margin:1rem 0;padding:.8rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;font-size:.78rem;color:#334155;line-height:1.65"></div>
+      <p style="font-size:.72rem;color:#64748b;line-height:1.5;margin:.7rem 0 1rem">Si eliges autoconsumo, la diferencia se colocará en el formulario para que la revises; no se guardará automáticamente.</p>
+      <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.55rem">
+        <button id="histCapacityReview" type="button" style="padding:.62rem .9rem;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#475569;font-weight:650;cursor:pointer">Seguir revisando</button>
+        <button id="histCapacityAutoconsumo" type="button" style="padding:.62rem .9rem;border:0;border-radius:9px;background:#92400e;color:#fff;font-weight:700;cursor:pointer"><i class="fa-solid fa-gas-pump" style="margin-right:.3rem"></i>Usar como autoconsumo</button>
+        <button id="histCapacityForceClose" type="button" style="padding:.62rem .9rem;border:0;border-radius:9px;background:#15803d;color:#fff;font-weight:700;cursor:pointer"><i class="fa-solid fa-lock" style="margin-right:.3rem"></i>Cerrar de todos modos</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Captura de inventario con identidad visual GE Control -->
 <div id="histInventoryModal" role="dialog" aria-modal="true" aria-labelledby="histInventoryModalTitle" style="
   display:none;position:fixed;inset:0;z-index:9100;
