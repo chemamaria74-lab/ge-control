@@ -41,6 +41,7 @@ def send_gas_lp_expense_payment_email(
     invoice_number: str, paid_on: str, amount: float | int | str,
     invoices: list[dict[str, Any]] | None = None,
     idempotency_key: str = "",
+    is_reimbursement: bool = False,
 ) -> EmailDeliveryResult:
     """Aviso simple de pago; no adjunta ni modifica documentos fiscales."""
     recipient = _clean_email(to_email)
@@ -67,27 +68,46 @@ def send_gas_lp_expense_payment_email(
         except (TypeError, ValueError):
             return f"${html.escape(str(value or '0'))}"
 
-    relation_rows = "".join(
-        "<tr>"
-        f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_number') or ''))}</td>"
-        f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_date') or ''))}</td>"
-        f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right'>{currency(row.get('total_mxn'))}</td>"
-        f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right;font-weight:700'>{currency(row.get('amount_paid_mxn'))}</td>"
-        "</tr>"
-        for row in invoice_rows
+    show_origin = is_reimbursement and any(
+        row.get("supplier_name") or row.get("concept") or row.get("description") for row in invoice_rows
     )
+    def relation_row(row: dict[str, Any]) -> str:
+        origin = (
+            f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>"
+            f"<b>{html.escape(str(row.get('supplier_name') or 'Proveedor'))}</b><br>"
+            f"<span style='color:#6f6668'>{html.escape(str(row.get('description') or row.get('concept') or 'Sin concepto'))}</span></td>"
+            if show_origin else ""
+        )
+        return (
+            "<tr>"
+            f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_number') or ''))}</td>"
+            f"<td style='padding:9px;border-bottom:1px solid #eadfe1'>{html.escape(str(row.get('invoice_date') or ''))}</td>"
+            f"{origin}"
+            f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right'>{currency(row.get('total_mxn'))}</td>"
+            f"<td style='padding:9px;border-bottom:1px solid #eadfe1;text-align:right;font-weight:700'>{currency(row.get('amount_paid_mxn'))}</td>"
+            "</tr>"
+        )
+
+    relation_rows = "".join(relation_row(row) for row in invoice_rows)
+    subject_kind = "Reembolso" if is_reimbursement else "Pago"
+    action_text = "registró el siguiente reembolso a tu favor" if is_reimbursement else "registró el siguiente pago"
+    origin_header = "<th style='padding:9px;text-align:left'>Proveedor / concepto</th>" if show_origin else ""
+    date_label = "reembolso" if is_reimbursement else "pago"
+    amount_label = "reembolsado" if is_reimbursement else "pagado"
     payload: dict[str, Any] = {
         "from": from_email, "to": [recipient],
-        "subject": f"Pago registrado · Factura {safe_invoice}",
+        "subject": f"{subject_kind} registrado · Factura {safe_invoice}",
         "html": (
             f"<p>Hola {safe_supplier},</p>"
-            f"<p>{safe_company} registró el siguiente pago:</p>"
+            f"<p>{safe_company} {action_text}:</p>"
             "<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;border:1px solid #eadfe1;border-radius:8px'>"
             "<thead><tr style='background:#6b1020;color:#fff'>"
             "<th style='padding:9px;text-align:left'>Factura</th><th style='padding:9px;text-align:left'>Fecha de factura</th>"
+            f"{origin_header}"
             "<th style='padding:9px;text-align:right'>Total factura</th><th style='padding:9px;text-align:right'>Monto pagado</th>"
             f"</tr></thead><tbody>{relation_rows}</tbody></table></div>"
-            f"<p><b>Fecha de pago:</b> {safe_date}<br><b>Monto total pagado:</b> {currency(amount)} MXN</p>"
+            f"<p><b>Fecha de {date_label}:</b> {safe_date}<br>"
+            f"<b>Monto total {amount_label}:</b> {currency(amount)} MXN</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
         ),
     }
