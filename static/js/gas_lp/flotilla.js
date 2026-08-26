@@ -55,11 +55,13 @@
       $('syncButton').hidden=false;
       $('fleetBack').hidden=internal;
       if($('directionDownloads')) $('directionDownloads').hidden=internal;
+      if($('zonePdfDownload')) $('zonePdfDownload').hidden=internal;
       if(!internal){
         $('fleetPortalTitle').textContent='Supervisión · Flotilla';
         $('managerHomeLink').hidden=true;
         $('managerExpensesLink').hidden=true;
         $('fleetBack').hidden=false;
+        if($('zonePdfDownload')) $('zonePdfDownload').hidden=false;
         $('fleetBack').innerHTML='<i class="fa-solid fa-layer-group"></i> Cambiar espacio';
       }
       document.documentElement.classList.remove('fleet-auth-pending');
