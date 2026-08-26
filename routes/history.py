@@ -35,6 +35,10 @@ router = APIRouter()
 class InitialInventoryPayload(BaseModel):
     inventory_liters: float = Field(ge=0)
 
+
+class DeliveryOriginPayload(BaseModel):
+    facility_id: int = Field(gt=0)
+
 GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
     "id",
     "tenant_id",
@@ -348,6 +352,8 @@ def _record_from_invoice(row: dict, tipo: str, *, file_path: str, rfc: str = "",
         "file_path": file_path,
         "facility_id": facility_id if facility_id is not None else _invoice_facility_id(row),
         "es_autoconsumo": False,
+        "invoice_id": row.get("id"),
+        "origin_editable": tipo == "salida" and not _invoice_is_transfer(row),
     }
 
 
@@ -375,12 +381,18 @@ def _merge_derived_records(records: dict, derived: dict) -> dict:
         return (tipo, str(row.get("file_path") or ""), str(row.get("id") or ""))
 
     for key in ("entradas", "salidas"):
-        seen = {marker_for(r, key) for r in merged[key]}
+        indexed = {marker_for(r, key): r for r in merged[key]}
         for row in derived.get(key) or []:
             marker = marker_for(row, key)
-            if marker in seen:
+            if marker in indexed:
+                # La fila persistida conserva los importes originales, pero la
+                # factura viva aporta identidad y origen editables al reporte.
+                existing = indexed[marker]
+                for field in ("invoice_id", "origin_editable", "facility_id", "es_trasvase"):
+                    if row.get(field) is not None:
+                        existing[field] = row[field]
                 continue
-            seen.add(marker)
+            indexed[marker] = row
             merged[key].append(row)
         merged[key].sort(key=lambda r: str(r.get("fecha") or ""))
     return merged
@@ -525,6 +537,11 @@ def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int,
                 continue
 
             if facility_id is not None and facility_id != origen_id:
+                # Si el UUID existe en una instantánea anterior de este reporte,
+                # no debe reaparecer después de reasignar la venta a otra planta.
+                uuid = _invoice_uuid(row).strip().upper()
+                if uuid:
+                    cancelled_uuids.add(uuid)
                 continue
             salidas.append(_record_from_invoice(
                 row,
@@ -585,6 +602,87 @@ async def list_periods(
     perfil_id = _require_perfil(uid, token, x_perfil_id)
     return JSONResponse(content={
         "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
+    })
+
+
+@router.put("/history/{periodo}/deliveries/{invoice_id}/origin")
+async def update_delivery_origin(
+    periodo: str,
+    invoice_id: int,
+    payload: DeliveryOriginPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Reasigna únicamente la instalación de origen de una venta CFDI."""
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+
+    target = get_facility(payload.facility_id, data_user_id, perfil_id=perfil_id)
+    if not target:
+        raise HTTPException(404, "La instalación seleccionada no pertenece a la empresa activa.")
+
+    q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("id", invoice_id).eq("perfil_id", perfil_id)
+    if scope.get("tenant_id"):
+        q = q.eq("tenant_id", scope.get("tenant_id"))
+    else:
+        q = q.eq("user_id", data_user_id)
+    rows = q.limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "No se encontró la factura de salida.")
+    invoice = rows[0]
+    if _invoice_cancelada(invoice):
+        raise HTTPException(409, "Una factura cancelada no se puede reasignar.")
+    if _invoice_is_carta_porte(invoice) or _invoice_is_transfer(invoice):
+        raise HTTPException(409, "Solo se puede corregir la instalación de origen de ventas; los traspasos no son editables aquí.")
+    if not _invoice_date(invoice).startswith(periodo):
+        raise HTTPException(409, "La factura no pertenece al periodo seleccionado.")
+
+    previous_facility_id = _invoice_facility_id(invoice)
+    if previous_facility_id == payload.facility_id:
+        return JSONResponse(content={"ok": True, "unchanged": True, "facility_id": payload.facility_id})
+    for facility_id in {previous_facility_id, payload.facility_id}:
+        if facility_id and get_closed_report(data_user_id, periodo, facility_id, perfil_id):
+            raise HTTPException(409, "No se puede mover la salida porque el mes está cerrado en una de las instalaciones. Reabre el mes antes de corregirla.")
+
+    metadata = dict(_metadata(invoice))
+    metadata.update({
+        "facility_id": payload.facility_id,
+        "origen_facility_id": payload.facility_id,
+        "origen_facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
+        "origin_corrected_from_facility_id": previous_facility_id,
+        "origin_corrected_by": uid,
+    })
+    update_payload = {
+        "facility_id": payload.facility_id,
+        "origen_facility_id": payload.facility_id,
+        "metadata": metadata,
+    }
+    update_query = (
+        get_supabase_admin().table("gas_lp_facturas")
+        .update(update_payload)
+        .eq("id", invoice_id)
+        .eq("perfil_id", perfil_id)
+    )
+    if scope.get("tenant_id"):
+        update_query = update_query.eq("tenant_id", scope.get("tenant_id"))
+    else:
+        update_query = update_query.eq("user_id", data_user_id)
+    updated = update_query.execute().data or []
+    if not updated:
+        raise HTTPException(500, "No fue posible corregir la instalación de salida.")
+    logger.info(
+        "delivery_origin_corrected invoice=%s periodo=%s perfil=%s from=%s to=%s by=%s",
+        invoice_id, periodo, perfil_id, previous_facility_id, payload.facility_id, uid,
+    )
+    return JSONResponse(content={
+        "ok": True,
+        "invoice_id": invoice_id,
+        "previous_facility_id": previous_facility_id,
+        "facility_id": payload.facility_id,
+        "facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
     })
 
 
@@ -742,9 +840,15 @@ def _apply_facility_settings(settings: dict, uid: str, perfil_id: int, facility_
     if not fac:
         return settings, None
 
-    capacidad = None
-    if fac.get("capacidad_tanque"):
-        capacidad = _safe_float(fac.get("capacidad_tanque"))
+    # ``cap_total_tanque`` es el dato que se captura como Capacidad Total en
+    # Administración. ``capacidad_tanque`` es un espejo legado y puede quedar
+    # vacío o desactualizado en instalaciones migradas.
+    capacidad = next((
+        value for value in (
+            _safe_float(fac.get("cap_total_tanque")),
+            _safe_float(fac.get("capacidad_tanque")),
+        ) if value > 0
+    ), None)
     if fac.get("num_permiso"):
         settings["NumPermiso"] = fac["num_permiso"]
     if fac.get("permiso_alm"):
@@ -892,11 +996,16 @@ async def close_month_report(
         uid, token, periodo, perfil_id, facility_id, rep,
     )
     if sat_meta.get("cap_exceeded"):
+        inventory = _safe_float(sat_meta.get("vol_existencias_raw"))
+        physical_capacity = _safe_float(sat_meta.get("capacidad_fisica"))
+        allowed_limit = _safe_float(sat_meta.get("cap_limit"))
         raise HTTPException(
             409,
-            "No se puede cerrar el mes porque el inventario calculado supera la capacidad "
-            "de la planta. Revisa que estén incluidas todas las entregas de Asistente, "
-            "los XML complementarios y el autoconsumo antes de cerrar.",
+            f"No se puede cerrar el mes: el inventario calculado es {inventory:,.2f} L, "
+            f"la capacidad total registrada es {physical_capacity:,.2f} L y el límite "
+            f"de validación es {allowed_limit:,.2f} L. Revisa las salidas pendientes o "
+            "corrige la Capacidad Total de esta instalación en Administración si el dato "
+            "registrado no corresponde a la capacidad física real.",
         )
 
     if not existing:
