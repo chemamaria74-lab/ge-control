@@ -336,6 +336,9 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item = unit(row.get("vehicle_number"))
         item["inspections"] += 1
         driver_name = _text(row.get("driver_name")) or item["driver_name"] or "Sin conductor identificado"
+        # La inspección identifica al chofer que usó la unidad aun si Motive no
+        # recibió una asignación vigente de conductor.
+        item["driver_name"] = item["driver_name"] or driver_name
         key = (item["vehicle_number"], driver_name)
         credit = inspection_credits.setdefault(key, {
             "vehicle_number": item["vehicle_number"], "driver_name": driver_name, "inspections": 0,
@@ -380,18 +383,6 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         unit_rows.values(),
         key=lambda row: (-(row["security"] + row["speeding"]), row["vehicle_number"]),
     )
-    # No es correcto llamar "excelente" a una unidad sin telemetría. Sólo se
-    # reconoce la ausencia de eventos cuando Motive sí reportó datos/GPS.
-    drivers_without_events = [
-        {
-            "driver_name": row["driver_name"],
-            "vehicle_number": row["vehicle_number"],
-            "inspections": row["inspections"],
-        }
-        for row in units
-        if row["driver_name"] and row["telemetry_available"]
-        and not (row["security"] + row["speeding"])
-    ]
     totals = {
         "expenses_mxn": sum(row["expense_mxn"] for row in units),
         "maintenance_mxn": sum(row["maintenance_mxn"] for row in units),
@@ -442,6 +433,19 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         driver_rows.append(driver_item)
     driver_rows.sort(key=lambda row: (-(row["security"] + row["speeding"]), -row["critical_high"], row["driver_name"]))
     training_drivers = [row for row in driver_rows if row["security"] + row["speeding"] > 0]
+    # El reconocimiento se atribuye al chofer, no sólo a la telemetría de su
+    # unidad. Incluye a quien realizó una inspección y no tuvo eventos, aunque
+    # Motive aún no haya entregado actividad GPS de esa unidad.
+    drivers_without_events = [
+        {
+            "driver_name": row["driver_name"],
+            "vehicle_number": row["vehicles"],
+            "inspections": row["inspections"],
+        }
+        for row in driver_rows
+        if row["driver_name"] != "Sin conductor identificado"
+        and not (row["security"] + row["speeding"])
+    ]
     attention_units = [row for row in units if row["telemetry_available"] and row["security"] + row["speeding"] > 0]
     units_without_gps = [row for row in units if not row["telemetry_available"]]
     inspection_credit_rows = sorted(

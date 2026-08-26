@@ -322,7 +322,7 @@ def get_records(user_id: str, periodo: str,
     try:
         q = (get_supabase_admin().table("records")
              .select("id,tipo,fecha,volumen_litros,uuid,rfc_contraparte,"
-                     "nombre_contraparte,importe,file_path,es_autoconsumo")
+                     "nombre_contraparte,importe,file_path,es_autoconsumo,facility_id")
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
@@ -562,6 +562,41 @@ def set_report_initial_inventory(user_id: str, periodo: str, inventory_liters: f
         return bool(saved and float(saved[0].get("inventario_inicial") or 0) == inventory_liters)
     except Exception as e:
         logger.error("set_report_initial_inventory: %s", e)
+        return False
+
+
+def update_report_totals(
+    report_id: int,
+    user_id: str,
+    perfil_id: int,
+    facility_id: int,
+    meta: dict,
+    json_content: str,
+) -> bool:
+    """Sincroniza el borrador con el balance exacto que se está cerrando."""
+    try:
+        payload = {
+            "inventario_inicial": meta.get("inventario_inicial_litros", 0.0),
+            "total_recepciones": meta.get("total_recepciones_litros", 0.0),
+            "total_entregas": meta.get("total_entregas_litros", 0.0),
+            "vol_existencias": meta.get("vol_existencias_litros", 0.0),
+            "importe_recepciones": meta.get("importe_recepciones", 0.0),
+            "importe_entregas": meta.get("importe_entregas", 0.0),
+            "first_salida_uuid": str(meta.get("first_uuid") or "").strip().upper(),
+            "json_content": json_content,
+        }
+        rows = (
+            get_supabase_admin().table("reports")
+            .update(payload)
+            .eq("id", report_id)
+            .eq("user_id", user_id)
+            .eq("perfil_id", perfil_id)
+            .eq("facility_id", facility_id)
+            .execute().data or []
+        )
+        return bool(rows)
+    except Exception as e:
+        logger.error("update_report_totals: %s", e)
         return False
 
 
