@@ -178,3 +178,25 @@ def test_history_capacity_falls_back_to_legacy_mirror(monkeypatch):
     _settings, capacity = history._apply_facility_settings({}, "owner-1", 8, 10)
 
     assert capacity == 180000
+
+
+def test_snapshot_does_not_restore_delivery_reassigned_by_uuid(monkeypatch):
+    import routes.history as history
+
+    monkeypatch.setattr(history, "get_records", lambda *_args, **_kwargs: {
+        "entradas": [],
+        "salidas": [{"uuid": "MOVED-UUID", "facility_id": 20}],
+    })
+    snapshot = {
+        "entradas": [],
+        "salidas": [
+            {"uuid": "MOVED-UUID", "facility_id": 10},
+            {"uuid": "STAYS-HERE", "facility_id": 10},
+        ],
+    }
+
+    filtered = history._remove_snapshot_rows_reassigned_to_other_facility(
+        snapshot, "owner-1", "2026-07", 10, 8,
+    )
+
+    assert [row["uuid"] for row in filtered["salidas"]] == ["STAYS-HERE"]
