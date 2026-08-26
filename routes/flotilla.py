@@ -1196,6 +1196,12 @@ def download_report(
         return StreamingResponse(BytesIO(content), media_type=media_type,
                                  headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
+    # El portal de Gerentes entrega un único archivo de trabajo: el Excel de
+    # su zona asignada. La restricción también vive en el servidor para que
+    # no pueda eludirse modificando la interfaz en el navegador.
+    if ctx.get("identity_type") == "internal" and format != "xlsx":
+        raise HTTPException(403, "El Portal de Gerentes sólo permite descargar el Excel de su zona.")
+
     group_name = ""
     if group_id is not None:
         rows = ctx["sb"].table("fleet_groups").select("name").eq("tenant_id", ctx["tenant_id"]).eq("id", group_id).limit(1).execute().data or []
