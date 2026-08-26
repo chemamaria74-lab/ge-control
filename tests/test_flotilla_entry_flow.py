@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260825-manager-followup-1" in template
+    assert "flotilla.js?v=20260826-dashboard-data-consistency-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -187,6 +187,13 @@ def test_manager_dashboard_includes_zone_expense_card():
     assert "Gastos registrados" in template
     assert 'id="expenseSummary"' in template
     assert "registeredExpenses" in frontend
+
+
+def test_catalog_exposes_zero_event_drivers_and_expense_totals_to_dashboard():
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+
+    assert '"drivers_without_events": analytics["drivers_without_events"]' in backend
+    assert '"totals": analytics["totals"]' in backend
 
 
 def test_manager_dashboard_exposes_only_excel_and_server_rejects_pdf():

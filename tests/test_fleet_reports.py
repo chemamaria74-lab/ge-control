@@ -160,6 +160,21 @@ def test_analytics_attributes_inspections_to_reported_driver_with_unit_fallback(
     ]
 
 
+def test_inspection_driver_without_events_is_visible_and_explains_missing_assignment():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "UTILITARIA MIGUEL", "current_driver_name": ""}],
+        "inspections": [{"vehicle_number": "UTILITARIA MIGUEL", "driver_name": "MIGUEL ANGEL"}],
+        "driver_events": [], "speeding": [],
+    })
+
+    assert analytics["units_without_gps"][0]["driver_name"] == "MIGUEL ANGEL"
+    assert analytics["drivers_without_events"] == [{
+        "driver_name": "MIGUEL ANGEL",
+        "vehicle_number": "UTILITARIA MIGUEL",
+        "inspections": 1,
+    }]
+
+
 def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_driver():
     analytics = fleet_analytics({
         "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Chofer asignado"}],
