@@ -935,6 +935,7 @@ def report_catalog(
             "analytics": {
                 "top_units": analytics["attention_units"],
                 "training_drivers": analytics["training_drivers"],
+                "drivers_without_events": analytics["drivers_without_events"],
                 "units_without_gps": analytics["units_without_gps"],
                 "inspection_credits": analytics["inspection_credits"],
                 "inspection_details": inspection_details,
@@ -943,6 +944,7 @@ def report_catalog(
                 "severity": analytics["severity"],
                 "daily": analytics["daily"],
                 "critical_high": analytics["critical_high"],
+                "totals": analytics["totals"],
                 "comparison": {
                     "events_delta_pct": comparison["events_delta_pct"],
                     "expense_delta_pct": comparison["expense_delta_pct"],

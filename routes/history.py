@@ -15,7 +15,7 @@ from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals, get_facilities,
     get_archived_records, get_archived_reports,
     get_facility, get_closed_report, mark_reports_closed, reopen_reports, report_is_closed, save_report,
-    set_report_initial_inventory,
+    set_report_initial_inventory, update_report_totals,
 )
 from services.sat_transformer import (
     build_sat_report,
@@ -38,6 +38,7 @@ class InitialInventoryPayload(BaseModel):
 
 class DeliveryOriginPayload(BaseModel):
     facility_id: int = Field(gt=0)
+    uuid: str = Field(default="", max_length=80)
 
 GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
     "id",
@@ -455,6 +456,33 @@ def _records_from_report_json(report: Optional[dict]) -> dict:
     return recovered
 
 
+def _remove_snapshot_rows_reassigned_to_other_facility(
+    snapshot: dict,
+    user_id: str,
+    periodo: str,
+    facility_id: Optional[int],
+    perfil_id: int,
+) -> dict:
+    """Evita que el JSON guardado reviva una salida movida por UUID."""
+    if facility_id is None or not snapshot.get("salidas"):
+        return snapshot
+    all_records = get_records(user_id, periodo, facility_id=None, perfil_id=perfil_id)
+    reassigned_uuids = {
+        str(row.get("uuid") or "").strip().upper()
+        for row in (all_records.get("salidas") or [])
+        if _safe_int(row.get("facility_id")) not in {None, facility_id}
+    }
+    if not reassigned_uuids:
+        return snapshot
+    return {
+        **snapshot,
+        "salidas": [
+            row for row in (snapshot.get("salidas") or [])
+            if str(row.get("uuid") or "").strip().upper() not in reassigned_uuids
+        ],
+    }
+
+
 def _history_invoice_records(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int]) -> dict:
     try:
         scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
@@ -624,62 +652,102 @@ async def update_delivery_origin(
     if not target:
         raise HTTPException(404, "La instalación seleccionada no pertenece a la empresa activa.")
 
-    q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("id", invoice_id).eq("perfil_id", perfil_id)
+    uuid = str(payload.uuid or "").strip().upper()
+    q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("perfil_id", perfil_id)
+    if invoice_id > 0:
+        q = q.eq("id", invoice_id)
+    elif uuid:
+        q = q.or_(f"uuid_sat.eq.{uuid},record_uuid.eq.{uuid}")
+    else:
+        raise HTTPException(400, "La salida no contiene un identificador válido.")
     if scope.get("tenant_id"):
         q = q.eq("tenant_id", scope.get("tenant_id"))
     else:
         q = q.eq("user_id", data_user_id)
     rows = q.limit(1).execute().data or []
-    if not rows:
-        raise HTTPException(404, "No se encontró la factura de salida.")
-    invoice = rows[0]
-    if _invoice_cancelada(invoice):
-        raise HTTPException(409, "Una factura cancelada no se puede reasignar.")
-    if _invoice_is_carta_porte(invoice) or _invoice_is_transfer(invoice):
-        raise HTTPException(409, "Solo se puede corregir la instalación de origen de ventas; los traspasos no son editables aquí.")
-    if not _invoice_date(invoice).startswith(periodo):
-        raise HTTPException(409, "La factura no pertenece al periodo seleccionado.")
-
-    previous_facility_id = _invoice_facility_id(invoice)
+    invoice = rows[0] if rows else None
+    if invoice:
+        if _invoice_cancelada(invoice):
+            raise HTTPException(409, "Una factura cancelada no se puede reasignar.")
+        if _invoice_is_carta_porte(invoice) or _invoice_is_transfer(invoice):
+            raise HTTPException(409, "Solo se puede corregir la instalación de origen de ventas; los traspasos no son editables aquí.")
+        if not _invoice_date(invoice).startswith(periodo):
+            raise HTTPException(409, "La factura no pertenece al periodo seleccionado.")
+        previous_facility_id = _invoice_facility_id(invoice)
+        uuid = _invoice_uuid(invoice).strip().upper() or uuid
+    else:
+        record_query = (
+            get_supabase_admin().table("records")
+            .select("id,user_id,perfil_id,facility_id,periodo,tipo,uuid,file_path,es_autoconsumo")
+            .eq("user_id", data_user_id)
+            .eq("perfil_id", perfil_id)
+            .eq("periodo", periodo)
+            .eq("tipo", "salida")
+            .eq("uuid", uuid)
+        )
+        record_rows = record_query.limit(10).execute().data or []
+        if not record_rows:
+            raise HTTPException(404, "No se encontró la factura de salida por UUID.")
+        if any(
+            row.get("es_autoconsumo")
+            or str(row.get("file_path") or "").startswith(("traspaso:", "manual:"))
+            for row in record_rows
+        ):
+            raise HTTPException(409, "Los traspasos y autoconsumos no se pueden editar desde esta tabla.")
+        previous_facility_id = _safe_int(record_rows[0].get("facility_id"))
     if previous_facility_id == payload.facility_id:
         return JSONResponse(content={"ok": True, "unchanged": True, "facility_id": payload.facility_id})
     for facility_id in {previous_facility_id, payload.facility_id}:
         if facility_id and get_closed_report(data_user_id, periodo, facility_id, perfil_id):
             raise HTTPException(409, "No se puede mover la salida porque el mes está cerrado en una de las instalaciones. Reabre el mes antes de corregirla.")
 
-    metadata = dict(_metadata(invoice))
-    metadata.update({
-        "facility_id": payload.facility_id,
-        "origen_facility_id": payload.facility_id,
-        "origen_facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
-        "origin_corrected_from_facility_id": previous_facility_id,
-        "origin_corrected_by": uid,
-    })
-    update_payload = {
-        "facility_id": payload.facility_id,
-        "origen_facility_id": payload.facility_id,
-        "metadata": metadata,
-    }
-    update_query = (
-        get_supabase_admin().table("gas_lp_facturas")
-        .update(update_payload)
-        .eq("id", invoice_id)
+    if invoice:
+        metadata = dict(_metadata(invoice))
+        metadata.update({
+            "facility_id": payload.facility_id,
+            "origen_facility_id": payload.facility_id,
+            "origen_facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
+            "origin_corrected_from_facility_id": previous_facility_id,
+            "origin_corrected_by": uid,
+        })
+        update_payload = {
+            "facility_id": payload.facility_id,
+            "origen_facility_id": payload.facility_id,
+            "metadata": metadata,
+        }
+        update_query = (
+            get_supabase_admin().table("gas_lp_facturas")
+            .update(update_payload)
+            .eq("id", invoice.get("id"))
+            .eq("perfil_id", perfil_id)
+        )
+        if scope.get("tenant_id"):
+            update_query = update_query.eq("tenant_id", scope.get("tenant_id"))
+        else:
+            update_query = update_query.eq("user_id", data_user_id)
+        if not (update_query.execute().data or []):
+            raise HTTPException(500, "No fue posible corregir la instalación de salida.")
+
+    # Mantener sincronizada la copia consolidada usada por reportes históricos.
+    record_update = (
+        get_supabase_admin().table("records")
+        .update({"facility_id": payload.facility_id})
+        .eq("user_id", data_user_id)
         .eq("perfil_id", perfil_id)
+        .eq("periodo", periodo)
+        .eq("tipo", "salida")
+        .eq("uuid", uuid)
+        .execute().data or []
     )
-    if scope.get("tenant_id"):
-        update_query = update_query.eq("tenant_id", scope.get("tenant_id"))
-    else:
-        update_query = update_query.eq("user_id", data_user_id)
-    updated = update_query.execute().data or []
-    if not updated:
-        raise HTTPException(500, "No fue posible corregir la instalación de salida.")
+    if not invoice and not record_update:
+        raise HTTPException(500, "No fue posible corregir la instalación de salida consolidada.")
     logger.info(
         "delivery_origin_corrected invoice=%s periodo=%s perfil=%s from=%s to=%s by=%s",
-        invoice_id, periodo, perfil_id, previous_facility_id, payload.facility_id, uid,
+        invoice.get("id") if invoice else None, periodo, perfil_id, previous_facility_id, payload.facility_id, uid,
     )
     return JSONResponse(content={
         "ok": True,
-        "invoice_id": invoice_id,
+        "invoice_id": invoice.get("id") if invoice else None,
         "previous_facility_id": previous_facility_id,
         "facility_id": payload.facility_id,
         "facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
@@ -704,6 +772,9 @@ async def get_history(
     latest    = reports[0] if reports else None
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, facility_id)
     snapshot_records = _records_from_report_json(latest)
+    snapshot_records = _remove_snapshot_rows_reassigned_to_other_facility(
+        snapshot_records, data_user_id, periodo, facility_id, perfil_id,
+    )
     if snapshot_records["entradas"] or snapshot_records["salidas"]:
         records = _merge_derived_records(records, snapshot_records)
     if invoice_records["entradas"] or invoice_records["salidas"] or invoice_records.get("cancelled_uuids"):
@@ -871,12 +942,24 @@ def _apply_facility_settings(settings: dict, uid: str, perfil_id: int, facility_
     return settings, capacidad
 
 
-def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: int, facility_id: Optional[int], rep: dict) -> tuple[dict, dict, dict]:
+def _regenerate_history_report(
+    uid: str,
+    token: str,
+    periodo: str,
+    perfil_id: int,
+    facility_id: Optional[int],
+    rep: dict,
+    *,
+    preserve_capacity_excess: bool = False,
+) -> tuple[dict, dict, dict]:
     scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
     data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
     effective_facility_id = facility_id or _safe_int(rep.get("facility_id"))
     records = get_records(data_user_id, periodo, facility_id=effective_facility_id, perfil_id=perfil_id)
     snapshot_records = _records_from_report_json(rep)
+    snapshot_records = _remove_snapshot_rows_reassigned_to_other_facility(
+        snapshot_records, data_user_id, periodo, effective_facility_id, perfil_id,
+    )
     records = _merge_derived_records(records, snapshot_records)
     invoice_records = _history_invoice_records(uid, token, periodo, perfil_id, effective_facility_id)
     records = _merge_derived_records(records, invoice_records)
@@ -916,7 +999,7 @@ def _regenerate_history_report(uid: str, token: str, periodo: str, perfil_id: in
         mes=mes,
         capacidad_tanque=capacidad_tanque,
         capacidad_margen_pct=0.20,
-        aplicar_ajuste_capacidad=True,
+        aplicar_ajuste_capacidad=not preserve_capacity_excess,
         # reports.vol_existencias es el resultado calculado del borrador anterior,
         # no una lectura física capturada. Reutilizarlo como "medido" congelaba el
         # inventario aunque después se agregara autoconsumo u otro movimiento.
@@ -964,6 +1047,7 @@ def _stream_regenerated_report(sat_dict: dict, sat_meta: dict, settings: dict, f
 async def close_month_report(
     periodo:       str,
     facility_id:   Optional[int] = Query(default=None),
+    allow_capacity_excess: bool = Query(default=False),
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
@@ -994,18 +1078,38 @@ async def close_month_report(
     rep = existing[0] if existing else {}
     sat_dict, sat_meta, settings = _regenerate_history_report(
         uid, token, periodo, perfil_id, facility_id, rep,
+        preserve_capacity_excess=allow_capacity_excess,
     )
-    if sat_meta.get("cap_exceeded"):
+    if sat_meta.get("cap_exceeded") and not allow_capacity_excess:
         inventory = _safe_float(sat_meta.get("vol_existencias_raw"))
         physical_capacity = _safe_float(sat_meta.get("capacidad_fisica"))
         allowed_limit = _safe_float(sat_meta.get("cap_limit"))
+        difference = round(max(0.0, inventory - allowed_limit), 2)
+        message = (
+            f"El inventario calculado es {inventory:,.2f} L, la capacidad total "
+            f"registrada es {physical_capacity:,.2f} L y el límite de validación es "
+            f"{allowed_limit:,.2f} L. La diferencia es {difference:,.2f} L."
+        )
         raise HTTPException(
             409,
-            f"No se puede cerrar el mes: el inventario calculado es {inventory:,.2f} L, "
-            f"la capacidad total registrada es {physical_capacity:,.2f} L y el límite "
-            f"de validación es {allowed_limit:,.2f} L. Revisa las salidas pendientes o "
-            "corrige la Capacidad Total de esta instalación en Administración si el dato "
-            "registrado no corresponde a la capacidad física real.",
+            {
+                "code": "CAPACITY_EXCEEDED",
+                "message": message,
+                "inventory_liters": inventory,
+                "capacity_liters": physical_capacity,
+                "limit_liters": allowed_limit,
+                "difference_liters": difference,
+            },
+        )
+
+    if sat_meta.get("cap_exceeded") and allow_capacity_excess:
+        logger.warning(
+            "month_closed_with_capacity_excess periodo=%s perfil=%s facility=%s "
+            "inventory=%.2f capacity=%.2f limit=%.2f accepted_by=%s",
+            periodo, perfil_id, facility_id,
+            _safe_float(sat_meta.get("vol_existencias_raw")),
+            _safe_float(sat_meta.get("capacidad_fisica")),
+            _safe_float(sat_meta.get("cap_limit")), uid,
         )
 
     if not existing:
@@ -1021,8 +1125,17 @@ async def close_month_report(
             facility_id=facility_id,
             perfil_id=perfil_id,
         )
-        if not get_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
+        saved_reports = get_reports(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id)
+        if not saved_reports:
             raise HTTPException(500, "El ZIP se generó, pero no fue posible guardar el cierre mensual.")
+        rep = saved_reports[0]
+
+    if rep.get("id"):
+        if not update_report_totals(
+            rep["id"], data_user_id, perfil_id, facility_id, sat_meta,
+            sat_dict_to_json(sat_dict),
+        ):
+            raise HTTPException(500, "El ZIP se generó, pero no fue posible sincronizar el balance del cierre mensual.")
 
     if not mark_reports_closed(data_user_id, periodo, facility_id, perfil_id):
         raise HTTPException(
