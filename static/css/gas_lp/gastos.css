@@ -78,3 +78,23 @@ th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
 .advance-groups{display:grid;gap:10px}.advance-group{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}.advance-group summary{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 15px;cursor:pointer;background:#fcfaf7}.advance-group summary>span{display:flex;align-items:center;gap:12px}.advance-group summary>span:first-child{display:grid;gap:3px}.advance-group summary small{color:var(--muted)}
 .advance-apply-options{display:grid;gap:8px;margin:14px 0}.advance-apply-row{display:grid;grid-template-columns:auto 1fr minmax(130px,180px);align-items:center;gap:12px;padding:11px;border:1px solid var(--line);border-radius:9px;background:#fbfaf8}.advance-apply-row>input[type="checkbox"]{width:auto}.advance-apply-row span{display:grid;gap:3px}.advance-apply-row small{color:var(--muted)}.advance-apply-balance{display:flex;justify-content:flex-end;gap:20px;padding:11px 13px;border-radius:9px;background:#f7f3ef}.advance-apply-balance strong{color:var(--wine)}
 @media(max-width:700px){.advance-group summary,.advance-group summary>span{align-items:flex-start;flex-direction:column}.advance-apply-row{grid-template-columns:auto 1fr}.advance-apply-row>input[data-advance-amount]{grid-column:1/-1}.advance-apply-balance{align-items:flex-start;flex-direction:column;gap:6px}}
+
+/* Catálogos bancarios: columnas comparables y cuentas completas, sin truncado. */
+[data-content="catalogs"] .catalog-table-wrap{display:block;max-height:500px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+[data-content="catalogs"] .catalog-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0}
+[data-content="catalogs"] .catalog-table th{position:sticky;top:0;z-index:1;padding:10px 12px;background:#f7f3ef;color:var(--muted);text-align:left;white-space:nowrap}
+[data-content="catalogs"] .catalog-table td{padding:11px 12px;vertical-align:middle;border-bottom:1px solid #eee6dd}
+[data-content="catalogs"] .catalog-table tbody tr:last-child td{border-bottom:0}
+[data-content="catalogs"] .catalog-table td:first-child{min-width:190px}
+[data-content="catalogs"] .catalog-table td:first-child strong,[data-content="catalogs"] .catalog-table td:first-child small,[data-content="catalogs"] .catalog-cell-list span{display:block}
+[data-content="catalogs"] .catalog-table td:first-child small{margin-top:3px;color:var(--muted)}
+[data-content="catalogs"] .catalog-account{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:nowrap;font-variant-numeric:tabular-nums}
+[data-content="catalogs"] .catalog-cell-list{display:table-cell}
+[data-content="catalogs"] .catalog-cell-list span+span{margin-top:5px}
+[data-content="catalogs"] .catalog-actions-heading{text-align:right!important}
+[data-content="catalogs"] .catalog-table td:last-child{width:92px}
+[data-content="catalogs"] .catalog-table .catalog-actions{justify-content:flex-end;white-space:nowrap}
+[data-content="catalogs"] .catalog-account-value{display:flex!important;align-items:center;gap:8px;min-height:28px}
+[data-content="catalogs"] .copy-account{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid #d8d0c4;border-radius:7px;background:#fff;color:var(--wine);font-family:inherit;font-size:10px;font-weight:900;cursor:pointer;white-space:nowrap}
+[data-content="catalogs"] .copy-account:hover{background:#f7f3ef;border-color:var(--wine)}
+[data-content="catalogs"] .copy-account.copied{border-color:#a7dbc8;background:#e2f5ee;color:#12664a}
