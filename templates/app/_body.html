@@ -1253,13 +1253,29 @@
     <div class="tab-title"><i class="fa-solid fa-arrow-up-from-line" style="margin-right:.35rem"></i>Entregas (Salidas)</div>
     <div style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:7px">
       <table id="tblSalidas">
-        <thead><tr><th>Fecha</th><th>RFC Cliente</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>RFC Cliente</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th><th style="width:74px;text-align:center">Corregir</th></tr></thead>
         <tbody id="tbodySalidas"></tbody>
       </table>
     </div>
   </div>
 </div>
 </div><!-- /mpanel-historial -->
+
+<div id="histDeliveryOriginModal" role="dialog" aria-modal="true" aria-labelledby="histDeliveryOriginTitle" style="display:none;position:fixed;inset:0;z-index:10020;background:rgba(15,23,42,.62);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:1rem">
+  <div style="background:#fff;border-radius:14px;padding:1.35rem;max-width:460px;width:100%;box-shadow:0 20px 55px rgba(15,23,42,.28);font-family:inherit;border:1px solid #e2e8f0">
+    <h3 id="histDeliveryOriginTitle" style="margin-top:0"><i class="fa-solid fa-pen-to-square" style="color:#7A1E2C;margin-right:.4rem"></i>Corregir instalación de salida</h3>
+    <p id="histDeliveryOriginContext" style="font-size:.8rem;color:#475569;line-height:1.5"></p>
+    <div class="field">
+      <label for="histDeliveryOriginFacility">La factura salió de</label>
+      <select id="histDeliveryOriginFacility" style="width:100%;padding:.55rem;border:1px solid #cbd5e1;border-radius:7px"></select>
+    </div>
+    <div id="histDeliveryOriginError" style="display:none;color:#b91c1c;font-size:.75rem;margin-top:.55rem"></div>
+    <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem">
+      <button type="button" class="btn-secondary" id="histDeliveryOriginCancel">Cancelar</button>
+      <button type="button" class="btn-save" id="histDeliveryOriginSave"><i class="fa-solid fa-check" style="margin-right:.3rem"></i>Guardar corrección</button>
+    </div>
+  </div>
+</div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
      PANEL: CONFIGURACIÓN
