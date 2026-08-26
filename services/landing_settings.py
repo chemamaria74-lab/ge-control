@@ -9,19 +9,19 @@ from supabase_config import get_supabase_admin
 
 def default_landing_settings() -> dict[str, Any]:
     return {
-        "hero_eyebrow": "Software para transportistas en México",
-        "hero_title": "Genera y timbra tu Carta Porte en tres pasos.",
-        "hero_accent": "",
-        "hero_subtitle": "Crea el viaje, genera la documentación y timbra desde una sola plataforma. GE Control conecta Carta Porte 3.1, CFDI de Ingreso, operadores, unidades, expedientes y control de viajes.",
-        "primary_cta": "Prueba gratis el primer mes",
+        "hero_eyebrow": "Tu negocio, en automático",
+        "hero_title": "Deja de hacer lo mismo cada mes.",
+        "hero_accent": "cada mes.",
+        "hero_subtitle": "GE Control automatiza tu facturación y reúne clientes, cobros, documentos y operación en un solo lugar.",
+        "primary_cta": "Empieza gratis",
         "secondary_cta": "Ver cómo funciona",
-        "final_headline": "Prueba GE Control gratis durante tu primer mes.",
-        "final_subtitle": "Conoce el flujo de viajes, Carta Porte y documentos con tu propia operación.",
-        "form_note": "Te contactaremos para activar tu prueba gratuita del módulo de Transporte.",
+        "final_headline": "Primer mes gratis. Sin compromiso.",
+        "final_subtitle": "Cuéntanos qué cobras o qué operación necesitas controlar. Te ayudamos a configurar GE Control para tu negocio.",
+        "form_note": "Te contactaremos para activar tu prueba gratuita.",
         "lead_email_to": os.environ.get("GE_LEADS_EMAIL_TO", "").strip(),
         "lead_email_from": os.environ.get("GE_LEADS_EMAIL_FROM", "").strip() or os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip(),
         "whatsapp_number": os.environ.get("GE_LEADS_WHATSAPP_NUMBER", "").strip(),
-        "whatsapp_message": "Hola GE Control, quiero activar mi mes de prueba gratis del módulo de Transporte.",
+        "whatsapp_message": "Hola GE Control, quiero saber qué solución se adapta a mi negocio.",
         "source": "env",
     }
 
