@@ -1079,7 +1079,57 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-async function closeSelectedHistMonth() {
+let _histCapacityDecision = null;
+
+function closeHistCapacityDecisionModal() {
+  const modal = document.getElementById('histCapacityDecisionModal');
+  if (modal) modal.style.display = 'none';
+  _histCapacityDecision = null;
+}
+
+function showHistCapacityDecision(detail) {
+  _histCapacityDecision = detail;
+  const fmtLiters = value => Number(value || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('histCapacityDecisionMessage').textContent =
+    'El balance del mes sí puede conservarse, pero el inventario final calculado rebasa el límite configurado para esta instalación. ¿Qué deseas hacer?';
+  document.getElementById('histCapacityDecisionNumbers').innerHTML =
+    `<b>Inventario calculado:</b> ${fmtLiters(detail.inventory_liters)} L<br>` +
+    `<b>Límite de validación:</b> ${fmtLiters(detail.limit_liters)} L<br>` +
+    `<b>Diferencia:</b> <span style="color:#b91c1c;font-weight:800">${fmtLiters(detail.difference_liters)} L</span>`;
+  document.getElementById('histCapacityDecisionModal').style.display = 'flex';
+}
+
+function prepareCapacityDifferenceAsAutoconsumo() {
+  const detail = _histCapacityDecision;
+  if (!detail) return;
+  const difference = Number(detail.difference_liters || 0);
+  closeHistCapacityDecisionModal();
+  if (!syncProcessPeriodAndFacilityFromHistory()) return;
+  openProcessSubpanel('autoconsumo');
+  setSupplementalUploadMode(true, 'autoconsumo');
+  const { anio, mes } = histSelectedPeriodAndFacility();
+  const volume = document.getElementById('ac_volumen');
+  const date = document.getElementById('ac_fecha');
+  const description = document.getElementById('ac_descripcion');
+  if (!_autoconsumoActivo) toggleAutoconsumoSwitch();
+  if (volume) volume.value = difference.toFixed(2);
+  if (date && !date.value) date.value = `${anio}-${mes}-01`;
+  if (description) description.value = `Ajuste de diferencia para cierre mensual ${anio}-${mes}`;
+  setHistCloseInfo(`Se prepararon ${difference.toLocaleString('es-MX', {minimumFractionDigits:2})} L como autoconsumo. Revisa los datos y presiona Registrar; aún no se ha guardado.`, false);
+  setTimeout(() => volume?.focus(), 100);
+}
+
+document.getElementById('histCapacityReview')?.addEventListener('click', closeHistCapacityDecisionModal);
+document.getElementById('histCapacityAutoconsumo')?.addEventListener('click', prepareCapacityDifferenceAsAutoconsumo);
+document.getElementById('histCapacityForceClose')?.addEventListener('click', async () => {
+  closeHistCapacityDecisionModal();
+  await closeSelectedHistMonth(true);
+});
+document.getElementById('histCapacityDecisionModal')?.addEventListener('click', event => {
+  if (event.target?.id === 'histCapacityDecisionModal') closeHistCapacityDecisionModal();
+});
+
+async function closeSelectedHistMonth(allowCapacityExcess = false) {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
   setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
   const btn = document.getElementById('btnCloseHistMonth');
@@ -1091,12 +1141,17 @@ async function closeSelectedHistMonth() {
     }
     const { anio, mes, facilityId } = histSelectedPeriodAndFacility();
     const periodo = `${anio}-${mes}`;
-    const res = await fetch(`/api/history/${periodo}/close?facility_id=${facilityId}`, {
+    const res = await fetch(`/api/history/${periodo}/close?facility_id=${facilityId}&allow_capacity_excess=${allowCapacityExcess ? 'true' : 'false'}`, {
       method: 'POST', headers: authHeader(),
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
-      throw new Error(error.detail || 'No fue posible cerrar el mes.');
+      const detail = error.detail;
+      if (res.status === 409 && detail?.code === 'CAPACITY_EXCEEDED') {
+        showHistCapacityDecision(detail);
+        return;
+      }
+      throw new Error(typeof detail === 'string' ? detail : (detail?.message || 'No fue posible cerrar el mes.'));
     }
     const blob = await res.blob();
     const objUrl = URL.createObjectURL(blob);
@@ -1108,7 +1163,12 @@ async function closeSelectedHistMonth() {
     link.click();
     URL.revokeObjectURL(objUrl);
     await loadHistorial();
-    setHistCloseInfo('Mes cerrado para la planta seleccionada. El inventario inicial quedó incluido en el JSON SAT.', true);
+    setHistCloseInfo(
+      allowCapacityExcess
+        ? 'Mes cerrado conservando el inventario calculado por encima del límite. El ZIP SAT quedó descargado.'
+        : 'Mes cerrado para la planta seleccionada. El inventario inicial quedó incluido en el JSON SAT.',
+      true,
+    );
   } catch (e) {
     setHistCloseInfo(e.message || 'No fue posible cerrar el mes.', false);
   } finally {
@@ -1165,7 +1225,7 @@ function openHistDeliveryOriginModal(row) {
     setHistCloseInfo('El mes está cerrado. Reábrelo antes de corregir una salida.', false);
     return;
   }
-  if (!row?.invoice_id || row?.origin_editable !== true) return;
+  if (!row?.uuid || row?.es_trasvase || row?.es_autoconsumo) return;
   _histDeliveryToEdit = row;
   const select = document.getElementById('histDeliveryOriginFacility');
   const currentId = Number(row.facility_id || _histFacilityId);
@@ -1204,10 +1264,11 @@ async function saveHistDeliveryOrigin() {
   saveBtn.disabled = true;
   saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.3rem"></i>Guardando...';
   try {
-    const res = await fetch(`/api/history/${histPeriodo}/deliveries/${row.invoice_id}/origin`, {
+    const invoiceId = Number(row.invoice_id || 0);
+    const res = await fetch(`/api/history/${histPeriodo}/deliveries/${invoiceId}/origin`, {
       method: 'PUT',
       headers: { ...authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ facility_id: facilityId }),
+      body: JSON.stringify({ facility_id: facilityId, uuid: row.uuid || '' }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || 'No fue posible corregir la instalación de salida.');
@@ -1372,7 +1433,9 @@ async function loadHistorial() {
           `<td style="text-align:right">$${fmt(r.importe)}</td>`;
         const actionCell = document.createElement('td');
         actionCell.style.textAlign = 'center';
-        if (r.origin_editable === true && r.invoice_id && !_histMonthClosed) {
+        const isTransfer = r.es_trasvase || String(r.file_path || '').startsWith('traspaso:');
+        const isSelfConsumption = r.es_autoconsumo || String(r.file_path || '').startsWith('manual:') || String(r.uuid || '').toUpperCase().startsWith('AUTO-');
+        if (r.uuid && !isTransfer && !isSelfConsumption && !_histMonthClosed) {
           const editButton = document.createElement('button');
           editButton.type = 'button';
           editButton.className = 'btn-icon';
@@ -1382,8 +1445,10 @@ async function loadHistorial() {
           editButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
           editButton.addEventListener('click', () => openHistDeliveryOriginModal(r));
           actionCell.appendChild(editButton);
-        } else if (r.es_trasvase) {
-          actionCell.title = 'Los traspasos no se editan desde este reporte';
+        } else if (isTransfer || isSelfConsumption) {
+          actionCell.title = isTransfer
+            ? 'Los traspasos no se editan desde este reporte'
+            : 'El autoconsumo no se edita desde esta tabla';
           actionCell.textContent = '—';
         }
         tr.appendChild(actionCell);
