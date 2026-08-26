@@ -267,6 +267,39 @@ def _validate_supplier_fields(rfc: str, email: str) -> tuple[str, str]:
     return clean_rfc, clean_email
 
 
+def _valid_email(value: Any) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", candidate) else ""
+
+
+def _supplier_contact_fields(legal_name: str, payment_email: str) -> tuple[str, str]:
+    """Move a mistakenly entered email out of legal name before persistence."""
+    clean_legal = str(legal_name or "").strip()
+    clean_email = _valid_email(payment_email)
+    if not clean_email and _valid_email(clean_legal):
+        return "", _valid_email(clean_legal)
+    return clean_legal, clean_email
+
+
+def _payment_party_contact(ctx: dict[str, Any], target: str, target_id: int) -> tuple[str, str]:
+    """Resolve the payment addressee, including exact-name legacy supplier records."""
+    if target == "reimbursement":
+        party = (_base_query(ctx, "gas_lp_expense_recipients").eq("id", target_id)
+                 .limit(1).execute().data or [{}])[0]
+        email = _valid_email(party.get("email"))
+        name = party.get("name") or "Persona a reembolsar"
+        if not email and party.get("name"):
+            suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
+            match = next((row for row in suppliers
+                          if _normalize(row.get("commercial_name")) == _normalize(party.get("name"))), {})
+            email = _valid_email(match.get("payment_email")) or _valid_email(match.get("legal_name"))
+        return email, name
+    party = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", target_id)
+             .limit(1).execute().data or [{}])[0]
+    return (_valid_email(party.get("payment_email")) or _valid_email(party.get("legal_name")),
+            party.get("commercial_name") or "Proveedor")
+
+
 def _clean_account_number(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", str(value or "").strip()).upper()
 
@@ -776,11 +809,12 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
-    clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, payload.payment_email)
+    legal_name, candidate_email = _supplier_contact_fields(payload.legal_name, payload.payment_email)
+    clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, candidate_email)
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
         "commercial_name": payload.commercial_name.strip(), "normalized_name": _normalize(payload.commercial_name),
-        "legal_name": payload.legal_name.strip(),
+        "legal_name": legal_name,
         "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
         "account_number": _clean_account_number(payload.account_number), "payment_email": clean_email,
         "validation_status": "pending" if ctx["is_manager"] else "validated",
@@ -830,10 +864,11 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
         or before.get("validation_status") not in {"pending", "rejected"}
     ):
         raise HTTPException(403, "El gerente solo puede corregir proveedores propios pendientes o rechazados.")
-    clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, payload.payment_email)
+    legal_name, candidate_email = _supplier_contact_fields(payload.legal_name, payload.payment_email)
+    clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, candidate_email)
     update = {
         "commercial_name": payload.commercial_name.strip(),
-        "normalized_name": _normalize(payload.commercial_name), "legal_name": payload.legal_name.strip(),
+        "normalized_name": _normalize(payload.commercial_name), "legal_name": legal_name,
         "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
         "account_number": _clean_account_number(payload.account_number),
         "payment_email": clean_email, "status": payload.status,
@@ -1508,9 +1543,16 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
             ctx, supplier_id=payload.supplier_id, invoice_number=line.invoice_number,
             invoice_date=line.invoice_date, total_mxn=line.total_mxn,
         )
-        if alerts:
-            skipped_duplicates.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
-            alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts, "skipped": True})
+        # Same date and amount is only a review warning: recurring suppliers
+        # commonly issue several different folios for the same amount. The
+        # previous batch path skipped every alert, while single capture saved
+        # these invoices, which made multi-capture appear broken.
+        duplicate_alerts = [alert for alert in alerts if alert.startswith("Número de factura repetido")]
+        if duplicate_alerts:
+            skipped_duplicates.append({"invoice_number": line.invoice_number.strip(), "alerts": duplicate_alerts})
+            alerts_by_invoice.append({
+                "invoice_number": line.invoice_number.strip(), "alerts": duplicate_alerts, "skipped": True,
+            })
             continue
         rows.append({
             "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"], "supplier_id": payload.supplier_id,
@@ -1525,7 +1567,7 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
             "status": "sent_to_accountant", "sent_to_accountant_at": created_at,
             "observation": "Alerta: " + " ".join(alerts) if alerts else "",
         })
-        alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts})
+        alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts, "skipped": False})
     if not rows:
         return {"items": [], "count": 0, "alerts": alerts_by_invoice, "skipped_duplicates": skipped_duplicates}
     # PostgREST executes a multi-row insert as one SQL statement: all rows are
@@ -1711,12 +1753,17 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
             "paid_on": payload.paid_on.isoformat(), "paid_at": _now(), "status": "paid",
             "observation": "Nota de crédito aplicada en pago.", "updated_at": _now(),
         }).eq("id", int(credit["id"])).execute()
-    if target == "reimbursement":
-        party = (_base_query(ctx, "gas_lp_expense_recipients").eq("id", target_id).limit(1).execute().data or [{}])[0]
-        party_email, party_name = party.get("email"), party.get("name") or "Persona a reembolsar"
-    else:
-        party = (_base_query(ctx, "gas_lp_expense_suppliers").eq("id", target_id).limit(1).execute().data or [{}])[0]
-        party_email, party_name = party.get("payment_email"), party.get("commercial_name") or "Proveedor"
+    party_email, party_name = _payment_party_contact(ctx, target, target_id)
+    supplier_ids = sorted({int(row.get("supplier_id") or 0) for row in invoices if row.get("supplier_id")})
+    concept_ids = sorted({int(row.get("concept_id") or 0) for row in invoices if row.get("concept_id")})
+    invoice_suppliers = {
+        int(row["id"]): row for row in
+        (_base_query(ctx, "gas_lp_expense_suppliers").in_("id", supplier_ids).execute().data or [])
+    } if supplier_ids else {}
+    invoice_concepts = {
+        int(row["id"]): row for row in
+        (_base_query(ctx, "gas_lp_expense_concepts").in_("id", concept_ids).execute().data or [])
+    } if concept_ids else {}
     delivery = send_gas_lp_expense_payment_email(
         to_email=party_email, supplier_name=party_name, company_name=_profile(ctx).get("nombre") or "",
         invoice_number=", ".join(str(row.get("invoice_number") or "") for row in invoices),
@@ -1726,8 +1773,12 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
             "invoice_date": row.get("invoice_date") or "",
             "total_mxn": row.get("total_mxn") or 0,
             "amount_paid_mxn": allocation_map[int(row["id"])],
+            "supplier_name": invoice_suppliers.get(int(row.get("supplier_id") or 0), {}).get("commercial_name") or "",
+            "concept": invoice_concepts.get(int(row.get("concept_id") or 0), {}).get("name") or "",
+            "description": row.get("description") or "",
         } for row in invoices],
         idempotency_key=f"gas-lp-expense-payment-{ctx['tenant_id']}-{payment['id']}",
+        is_reimbursement=target == "reimbursement",
     )
     email_update = {"email_status": "sent" if delivery.ok else ("skipped" if delivery.skipped else "failed"),
                     "email_metadata": delivery.as_metadata()}
