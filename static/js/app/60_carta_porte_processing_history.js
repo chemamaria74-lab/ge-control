@@ -1079,6 +1079,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+let _histUiEpoch = 0;
 let _histCapacityDecision = null;
 
 function closeHistCapacityDecisionModal() {
@@ -1097,6 +1098,27 @@ function showHistCapacityDecision(detail) {
     `<b>Límite de validación:</b> ${fmtLiters(detail.limit_liters)} L<br>` +
     `<b>Diferencia:</b> <span style="color:#b91c1c;font-weight:800">${fmtLiters(detail.difference_liters)} L</span>`;
   document.getElementById('histCapacityDecisionModal').style.display = 'flex';
+}
+
+function normalizeHistCapacityDetail(detail) {
+  if (detail && typeof detail === 'object' && detail.code === 'CAPACITY_EXCEEDED') return detail;
+  const message = typeof detail === 'string' ? detail : String(detail?.message || '');
+  if (!/inventario calculado/i.test(message) || !/l[ií]mite de validaci[oó]n/i.test(message)) return null;
+  const numbers = [...message.matchAll(/([\d,]+(?:\.\d+)?)\s*L/gi)]
+    .map(match => Number(match[1].replace(/,/g, '')))
+    .filter(Number.isFinite);
+  if (numbers.length < 3) return null;
+  const inventory = numbers[0];
+  const capacity = numbers[1];
+  const limit = numbers[2];
+  return {
+    code: 'CAPACITY_EXCEEDED',
+    message,
+    inventory_liters: inventory,
+    capacity_liters: capacity,
+    limit_liters: limit,
+    difference_liters: numbers[3] ?? Math.max(0, inventory - limit),
+  };
 }
 
 function prepareCapacityDifferenceAsAutoconsumo() {
@@ -1119,18 +1141,21 @@ function prepareCapacityDifferenceAsAutoconsumo() {
   setTimeout(() => volume?.focus(), 100);
 }
 
-document.getElementById('histCapacityReview')?.addEventListener('click', closeHistCapacityDecisionModal);
-document.getElementById('histCapacityAutoconsumo')?.addEventListener('click', prepareCapacityDifferenceAsAutoconsumo);
-document.getElementById('histCapacityForceClose')?.addEventListener('click', async () => {
-  closeHistCapacityDecisionModal();
-  await closeSelectedHistMonth(true);
-});
-document.getElementById('histCapacityDecisionModal')?.addEventListener('click', event => {
-  if (event.target?.id === 'histCapacityDecisionModal') closeHistCapacityDecisionModal();
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('histCapacityReview')?.addEventListener('click', closeHistCapacityDecisionModal);
+  document.getElementById('histCapacityAutoconsumo')?.addEventListener('click', prepareCapacityDifferenceAsAutoconsumo);
+  document.getElementById('histCapacityForceClose')?.addEventListener('click', async () => {
+    closeHistCapacityDecisionModal();
+    await closeSelectedHistMonth(true);
+  });
+  document.getElementById('histCapacityDecisionModal')?.addEventListener('click', event => {
+    if (event.target?.id === 'histCapacityDecisionModal') closeHistCapacityDecisionModal();
+  });
 });
 
 async function closeSelectedHistMonth(allowCapacityExcess = false) {
   if (!syncProcessPeriodAndFacilityFromHistory()) return;
+  const requestEpoch = _histUiEpoch;
   setHistCloseInfo('Cerrando mes: revisando registros y preparando descarga ZIP por instalación...');
   const btn = document.getElementById('btnCloseHistMonth');
   const originalHtml = btn?.innerHTML;
@@ -1144,11 +1169,13 @@ async function closeSelectedHistMonth(allowCapacityExcess = false) {
     const res = await fetch(`/api/history/${periodo}/close?facility_id=${facilityId}&allow_capacity_excess=${allowCapacityExcess ? 'true' : 'false'}`, {
       method: 'POST', headers: authHeader(),
     });
+    if (requestEpoch !== _histUiEpoch) return;
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
       const detail = error.detail;
-      if (res.status === 409 && detail?.code === 'CAPACITY_EXCEEDED') {
-        showHistCapacityDecision(detail);
+      const capacityDetail = res.status === 409 ? normalizeHistCapacityDetail(detail) : null;
+      if (capacityDetail) {
+        showHistCapacityDecision(capacityDetail);
         return;
       }
       throw new Error(typeof detail === 'string' ? detail : (detail?.message || 'No fue posible cerrar el mes.'));
@@ -1170,9 +1197,11 @@ async function closeSelectedHistMonth(allowCapacityExcess = false) {
       true,
     );
   } catch (e) {
-    setHistCloseInfo(e.message || 'No fue posible cerrar el mes.', false);
+    if (requestEpoch === _histUiEpoch) {
+      setHistCloseInfo(e.message || 'No fue posible cerrar el mes.', false);
+    }
   } finally {
-    if (btn) {
+    if (btn && requestEpoch === _histUiEpoch) {
       btn.disabled = false;
       btn.innerHTML = originalHtml || 'Cerrar y descargar ZIP';
     }
@@ -1295,6 +1324,7 @@ async function loadHistorial() {
   const mes  = document.getElementById('histMes').value;
   if (!anio || !mes) { alert('Selecciona año y mes.'); return; }
   const periodo = `${anio}-${mes}`;
+  const requestEpoch = _histUiEpoch;
   histPeriodo = periodo;
   const facSel = document.getElementById('histFacility');
   _histFacilityId = facSel ? (parseInt(facSel.value) || null) : null;
@@ -1322,6 +1352,8 @@ async function loadHistorial() {
   try {
     const res = await fetch(url, { headers: authHeader(), signal: controller.signal });
     const data = await res.json().catch(() => ({}));
+
+    if (requestEpoch !== _histUiEpoch) return;
 
     if (res.status === 401) { showLogin(); return; }
     if (!res.ok) throw new Error(data.detail || `No fue posible consultar el historial (${res.status}).`);
@@ -1441,8 +1473,8 @@ async function loadHistorial() {
           editButton.className = 'btn-icon';
           editButton.title = 'Corregir instalación de salida';
           editButton.setAttribute('aria-label', 'Corregir instalación de salida');
-          editButton.style.cssText = 'border:0;background:transparent;color:#7A1E2C;cursor:pointer;padding:.3rem;font-size:.9rem';
-          editButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
+          editButton.style.cssText = 'border:1px solid #fecdd3;background:#fff1f2;color:#7A1E2C;cursor:pointer;padding:.26rem .42rem;border-radius:7px;font-size:.92rem;line-height:1';
+          editButton.textContent = '✏️';
           editButton.addEventListener('click', () => openHistDeliveryOriginModal(r));
           actionCell.appendChild(editButton);
         } else if (isTransfer || isSelfConsumption) {
@@ -1483,6 +1515,7 @@ async function loadHistorial() {
         : 'No hay registros para cerrar en la planta y periodo seleccionados.')), hasAnyData && !missingInitialInventory);
 
   } catch(e) {
+    if (requestEpoch !== _histUiEpoch) return;
     const timedOut = e?.name === 'AbortError';
     setHistCloseInfo(
       timedOut
@@ -1492,6 +1525,7 @@ async function loadHistorial() {
     );
   } finally {
     clearTimeout(timeoutId);
+    if (requestEpoch !== _histUiEpoch) return;
     loadingEl.style.display = 'none';
     if (loadBtn) {
       loadBtn.disabled = false;

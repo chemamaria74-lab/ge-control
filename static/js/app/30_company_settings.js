@@ -300,9 +300,20 @@ function resetAppState() {
   }
 
   // ── 4. Limpiar Historial ──────────────────────────────────────────────────
+  if (typeof _histUiEpoch !== 'undefined') _histUiEpoch += 1;
   histPeriodo     = null;
   histZipFilename = null;
   _histMonthClosed = false;
+  const histCloseInfo = document.getElementById('histCloseInfo');
+  if (histCloseInfo) {
+    histCloseInfo.textContent = '';
+    histCloseInfo.style.display = 'none';
+  }
+  if (typeof closeHistCapacityDecisionModal === 'function') closeHistCapacityDecisionModal();
+  if (typeof closeHistDeliveryOriginModal === 'function') closeHistDeliveryOriginModal();
+  if (typeof closeHistInventoryModal === 'function') closeHistInventoryModal();
+  const confirmModal = document.getElementById('confirmModal');
+  if (confirmModal) confirmModal.style.display = 'none';
   const histContent = document.getElementById('histContent');
   if (histContent) histContent.style.display = 'none';
   const histLoading = document.getElementById('histLoading');
