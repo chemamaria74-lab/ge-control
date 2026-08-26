@@ -1152,6 +1152,83 @@ document.getElementById('btnReopenHistMonth')?.addEventListener('click', () => {
   );
 });
 
+let _histDeliveryToEdit = null;
+
+function closeHistDeliveryOriginModal() {
+  const modal = document.getElementById('histDeliveryOriginModal');
+  if (modal) modal.style.display = 'none';
+  _histDeliveryToEdit = null;
+}
+
+function openHistDeliveryOriginModal(row) {
+  if (_histMonthClosed) {
+    setHistCloseInfo('El mes está cerrado. Reábrelo antes de corregir una salida.', false);
+    return;
+  }
+  if (!row?.invoice_id || row?.origin_editable !== true) return;
+  _histDeliveryToEdit = row;
+  const select = document.getElementById('histDeliveryOriginFacility');
+  const currentId = Number(row.facility_id || _histFacilityId);
+  select.innerHTML = '<option value="">Selecciona la instalación correcta...</option>';
+  _facilities.forEach(facility => {
+    const option = document.createElement('option');
+    option.value = String(facility.id);
+    option.textContent = facility.nombre || facility.clave_instalacion || `Instalación #${facility.id}`;
+    option.selected = Number(facility.id) === currentId;
+    select.appendChild(option);
+  });
+  const context = document.getElementById('histDeliveryOriginContext');
+  context.textContent = `Factura ${truncUUID(row.uuid)} · ${displayDate(row.fecha)} · ${fmt(row.volumen_litros)} L. Solo cambiará la instalación de la que salió el gas.`;
+  const error = document.getElementById('histDeliveryOriginError');
+  error.style.display = 'none';
+  error.textContent = '';
+  document.getElementById('histDeliveryOriginModal').style.display = 'flex';
+}
+
+async function saveHistDeliveryOrigin() {
+  const row = _histDeliveryToEdit;
+  const facilityId = Number(document.getElementById('histDeliveryOriginFacility')?.value || 0);
+  const error = document.getElementById('histDeliveryOriginError');
+  const saveBtn = document.getElementById('histDeliveryOriginSave');
+  if (!row || !facilityId) {
+    error.textContent = 'Selecciona la instalación correcta.';
+    error.style.display = '';
+    return;
+  }
+  if (facilityId === Number(row.facility_id || _histFacilityId)) {
+    error.textContent = 'Selecciona una instalación diferente para mover la salida.';
+    error.style.display = '';
+    return;
+  }
+  const originalHtml = saveBtn.innerHTML;
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.3rem"></i>Guardando...';
+  try {
+    const res = await fetch(`/api/history/${histPeriodo}/deliveries/${row.invoice_id}/origin`, {
+      method: 'PUT',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ facility_id: facilityId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'No fue posible corregir la instalación de salida.');
+    closeHistDeliveryOriginModal();
+    await loadHistorial();
+    showToast(`Salida movida a ${data.facility_name || 'la instalación seleccionada'}. Los inventarios se recalcularon.`, 'success');
+  } catch (e) {
+    error.textContent = e.message || 'No fue posible guardar la corrección.';
+    error.style.display = '';
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = originalHtml;
+  }
+}
+
+document.getElementById('histDeliveryOriginCancel')?.addEventListener('click', closeHistDeliveryOriginModal);
+document.getElementById('histDeliveryOriginSave')?.addEventListener('click', saveHistDeliveryOrigin);
+document.getElementById('histDeliveryOriginModal')?.addEventListener('click', event => {
+  if (event.target?.id === 'histDeliveryOriginModal') closeHistDeliveryOriginModal();
+});
+
 async function loadHistorial() {
   const anio = document.getElementById('histAnio').value;
   const mes  = document.getElementById('histMes').value;
@@ -1285,7 +1362,7 @@ async function loadHistorial() {
     const tbS = document.getElementById('tbodySalidas');
     tbS.innerHTML = '';
     if ((data.salidas||[]).length === 0) {
-      tbS.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin registros de salidas para este periodo.</td></tr>';
+      tbS.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin registros de salidas para este periodo.</td></tr>';
     } else {
       (data.salidas || []).forEach(r => {
         const tr = document.createElement('tr');
@@ -1293,6 +1370,23 @@ async function loadHistorial() {
           `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
           `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
           `<td style="text-align:right">$${fmt(r.importe)}</td>`;
+        const actionCell = document.createElement('td');
+        actionCell.style.textAlign = 'center';
+        if (r.origin_editable === true && r.invoice_id && !_histMonthClosed) {
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'btn-icon';
+          editButton.title = 'Corregir instalación de salida';
+          editButton.setAttribute('aria-label', 'Corregir instalación de salida');
+          editButton.style.cssText = 'border:0;background:transparent;color:#7A1E2C;cursor:pointer;padding:.3rem;font-size:.9rem';
+          editButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i>';
+          editButton.addEventListener('click', () => openHistDeliveryOriginModal(r));
+          actionCell.appendChild(editButton);
+        } else if (r.es_trasvase) {
+          actionCell.title = 'Los traspasos no se editan desde este reporte';
+          actionCell.textContent = '—';
+        }
+        tr.appendChild(actionCell);
         tbS.appendChild(tr);
       });
     }
