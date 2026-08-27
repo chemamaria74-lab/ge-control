@@ -351,6 +351,28 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             item["open_defects"] += 1
             if bool(row.get("is_overdue")):
                 item["overdue_defects"] += 1
+    # Una inspección queda pendiente sólo cuando tiene al menos un defecto
+    # abierto. Se cuenta una vez, aunque el reporte tenga varios defectos.
+    inspections_by_id = {
+        int(row["id"]): row for row in data.get("inspections", [])
+        if row.get("id") is not None
+    }
+    pending_inspection_ids = {
+        int(row["inspection_id"]) for row in data.get("defects", [])
+        if row.get("inspection_id") is not None and _is_open_defect(row)
+    }
+    pending_inspection_credits: dict[tuple[str, str], dict[str, Any]] = {}
+    for inspection_id in pending_inspection_ids:
+        inspection = inspections_by_id.get(inspection_id)
+        if not inspection:
+            continue
+        item = unit(inspection.get("vehicle_number"))
+        driver_name = _text(inspection.get("driver_name")) or item["driver_name"] or "Sin conductor identificado"
+        key = (item["vehicle_number"], driver_name)
+        credit = pending_inspection_credits.setdefault(key, {
+            "vehicle_number": item["vehicle_number"], "driver_name": driver_name, "inspections": 0,
+        })
+        credit["inspections"] += 1
     for row in data.get("scorecards", []):
         item = unit(row.get("vehicle_number") or row.get("driver_name"))
         item["driver_name"] = item["driver_name"] or _text(row.get("driver_name"))
@@ -451,11 +473,25 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     inspection_credit_rows = sorted(
         inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
     )
+    pending_inspection_credit_rows = sorted(
+        pending_inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
+    )
+    expense_units = sorted(
+        [{
+            "vehicle_number": row["vehicle_number"],
+            "driver_name": row["driver_name"],
+            "expenses_mxn": row["expense_mxn"],
+            "purchased_liters": row["purchased_liters"],
+        } for row in units if row["expense_mxn"] or row["purchased_liters"]],
+        key=lambda row: (-row["expenses_mxn"], row["vehicle_number"]),
+    )
     return {
         "units": units,
         "attention_units": attention_units,
         "units_without_gps": units_without_gps,
         "inspection_credits": inspection_credit_rows,
+        "pending_inspection_credits": pending_inspection_credit_rows,
+        "expense_units": expense_units,
         "drivers": driver_rows,
         "training_drivers": training_drivers,
         "drivers_without_events": drivers_without_events,
