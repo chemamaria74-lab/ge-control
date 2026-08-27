@@ -35,3 +35,10 @@ def test_invoice_screen_uses_one_step_automatic_validation_and_stamp():
     binding = SOURCE.split("function bind()", 1)[1].split("async function init()", 1)[0]
     assert "$('stampInvoice').onclick=validateInvoice" in binding
     assert "stampConfirm" not in binding
+
+
+def test_today_table_only_shows_invoices_with_a_sat_uuid():
+    render = SOURCE.split("function renderInvoices()", 1)[1].split("function invoiceBalance", 1)[0]
+
+    assert "row.status==='timbrada'&&Boolean(String(row.uuid_sat||'').trim())" in render
+    assert "Aún no hay facturas timbradas hoy." in render

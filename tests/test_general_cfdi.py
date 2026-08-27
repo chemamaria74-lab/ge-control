@@ -1,5 +1,7 @@
 import pytest
+from datetime import datetime
 from pydantic import ValidationError
+from zoneinfo import ZoneInfo
 
 from services.general_cfdi import CfdiConcept, CfdiParty, GeneralCfdiRequest, build_general_cfdi
 
@@ -37,6 +39,15 @@ def test_builds_general_cfdi_40_payload():
     assert payload["SubTotal"] == "200.00"
     assert payload["Receptor"]["UsoCFDI"] == "G03"
     assert payload["Conceptos"][0]["ObjetoImp"] == "02"
+
+
+def test_cfdi_fecha_uses_mexico_city_wall_time():
+    before = datetime.now(ZoneInfo("America/Mexico_City")).replace(microsecond=0, tzinfo=None)
+    payload = build_general_cfdi(base())
+    after = datetime.now(ZoneInfo("America/Mexico_City")).replace(microsecond=0, tzinfo=None)
+
+    emitted = datetime.fromisoformat(payload["Fecha"])
+    assert before <= emitted <= after
 
 
 def test_preserves_optional_internal_product_identifier():

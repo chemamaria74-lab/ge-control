@@ -52,8 +52,8 @@ def test_emitir_timbrar_json_records_pac_request_response_and_xml_version(monkey
             {
                 "status": "success",
                 "data": {
-                    "uuid": "UUID-OK",
-                    "cfdi": "<cfdi:Comprobante Version=\"4.0\"/>",
+                    "uuid": "123E4567-E89B-12D3-A456-426614174000",
+                    "cfdi": '<cfdi:Comprobante Version="4.0"><tfd:TimbreFiscalDigital UUID="123E4567-E89B-12D3-A456-426614174000"/></cfdi:Comprobante>',
                     "pdfUrl": "https://pac.example/cfdi.pdf",
                 },
             }
@@ -68,9 +68,37 @@ def test_emitir_timbrar_json_records_pac_request_response_and_xml_version(monkey
     assert calls["requests"][0]["operation"] == "stamp_json"
     assert calls["responses"][0]["request_id"] == 1
     assert calls["responses"][0]["status"] == "ok"
-    assert calls["responses"][0]["uuid_sat"] == "UUID-OK"
-    assert calls["versions"][0]["uuid_sat"] == "UUID-OK"
+    assert calls["responses"][0]["uuid_sat"] == "123E4567-E89B-12D3-A456-426614174000"
+    assert calls["versions"][0]["uuid_sat"] == "123E4567-E89B-12D3-A456-426614174000"
     assert calls["versions"][0]["xml_content"].startswith("<cfdi:Comprobante")
+
+
+def test_emitir_timbrar_json_rejects_nominal_success_without_sat_stamp(monkeypatch):
+    calls = _patch_audit(monkeypatch)
+    monkeypatch.setattr(sw_sapien, "_get_token", lambda: "token-test")
+    monkeypatch.setattr(
+        sw_sapien.requests,
+        "post",
+        lambda *args, **kwargs: _FakeResponse({"status": "success", "data": {"uuid": "", "cfdi": ""}}),
+    )
+
+    result = sw_sapien.emitir_timbrar_json(
+        {"Version": "4.0", "Emisor": {"Rfc": "AAA010101AAA"}, "Receptor": {"Rfc": "XAXX010101000"}, "Conceptos": [{"ClaveProdServ": "78101800"}]}
+    )
+
+    assert result["ok"] is False
+    assert "no fue timbrada" in result["error"]
+    assert calls["responses"][0]["status"] == "error"
+    assert calls["versions"] == []
+
+
+def test_pac_stamp_validation_requires_matching_uuid_in_xml():
+    result = sw_sapien._validate_pac_stamp_data({
+        "uuid": "123E4567-E89B-12D3-A456-426614174000",
+        "cfdi": '<tfd:TimbreFiscalDigital UUID="123E4567-E89B-12D3-A456-426614174999"/>',
+    })
+
+    assert "no coincide" in result
 
 
 def test_emitir_timbrar_json_returns_controlled_error_but_audits_raw_payload(monkeypatch):
