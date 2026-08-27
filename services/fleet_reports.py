@@ -483,7 +483,8 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     attention_units = [row for row in units if row["telemetry_available"] and row["security"] + row["speeding"] > 0]
     units_without_gps = [
         row for row in units
-        if not row["telemetry_available"]
+        if row["vehicle_number"] != "Sin unidad vinculada"
+        and not row["telemetry_available"]
         and row["status"].casefold() not in out_statuses
         and row["availability_status"].casefold() not in out_statuses
     ]
@@ -500,9 +501,16 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             "driver_name": row["driver_name"],
             "expenses_mxn": row["expense_mxn"],
             "purchased_liters": row["purchased_liters"],
-        } for row in units if row["expense_mxn"] or row["purchased_liters"]],
+        } for row in units
+        if row["vehicle_number"] != "Sin unidad vinculada"
+        and (row["expense_mxn"] or row["purchased_liters"])],
         key=lambda row: (-row["expenses_mxn"], row["vehicle_number"]),
     )
+    general_expense_row = unit_rows.get("Sin unidad vinculada") or {}
+    general_expenses = {
+        "expenses_mxn": float(general_expense_row.get("expense_mxn") or 0),
+        "purchased_liters": float(general_expense_row.get("purchased_liters") or 0),
+    }
     return {
         "units": units,
         "attention_units": attention_units,
@@ -511,6 +519,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "inspection_credits": inspection_credit_rows,
         "pending_inspection_credits": pending_inspection_credit_rows,
         "expense_units": expense_units,
+        "general_expenses": general_expenses,
         "drivers": driver_rows,
         "training_drivers": training_drivers,
         "drivers_without_events": drivers_without_events,
