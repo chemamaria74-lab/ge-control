@@ -509,9 +509,17 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         key=lambda row: (-row["expenses_mxn"], row["vehicle_number"]),
     )
     general_expense_row = unit_rows.get("Sin unidad vinculada") or {}
+    general_expense_records = [
+        row for row in data.get("expenses", []) if not _text(row.get("vehicle_number"))
+    ]
     general_expenses = {
         "expenses_mxn": float(general_expense_row.get("expense_mxn") or 0),
         "purchased_liters": float(general_expense_row.get("purchased_liters") or 0),
+        "records": len(general_expense_records),
+        "direct_invoices": sum(
+            1 for row in general_expense_records
+            if _text(row.get("source")).casefold() == "ge_control_direct"
+        ),
     }
     return {
         "units": units,
