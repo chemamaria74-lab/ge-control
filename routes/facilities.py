@@ -41,15 +41,15 @@ PERMISO_CONFIG = {
     "PER51": {"actividad": "DIS", "descripcion": "Distribución GLP por vehículos",      "patron": "LP/XXXXX/DIST/REP/AAAA"},
 }
 
-SAT_INSTALLATION_PREFIX_BY_PERMIT = {
-    "PER40": "PDD",
-    "PER41": "DIS",
-    "PER42": "DIS",
-    "PER43": "EDS",
-    "PER44": "ESA",
-    "PER45": "CMN",
-    "PER50": "ALM",
-    "PER51": "DIS",
+SAT_INSTALLATION_PREFIXES_BY_PERMIT = {
+    "PER40": ("PDD", "DIS"),
+    "PER41": ("DIS",),
+    "PER42": ("DIS",),
+    "PER43": ("EDS", "EXO"),
+    "PER44": ("ESA", "EXO"),
+    "PER45": ("CMN",),
+    "PER50": ("ALM",),
+    "PER51": ("DIS",),
 }
 
 
@@ -58,11 +58,12 @@ def validate_sat_installation_key(tipo_permiso: str, value: str) -> str:
     key = str(value or "").strip().upper()
     if not key:
         raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
-    prefix = SAT_INSTALLATION_PREFIX_BY_PERMIT.get(tipo_permiso)
-    if prefix and not re.fullmatch(rf"{re.escape(prefix)}-\d{{4}}", key):
+    prefixes = SAT_INSTALLATION_PREFIXES_BY_PERMIT.get(tipo_permiso, ())
+    if prefixes and not any(re.fullmatch(rf"{re.escape(prefix)}-\d{{4}}", key) for prefix in prefixes):
+        formats = " o ".join(f"{prefix}-0000" for prefix in prefixes)
         raise HTTPException(
             400,
-            f"Clave Instalación inválida para {tipo_permiso}. Debe usar el formato {prefix}-0000 conforme al Apéndice 3 del SAT.",
+            f"Clave Instalación inválida para {tipo_permiso}. Debe usar el formato {formats} conforme al Apéndice 3 del SAT.",
         )
     return key
 

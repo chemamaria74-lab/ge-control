@@ -737,7 +737,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             .execute().data or []
         ) if invoice_ids else []
         voucher_ids = [int(row["voucher_id"]) for row in own_links]
-        own_vouchers = (
+        period_vouchers = (
             expense_sb.table("gas_lp_expense_vouchers")
             .select("id,vehicle_id,group_id,expense_zone_id,issued_on,amount_mxn,status,description,driver_name,created_by_name")
             .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
@@ -745,8 +745,21 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             .gte("issued_on", start.isoformat()).lte("issued_on", end.isoformat())
             .execute().data or []
         )
+        # La fecha contable es la de la factura, pero el vale que la originó
+        # puede haberse emitido antes del periodo. Recuperarlo por id conserva
+        # vehicle_id al desglosar una factura del mes actual.
+        linked_vouchers = (
+            expense_sb.table("gas_lp_expense_vouchers")
+            .select("id,vehicle_id,group_id,expense_zone_id,issued_on,amount_mxn,status,description,driver_name,created_by_name")
+            .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
+            .in_("id", sorted(set(voucher_ids)))
+            .execute().data or []
+        ) if voucher_ids else []
+        voucher_by_id = {
+            int(row["id"]): row for row in [*period_vouchers, *linked_vouchers]
+        }
+        own_vouchers = list(voucher_by_id.values())
         invoice_by_id = {int(row["id"]): row for row in own_invoices}
-        voucher_by_id = {int(row["id"]): row for row in own_vouchers}
         linked_invoice_ids: set[int] = set()
         linked_voucher_ids: set[int] = set()
         for link in own_links:
