@@ -113,13 +113,14 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
 
     assert "REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000" in script
+    assert "Se conservará durante el día y mañana podrás generar uno nuevo" in script
     assert "ge_fleet_report_cache:" in script
     assert "saved_at:Date.now()" in script
     assert "data," in script
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
-    assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260827-expense-unit-link-3" in template
+    assert "Mostrando el análisis guardado de hoy" in script
+    assert "flotilla.js?v=20260827-expense-audit-status-4" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -127,7 +128,7 @@ def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervisio
 
     assert ":zone:" in script
     assert "restoreZoneAnalysis($('reportGroup').value)" in script
-    assert "Esta zona no tiene un análisis guardado" in script
+    assert "Esta zona todavía no tiene un análisis guardado para hoy" in script
     assert "'/gas-lp/conciliacion?area=flotilla'" in script
     assert "data-driver-search" in script
     assert "runExplorer(button.dataset.driverSearch||'',target)" in script
