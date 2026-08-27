@@ -474,6 +474,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     ]
     attention_units = [row for row in units if row["telemetry_available"] and row["security"] + row["speeding"] > 0]
     units_without_gps = [row for row in units if not row["telemetry_available"]]
+    units_without_driver = [row for row in units if not _text(row.get("driver_name"))]
     inspection_credit_rows = sorted(
         inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
     )
@@ -493,6 +494,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "units": units,
         "attention_units": attention_units,
         "units_without_gps": units_without_gps,
+        "units_without_driver": units_without_driver,
         "inspection_credits": inspection_credit_rows,
         "pending_inspection_credits": pending_inspection_credit_rows,
         "expense_units": expense_units,
