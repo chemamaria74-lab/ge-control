@@ -122,7 +122,7 @@
         <div><span>Eventos de seguridad</span><strong id="reportSafety">—</strong></div>
         <div><span>Excesos de velocidad</span><strong id="reportSpeeding">—</strong></div>
         <div><span>Críticos / altos</span><strong id="reportCritical">—</strong></div>
-        <div><span>Unidades sin datos GPS</span><strong id="reportActivity">—</strong></div>
+        <div><span>Unidades sin actividad GPS</span><strong id="reportActivity">—</strong></div>
         <div><span>Registros de diagnóstico PID</span><strong id="reportFaults">—</strong></div>
         <div><span>Gasto registrado MXN</span><strong id="reportExpenses">—</strong><small id="reportExpenseSource">Sin consultar</small></div>
       </div>
@@ -133,7 +133,7 @@
         <article class="dashboard-panel" id="inspectionPanel"><div class="panel-title"><h4>Choferes que realizaron inspecciones</h4><span>Pendientes arriba · total realizado abajo</span></div><div id="inspectionCredits" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel" id="safeDriversPanel"><div class="panel-title"><h4>Choferes sin eventos registrados</h4><span>Sin eventos en el periodo</span></div><div id="safeDrivers" class="simple-list"><div class="empty">Cargando…</div></div></article>
-        <article class="dashboard-panel" id="noGpsPanel"><div class="panel-title"><h4>Unidades sin GPS o por revisar</h4><span>Requieren revisión manual</span></div><div id="noGpsUnits" class="simple-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel" id="noGpsPanel"><div class="panel-title"><h4>Unidades sin actividad GPS en el periodo</h4><span>No significa que no tengan dispositivo</span></div><div id="noGpsUnits" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel" id="expensesPanel"><div class="panel-title"><h4>Gastos registrados</h4><span>Cargas y gastos de la zona</span></div><div id="expenseSummary" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel compact-panel" id="operationalPanel"><div class="panel-title"><h4>Seguimiento operativo</h4><span>Datos documentados en Motive</span></div><div id="submitterList">Sin movimientos documentados.</div></article>
       </div>
@@ -161,8 +161,8 @@
 
     <section class="manager-workspace-panel inventory-shell" id="managerInventoryPanel" hidden>
       <section class="fleet-card inventory-toolbar">
-        <div><span class="eyebrow"><i class="fa-solid fa-warehouse"></i> Inventario</span><h2>Estaciones de tu zona</h2><p>Inventario, movimientos y lecturas físicas en una sola vista.</p></div>
-        <div class="inventory-controls"><label>Mes<input id="managerInventoryMonth" type="month"></label><span class="inventory-auto-status">Actualización automática</span></div>
+        <div><span class="eyebrow"><i class="fa-solid fa-warehouse"></i> Inventario</span><h2>Estaciones de tu zona</h2><p>Consulta las gráficas y el control físico del mes seleccionado.</p></div>
+        <div class="inventory-controls"><label>Mes<input id="managerInventoryMonth" type="month"></label><button class="btn-primary" id="loadManagerInventory" type="button"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button></div>
       </section>
       <section class="fleet-card inventory-content-card">
         <div class="inventory-view-tabs" aria-label="Vista de inventario"><button class="inventory-view-tab active" data-inventory-view="charts" type="button"><i class="fa-solid fa-chart-line"></i> Gráficas</button><button class="inventory-view-tab" data-inventory-view="physical" type="button"><i class="fa-solid fa-clipboard-check"></i> Control físico</button></div>
@@ -178,6 +178,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260827-auto-inventory-redesign-1"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260827-all-expenses-activity-label-1"></script>
 </body>
 </html>
