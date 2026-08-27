@@ -520,6 +520,18 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             1 for row in general_expense_records
             if _text(row.get("source")).casefold() == "ge_control_direct"
         ),
+        "details": sorted([{
+            "date": row.get("occurred_at"),
+            "invoice_number": _text(row.get("invoice_number")) or "Sin folio",
+            "supplier": _text(row.get("supplier_name")) or "Proveedor no identificado",
+            "concept": _text(row.get("category")) or "Sin concepto",
+            "description": _text(row.get("description")),
+            "amount_mxn": float(row.get("amount_mxn") or 0),
+        } for row in general_expense_records
+            if _text(row.get("source")).casefold() == "ge_control_direct"],
+            key=lambda row: (str(row.get("date") or ""), row["invoice_number"]),
+            reverse=True,
+        ),
     }
     return {
         "units": units,
