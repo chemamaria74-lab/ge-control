@@ -1623,6 +1623,8 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const editId = document.getElementById('facilityEditId').value;
   const nombre = document.getElementById('fac_nombre').value.trim();
   if (!nombre) { st.textContent = 'El nombre es requerido.'; st.style.color='#dc2626'; return; }
+  const claveInstalacion = document.getElementById('fac_clave').value.trim();
+  if (!claveInstalacion) { st.textContent = 'La clave de instalación es requerida.'; st.style.color='#dc2626'; return; }
   st.textContent = 'Guardando...'; st.style.color = '#64748b';
   const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
   const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
@@ -1635,7 +1637,7 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
     actividad_sat:       actividadInfo.code,
     caracter:            'permisionario',
     temperatura_default: tempDefault !== '' ? parseFloat(tempDefault) : null,
-    clave_instalacion:   document.getElementById('fac_clave').value.trim(),
+    clave_instalacion:   claveInstalacion,
     num_permiso:         document.getElementById('fac_num_permiso').value.trim(),
     permiso_alm:         document.getElementById('fac_permiso_alm').value.trim(),
     descripcion:         document.getElementById('fac_desc').value.trim(),
