@@ -812,7 +812,7 @@
     <div class="field" style="margin:0;min-width:200px">
       <label>Instalación</label>
       <select id="controlesFacility" style="padding:.42rem .7rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.88rem">
-        <option value="">Todas las estaciones</option>
+        <option value="">Todas las instalaciones</option>
       </select>
     </div>
     <div class="field" style="margin:0;min-width:180px"><label>Mes para análisis</label><input id="transferAnalysisMonth" type="month"></div>
@@ -1478,7 +1478,8 @@
       </div>
       <div class="field" style="margin:0">
         <label style="font-size:.72rem">Clave Instalación <span style="color:#e63946">*</span></label>
-        <input id="fac_clave" placeholder="Ej. EXP-17068" required>
+        <input id="fac_clave" placeholder="Ej. EDS-7068" maxlength="8" required>
+        <div id="facClaveHint" style="font-size:.66rem;color:#64748b;margin-top:.2rem">Formato SAT para estación de servicio: EDS-0000</div>
       </div>
     </div>
     <div class="grid2" style="margin-bottom:.6rem">
