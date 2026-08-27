@@ -1250,10 +1250,21 @@
         <tbody id="tbodyEntradas"></tbody>
       </table>
     </div>
-    <div class="tab-title"><i class="fa-solid fa-arrow-up-from-line" style="margin-right:.35rem"></i>Entregas (Salidas)</div>
+    <div class="tab-title" style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;flex-wrap:wrap">
+      <span><i class="fa-solid fa-arrow-up-from-line" style="margin-right:.35rem"></i>Entregas (Salidas)</span>
+      <button type="button" id="histBulkToggle" style="display:none;border:1px solid #fecdd3;background:#fff1f2;color:#7A1E2C;border-radius:8px;padding:.38rem .7rem;font-size:.75rem;font-weight:750;cursor:pointer"><i class="fa-solid fa-list-check" style="margin-right:.3rem"></i>Corregir varias</button>
+    </div>
+    <div id="histBulkBar" style="display:none;align-items:center;gap:.65rem;flex-wrap:wrap;padding:.65rem .75rem;margin-bottom:.45rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px">
+      <strong id="histBulkCount" style="font-size:.78rem;color:#9a3412">0 seleccionadas</strong>
+      <select id="histBulkFacility" aria-label="Instalación de salida correcta" style="min-width:220px;flex:1;padding:.45rem .55rem;border:1px solid #fdba74;border-radius:7px;background:#fff;font-size:.78rem">
+        <option value="">Mover a instalación...</option>
+      </select>
+      <button type="button" id="histBulkMove" disabled style="border:0;background:#9a3412;color:#fff;border-radius:7px;padding:.48rem .75rem;font-size:.76rem;font-weight:750;cursor:pointer">Mover seleccionadas</button>
+      <button type="button" id="histBulkCancel" style="border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:7px;padding:.45rem .65rem;font-size:.76rem;cursor:pointer">Cancelar</button>
+    </div>
     <div style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:7px">
       <table id="tblSalidas">
-        <thead><tr><th>Fecha</th><th>RFC Cliente</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th><th style="width:74px;text-align:center">Corregir</th></tr></thead>
+        <thead><tr><th class="hist-bulk-col" style="display:none;width:42px;text-align:center"><input type="checkbox" id="histBulkSelectAll" aria-label="Seleccionar todas las ventas visibles"></th><th>Fecha</th><th>RFC Cliente</th><th>UUID</th><th>Volumen (L)</th><th>Importe (MXN)</th><th style="width:74px;text-align:center">Corregir</th></tr></thead>
         <tbody id="tbodySalidas"></tbody>
       </table>
     </div>
