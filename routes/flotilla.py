@@ -1098,6 +1098,7 @@ def report_catalog(
                 "inspection_credits": analytics["inspection_credits"],
                 "pending_inspection_credits": analytics["pending_inspection_credits"],
                 "expense_units": analytics["expense_units"],
+                "general_expenses": analytics["general_expenses"],
                 "inspection_details": inspection_details,
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
