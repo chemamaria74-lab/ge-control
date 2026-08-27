@@ -307,7 +307,7 @@ function renderTransferAnalysis(data) {
   if (!host) return;
   const stations = data.stations || [];
   host.style.display = '';
-  if (!stations.length) { host.textContent = 'No hay instalaciones para analizar.'; return; }
+  if (!stations.length) { host.textContent = 'No hay estaciones para analizar con los filtros seleccionados.'; return; }
   host.innerHTML = stations.map(({facility, ledger}) => {
     const inventory = _transferNumber(ledger.current_inventory);
     const capacity = _transferNumber(ledger.capacity);

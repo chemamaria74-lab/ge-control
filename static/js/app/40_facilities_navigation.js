@@ -191,7 +191,10 @@ function populateFacilitySelectors(facilities) {
     const firstOpt = sel.options[0]; // keep the "— all / none —" option
     sel.innerHTML = '';
     sel.appendChild(firstOpt);
-    facilities.forEach(f => {
+    const selectorFacilities = sid === 'controlesFacility'
+      ? facilities.filter(f => String(f.tipo_instalacion || '').trim().toLowerCase() === 'estacion')
+      : facilities;
+    selectorFacilities.forEach(f => {
       const o = document.createElement('option');
       o.value       = f.id;
       o.textContent = f.nombre + (f.clave_instalacion ? ` [${f.clave_instalacion}]` : '');
