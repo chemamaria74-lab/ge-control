@@ -7,7 +7,7 @@ from urllib.parse import quote
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr, Field
@@ -46,6 +46,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+PUBLIC_SITE_URL = "https://gecontrol.mx"
 
 LEGAL_FOOTER_ES = """<footer class="ge-legal-footer" role="contentinfo" data-ge-legal-footer>
   <div><strong>© 2026 GE Control. Todos los derechos reservados.</strong></div>
@@ -303,6 +305,20 @@ async def security_headers(request, call_next):
     # operator accepts the privacy notice. Other pages keep geolocation denied.
     geolocation = "(self)" if request.url.path == "/transporte-v2/operador" else "()"
     response.headers.setdefault("Permissions-Policy", f"camera=(), microphone=(), geolocation={geolocation}")
+    public_indexable_paths = {
+        "/",
+        "/facturacion-recurrente",
+        "/software-carta-porte",
+        "/control-de-transporte",
+        "/recursos",
+        "/recursos/automatizar-facturas-recurrentes",
+        "/recursos/carta-porte-31",
+        "/recursos/cfdi-ingreso-vs-traslado",
+        "/robots.txt",
+        "/sitemap.xml",
+    }
+    if request.url.path not in public_indexable_paths and not request.url.path.startswith("/static/"):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     return response
 
 # ── Routers API ───────────────────────────────────────────────────────────────
@@ -458,6 +474,101 @@ async def create_demo_lead(payload: DemoLeadSchema, request: Request):
 
 
 # ── Vistas HTML ───────────────────────────────────────────────────────────────
+
+@app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+async def robots_txt():
+    """Directivas públicas de rastreo para buscadores."""
+    content = "\n".join((
+        "User-agent: *",
+        "Allow: /$",
+        "Disallow: /api/",
+        "Disallow: /auth/",
+        "Disallow: /login",
+        "Disallow: /choice",
+        "Disallow: /admin-saas",
+        "Disallow: /app",
+        "Disallow: /gas-lp/",
+        "Disallow: /control-administrativo",
+        "Disallow: /transporte",
+        "Disallow: /operador/",
+        "Disallow: /asistente/",
+        "Disallow: /conciliacion/",
+        f"Sitemap: {PUBLIC_SITE_URL}/sitemap.xml",
+        "",
+    ))
+    return PlainTextResponse(content, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    """Mapa de contenido comercial público e indexable."""
+    public_pages = (
+        ("/", "weekly", "1.0"),
+        ("/facturacion-recurrente", "monthly", "0.9"),
+        ("/software-carta-porte", "monthly", "0.9"),
+        ("/control-de-transporte", "monthly", "0.9"),
+        ("/recursos", "weekly", "0.8"),
+        ("/recursos/automatizar-facturas-recurrentes", "monthly", "0.7"),
+        ("/recursos/carta-porte-31", "monthly", "0.7"),
+        ("/recursos/cfdi-ingreso-vs-traslado", "monthly", "0.7"),
+    )
+    urls = "\n".join(
+        f"""  <url>
+    <loc>{PUBLIC_SITE_URL}{path}</loc>
+    <changefreq>{changefreq}</changefreq>
+    <priority>{priority}</priority>
+  </url>"""
+        for path, changefreq, priority in public_pages
+    )
+    content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{urls}
+</urlset>
+"""
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/facturacion-recurrente", response_class=HTMLResponse, include_in_schema=False)
+async def facturacion_recurrente_marketing():
+    """Página pública de la solución de facturación recurrente."""
+    return _render_html_file("marketing_facturacion_recurrente.html")
+
+
+@app.get("/software-carta-porte", response_class=HTMLResponse, include_in_schema=False)
+async def carta_porte_marketing():
+    """Página pública de la solución Carta Porte 3.1."""
+    return _render_html_file("marketing_carta_porte.html")
+
+
+@app.get("/control-de-transporte", response_class=HTMLResponse, include_in_schema=False)
+async def control_transporte_marketing():
+    """Página pública de control operativo de transporte."""
+    return _render_html_file("marketing_control_transporte.html")
+
+
+@app.get("/recursos", response_class=HTMLResponse, include_in_schema=False)
+async def resources_marketing():
+    """Índice público de guías de facturación y transporte."""
+    return _render_html_file("resources_index.html")
+
+
+@app.get("/recursos/automatizar-facturas-recurrentes", response_class=HTMLResponse, include_in_schema=False)
+async def recurrent_invoicing_resource():
+    return _render_html_file("resource_facturas_recurrentes.html")
+
+
+@app.get("/recursos/carta-porte-31", response_class=HTMLResponse, include_in_schema=False)
+async def carta_porte_resource():
+    return _render_html_file("resource_carta_porte_31.html")
+
+
+@app.get("/recursos/cfdi-ingreso-vs-traslado", response_class=HTMLResponse, include_in_schema=False)
+async def cfdi_types_resource():
+    return _render_html_file("resource_cfdi_ingreso_traslado.html")
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():
