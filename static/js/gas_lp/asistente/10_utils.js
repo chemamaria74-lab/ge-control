@@ -237,6 +237,7 @@ function switchInventoryTab(tab){
     ? 'Consulta las lecturas físicas registradas y compáralas con los litros del CFDI.'
     : 'Consulta por mes el inventario teórico calculado con las ventas y los traspasos registrados.';
   const host = document.getElementById('assistantStationControl');
+  if(host) { host.innerHTML = ''; host.className = 'muted'; }
   if(TRANSFER_INVENTORY_STATIONS && host) loadAssistantStationControl({renderOnly:true});
   else if(host) host.textContent = 'Selecciona el mes y presiona Buscar para consultar la información.';
 }
@@ -278,12 +279,16 @@ async function loadAssistantStationControl(options={}){
     const stations = options.renderOnly ? (TRANSFER_INVENTORY_STATIONS || []) : ((await api(`/api/internal-auth/gas-lp/inventario-estaciones?mes=${encodeURIComponent(month)}`)).stations || []);
     if(!options.renderOnly) TRANSFER_INVENTORY_STATIONS = stations;
     if(!stations.length){ host.textContent = 'No hay estaciones configuradas para esta empresa.'; return; }
+    host.className = '';
     host.innerHTML = stations.map(s => {
+      if(ASSISTANT_STATION_VIEW === 'fisico'){
+        return `<div class="card" style="margin-bottom:10px"><b>${esc(s.nombre)}</b>${assistantStationPhysicalTable(s)}</div>`;
+      }
       const negative = Number(s.inventario || 0) < 0;
       const overCapacity = Number(s.capacidad || 0) > 0 && Number(s.inventario || 0) > Number(s.capacidad || 0) * 1.03;
       const tone = negative || overCapacity ? '#991b1b' : '#166534';
       const msg = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
-      const detail = ASSISTANT_STATION_VIEW === 'fisico' ? assistantStationPhysicalTable(s) : assistantStationChart(s.dias);
+      const detail = assistantStationChart(s.dias);
       return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
     }).join('');
   } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
@@ -298,18 +303,16 @@ function assistantStationPhysicalTable(station){
     .filter(({transfer}) => transfer.control_fisico && Object.keys(transfer.control_fisico).length);
   if(!rows.length) return '<div class="muted" style="padding:12px 0">No hay controles físicos capturados para esta estación en el mes seleccionado.</div>';
   const value = (raw, suffix=' L') => raw === null || raw === undefined || raw === '' ? '—' : `${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}${suffix}`;
-  return `<div class="muted" style="font-size:12px;margin:10px 0 7px">El inventario real se calcula con el nivel final del tanque; se compara contra el inventario teórico al cierre del día.</div><div style="overflow:auto"><table style="width:100%;min-width:1250px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>CFDI</th><th>Capacidad tanque</th><th>Inventario teórico</th><th>Inventario real</th><th>Dif. litros</th><th>Dif. %</th><th>Resultado</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
+  return `<div class="muted" style="font-size:12px;margin:10px 0 7px">Lecturas y litros capturados por la asistente para cada traspaso.</div><div style="overflow:auto"><table style="width:100%;min-width:1080px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros reportados por el chofer</th><th>Litros facturados (CFDI)</th><th>Diferencia chofer vs. CFDI</th><th>Capacidad del tanque</th><th>Inventario teórico</th><th>Nivel teórico</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
     const c = transfer.control_fisico;
     const capacity = Number(c.capacidad_litros || station.capacidad || 0);
     const theoretical = Number(day.inventario_final || 0);
-    const real = capacity > 0 && c.despues_pct !== null && c.despues_pct !== undefined ? capacity * Number(c.despues_pct) / 100 : null;
-    const inventoryDifference = real === null ? null : real - theoretical;
-    const inventoryDifferencePct = inventoryDifference === null || capacity <= 0 ? null : inventoryDifference / capacity * 100;
-    const inventoryAlert = inventoryDifference !== null && Math.abs(inventoryDifference) > capacity * Number(station.incertidumbre_medidor || 0.05);
-    const alert = Boolean(c.alerta || inventoryAlert);
-    const differenceColor = alert ? '#b91c1c' : '#166534';
+    const driverLiters = Number(c.litros_declarados || 0);
+    const cfdiLiters = Number(c.litros_cfdi || 0);
+    const declaredDifference = driverLiters - cfdiLiters;
+    const differenceColor = Math.abs(declaredDifference) > 0.01 ? '#b91c1c' : '#166534';
     const signed = raw => raw === null || raw === undefined ? '—' : `${raw > 0 ? '+' : ''}${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}`;
-    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(c.despues_pct, '%')}</td><td>${value(c.litros_declarados)}</td><td>${value(c.litros_cfdi)}</td><td>${value(capacity)}</td><td>${value(theoretical)}</td><td>${value(real)}</td><td style="font-weight:800;color:${differenceColor}">${signed(inventoryDifference)} L</td><td style="font-weight:800;color:${differenceColor}">${signed(inventoryDifferencePct)}%</td><td style="color:${differenceColor}">${alert ? 'Revisar diferencia' : 'Dentro de tolerancia'}</td></tr>`;
+    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(c.despues_pct, '%')}</td><td>${value(c.litros_declarados)}</td><td>${value(c.litros_cfdi)}</td><td style="font-weight:800;color:${differenceColor}">${signed(declaredDifference)} L</td><td>${value(capacity)}</td><td>${value(theoretical)}</td><td style="font-weight:800">${assistantStationPercent(theoretical,capacity)}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
