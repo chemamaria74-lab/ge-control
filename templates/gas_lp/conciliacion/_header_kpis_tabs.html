@@ -12,7 +12,6 @@
     </nav>
     <nav class="tabs workspace-subtabs hidden" data-subtabs="resumen">
       <button class="tab" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
-      <button class="tab" data-tab="inventario" onclick="switchTab('inventario')"><i class="fa-solid fa-gas-pump"></i> Inventario teórico</button>
     </nav>
     <nav class="tabs workspace-subtabs" data-subtabs="facturacion">
       <button class="tab" data-tab="facturas" onclick="switchTab('facturas')"><i class="fa-solid fa-receipt"></i> Facturas</button>
@@ -38,15 +37,5 @@
           <div class="panel kpi"><span>Vencidas / vigentes</span><b id="kCreditoEstado">0 / 0</b></div>
         </section>
         <div id="dashboardPrompt" class="notice">Selecciona un mes y presiona Buscar dashboard.</div>
-      </div>
-    </section>
-
-    <section class="section" data-section="inventario">
-      <div class="panel inventory-panel">
-        <div class="section-head compact-head">
-          <div><h2>Inventario teórico por estación</h2><div class="muted small">Estimación calculada con las ventas y los traspasos registrados; no es una medición física del tanque.</div></div>
-          <div class="toolbar inventory-search-actions"><input id="concInventoryMonth" class="month-input" type="month"><button class="btn ghost" type="button" onclick="loadConciliationInventory()"><i class="fa-solid fa-magnifying-glass"></i> Buscar inventario</button></div>
-        </div>
-        <div id="concInventoryResults" class="notice">Selecciona un mes y presiona Buscar inventario.</div>
       </div>
     </section>
