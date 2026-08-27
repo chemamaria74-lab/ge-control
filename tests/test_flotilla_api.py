@@ -80,6 +80,7 @@ def test_session_gate_returns_resolved_server_context(monkeypatch):
         "fleet_access_level": None,
         "display_name": "",
         "allowed_group_ids": None,
+        "company": {"name": "Empresa asignada", "rfc": ""},
     }
 
 
