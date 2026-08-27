@@ -347,6 +347,14 @@ def fleet_session(
 ):
     """Validate the official GE Control session before revealing the portal."""
     ctx = _context(authorization, x_flotilla_access)
+    company_rows = []
+    if ctx.get("sb") is not None:
+        company_rows = (
+            ctx["sb"].table("perfiles_empresa").select("nombre,rfc")
+            .eq("id", ctx.get("perfil_id")).eq("tenant_id", ctx["tenant_id"])
+            .limit(1).execute().data or []
+        )
+    company = company_rows[0] if company_rows else {}
     return {
         "authenticated": True,
         "user_id": ctx["user_id"],
@@ -357,6 +365,7 @@ def fleet_session(
         "identity_type": ctx.get("identity_type"),
         "fleet_access_level": ctx.get("fleet_access_level"),
         "allowed_group_ids": ctx.get("allowed_group_ids"),
+        "company": {"name": company.get("nombre") or "Empresa asignada", "rfc": company.get("rfc") or ""},
     }
 
 
