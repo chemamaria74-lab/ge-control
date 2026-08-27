@@ -235,13 +235,18 @@ function switchInventoryTab(tab){
   if(title) title.textContent = ASSISTANT_STATION_VIEW === 'fisico' ? 'Control físico' : 'Control de estaciones';
   if(description) description.textContent = ASSISTANT_STATION_VIEW === 'fisico'
     ? 'Consulta las lecturas físicas registradas y compáralas con los litros del CFDI.'
-    : 'Consulta por mes el inventario estimado, ventas y traspasos recibidos.';
+    : 'Consulta por mes el inventario teórico calculado con las ventas y los traspasos registrados.';
   const host = document.getElementById('assistantStationControl');
   if(TRANSFER_INVENTORY_STATIONS && host) loadAssistantStationControl({renderOnly:true});
   else if(host) host.textContent = 'Selecciona el mes y presiona Buscar para consultar la información.';
 }
 
 function assistantStationLiters(value){ return `${Number(value || 0).toLocaleString('es-MX',{maximumFractionDigits:2})} L`; }
+function assistantStationPercent(inventory, capacity){
+  const capacityLiters = Number(capacity || 0);
+  if(capacityLiters <= 0) return '—';
+  return `${(Number(inventory || 0) / capacityLiters * 100).toLocaleString('es-MX',{maximumFractionDigits:1})}%`;
+}
 function assistantStationChart(days){
   const chartDays = (days || []).slice(-14);
   if(!chartDays.length) return '';
@@ -260,7 +265,7 @@ function assistantStationChart(days){
     return `<g><title>${esc(title)}</title><rect x="${(center-barWidth-2).toFixed(1)}" y="${Math.min(receivedY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-receivedY).toFixed(1)}" rx="2" fill="#10b981"/><rect x="${(center+2).toFixed(1)}" y="${Math.min(salesY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-salesY).toFixed(1)}" rx="2" fill="#ef4444"/><text x="${center.toFixed(1)}" y="${height-9}" text-anchor="middle" font-size="10" fill="#64748b">${esc(String(d.fecha || '').slice(8,10))}</text></g>`;
   }).join('');
   const dots = chartDays.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(Number(d.inventario_final || 0)).toFixed(1)}" r="3.5" fill="#2563eb"><title>${esc(`${d.fecha}: inventario final ${assistantStationLiters(d.inventario_final)}`)}</title></circle>`).join('');
-  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width-right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top+8).toFixed(1)}" font-size="10" fill="#64748b">${assistantStationLiters(high)}</text><text x="4" y="${(baseline-4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height-bottom).toFixed(1)}" font-size="10" fill="#dc2626">${assistantStationLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario final</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
+  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width-right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top+8).toFixed(1)}" font-size="10" fill="#64748b">${assistantStationLiters(high)}</text><text x="4" y="${(baseline-4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height-bottom).toFixed(1)}" font-size="10" fill="#dc2626">${assistantStationLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
 }
 async function loadAssistantStationControl(options={}){
   const host = document.getElementById('assistantStationControl');
@@ -277,9 +282,9 @@ async function loadAssistantStationControl(options={}){
       const negative = Number(s.inventario || 0) < 0;
       const overCapacity = Number(s.capacidad || 0) > 0 && Number(s.inventario || 0) > Number(s.capacidad || 0) * 1.03;
       const tone = negative || overCapacity ? '#991b1b' : '#166534';
-      const msg = negative ? 'Faltan litros actualmente: registra el traspaso recibido para regularizar el inventario.' : overCapacity ? 'El inventario actual supera la capacidad configurada.' : 'Inventario actual dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
+      const msg = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
       const detail = ASSISTANT_STATION_VIEW === 'fisico' ? assistantStationPhysicalTable(s) : assistantStationChart(s.dias);
-      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario aprox.</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div style="margin-top:8px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
+      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
     }).join('');
   } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
 }
@@ -347,7 +352,7 @@ async function refreshTransferInventoryHint(){
         : `Después de este traspaso quedaría aproximadamente en ${assistantStationLiters(projected)}.`;
     hint.classList.remove('hide');
     hint.style.cssText = `border:1px solid ${color};background:${color==='#166534'?'#f0fdf4':'#fef2f2'};color:${color};border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800`;
-    hint.innerHTML = `<div>${esc(station.nombre)} · Inventario aprox.: ${assistantStationLiters(station.inventario)} · Puedes enviar: ${assistantStationLiters(station.disponible)}</div><div style="margin-top:4px">${esc(message)}</div>`;
+    hint.innerHTML = `<div>${esc(station.nombre)} · Inventario teórico: ${assistantStationLiters(station.inventario)} (${assistantStationPercent(station.inventario,station.capacidad)}) · Puedes enviar: ${assistantStationLiters(station.disponible)}</div><div style="margin-top:4px">${esc(message)}</div>`;
   } catch(error) {
     hint.classList.remove('hide');
     hint.style.cssText = 'border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800';
