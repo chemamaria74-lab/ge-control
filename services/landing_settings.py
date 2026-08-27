@@ -9,19 +9,19 @@ from supabase_config import get_supabase_admin
 
 def default_landing_settings() -> dict[str, Any]:
     return {
-        "hero_eyebrow": "Tu negocio, en automático",
-        "hero_title": "Deja de hacer lo mismo cada mes.",
-        "hero_accent": "cada mes.",
-        "hero_subtitle": "GE Control automatiza tu facturación y reúne clientes, cobros, documentos y operación en un solo lugar.",
-        "primary_cta": "Empieza gratis",
-        "secondary_cta": "Ver cómo funciona",
-        "final_headline": "Primer mes gratis. Sin compromiso.",
-        "final_subtitle": "Cuéntanos qué cobras o qué operación necesitas controlar. Te ayudamos a configurar GE Control para tu negocio.",
-        "form_note": "Te contactaremos para activar tu prueba gratuita.",
+        "hero_eyebrow": "Dos soluciones · Una misma marca",
+        "hero_title": "¿Qué necesitas resolver hoy?",
+        "hero_accent": "hoy?",
+        "hero_subtitle": "GE Control tiene dos servicios distintos: Facturación y cobros recurrentes, o Transporte y Carta Porte.",
+        "primary_cta": "Ver Facturación",
+        "secondary_cta": "Ver Transporte",
+        "final_headline": "¿Facturación o Transporte?",
+        "final_subtitle": "Selecciona la solución que corresponde a tu operación y te mostraremos únicamente ese servicio.",
+        "form_note": "Te contactaremos para orientarte sobre la solución elegida.",
         "lead_email_to": os.environ.get("GE_LEADS_EMAIL_TO", "").strip(),
         "lead_email_from": os.environ.get("GE_LEADS_EMAIL_FROM", "").strip() or os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip(),
         "whatsapp_number": os.environ.get("GE_LEADS_WHATSAPP_NUMBER", "").strip(),
-        "whatsapp_message": "Hola GE Control, quiero saber qué solución se adapta a mi negocio.",
+        "whatsapp_message": "Hola GE Control, quiero información sobre sus soluciones de Facturación o Transporte.",
         "source": "env",
     }
 
