@@ -331,6 +331,10 @@ async def listar_facturas_generales(authorization: str = Header(default=""), x_p
         FACTURAS, scope,
         "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status"
     ).order("created_at", desc=True).execute().data or [])
+    for row in rows:
+        if row.get("status") == "timbrada" and not str(row.get("uuid_sat") or "").strip():
+            _sb_update(FACTURAS, row["id"], scope, {"status": "rechazada"})
+            row["status"] = "rechazada"
     return {"ok": True, "facturas": rows}
 
 
