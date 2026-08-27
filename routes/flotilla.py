@@ -721,25 +721,39 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         voucher_ids = [int(row["voucher_id"]) for row in own_links]
         own_vouchers = (
             expense_sb.table("gas_lp_expense_vouchers")
-            .select("id,vehicle_id,group_id,description,driver_name,created_by_name")
-            .eq("tenant_id", tenant_id).eq("profile_id", profile_id).in_("id", voucher_ids)
+            .select("id,vehicle_id,group_id,issued_on,amount_mxn,status,description,driver_name,created_by_name")
+            .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
+            .in_("status", ["amount_pending", "ready_to_invoice", "invoiced"])
+            .gte("issued_on", start.isoformat()).lte("issued_on", end.isoformat())
             .execute().data or []
-        ) if voucher_ids else []
+        )
         invoice_by_id = {int(row["id"]): row for row in own_invoices}
         voucher_by_id = {int(row["id"]): row for row in own_vouchers}
         linked_invoice_ids: set[int] = set()
+        linked_voucher_ids: set[int] = set()
         for link in own_links:
             invoice = invoice_by_id.get(int(link["invoice_id"]))
             voucher = voucher_by_id.get(int(link["voucher_id"]))
             if not invoice or not voucher:
                 continue
             linked_invoice_ids.add(int(invoice["id"]))
+            linked_voucher_ids.add(int(voucher["id"]))
             expenses.append({
                 "vehicle_id": voucher.get("vehicle_id"), "occurred_at": invoice.get("invoice_date"),
                 "group_id": voucher.get("group_id") or invoice.get("group_id"),
                 "vehicle_number": "", "group_name": "", "zone_name": "",
                 "expense_type": "gasto_con_vale", "category": "", "description": voucher.get("description") or "",
                 "amount_mxn": link.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
+                "source": "ge_control_voucher",
+            })
+        for voucher in own_vouchers:
+            if int(voucher["id"]) in linked_voucher_ids or voucher.get("amount_mxn") is None:
+                continue
+            expenses.append({
+                "vehicle_id": voucher.get("vehicle_id"), "occurred_at": voucher.get("issued_on"),
+                "group_id": voucher.get("group_id"), "vehicle_number": "", "group_name": "", "zone_name": "",
+                "expense_type": "vale", "category": "", "description": voucher.get("description") or "",
+                "amount_mxn": voucher.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
                 "source": "ge_control_voucher",
             })
         for invoice in own_invoices:
@@ -1046,6 +1060,7 @@ def report_catalog(
                 "training_drivers": analytics["training_drivers"],
                 "drivers_without_events": analytics["drivers_without_events"],
                 "units_without_gps": analytics["units_without_gps"],
+                "units_without_driver": analytics["units_without_driver"],
                 "inspection_credits": analytics["inspection_credits"],
                 "pending_inspection_credits": analytics["pending_inspection_credits"],
                 "expense_units": analytics["expense_units"],

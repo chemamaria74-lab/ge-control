@@ -205,6 +205,8 @@ async def add_facility(
     init_db()
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
+    if not payload.clave_instalacion.strip():
+        raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
     data = payload.model_dump()
     tp = data.get("tipo_permiso", "PER40")
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
@@ -227,6 +229,8 @@ async def edit_facility(
     perfil_id = _require_active_profile(uid, perfil_id)
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
+    if not payload.clave_instalacion.strip():
+        raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
     data = payload.model_dump()
     data["perfil_id"] = perfil_id
     tp = data.get("tipo_permiso", "PER40")

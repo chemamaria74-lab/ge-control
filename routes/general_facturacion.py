@@ -347,9 +347,26 @@ async def actualizar_pago_factura(
 ):
     """Actualiza sólo el control administrativo de cobro; no cambia el CFDI ante el SAT."""
     scope = _scope_required(authorization, x_perfil_id)
-    factura = _sb_get(FACTURAS, factura_id, scope)
+    try:
+        rows = (
+            _sb_query(
+                FACTURAS,
+                scope,
+                "id,status,uuid_sat,cfdi_json,estado_pago,saldo_pendiente",
+            )
+            .eq("id", factura_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+    factura = rows[0] if rows else None
     if not factura:
         raise HTTPException(404, "Factura no encontrada.")
+    if factura.get("status") != "timbrada" or not str(factura.get("uuid_sat") or "").strip():
+        raise HTTPException(409, "El cobro solo puede cambiarse en una factura timbrada ante el SAT.")
     total = Decimal(str(((factura.get("cfdi_json") or {}).get("Total") or 0)))
     values = {
         "estado_pago": payload.estado_pago,

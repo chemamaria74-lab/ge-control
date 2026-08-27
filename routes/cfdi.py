@@ -287,8 +287,19 @@ async def _upload_cfdi_impl(
     fac_capacidad: Optional[float] = None
     temp_default_fac: Optional[float] = None
 
+    if not facility_id:
+        raise HTTPException(400, "Selecciona una instalación antes de generar el reporte SAT.")
+
     if facility_id:
         fac = get_facility(facility_id, data_user_id, perfil_id=perfil_id)
+        if not fac:
+            raise HTTPException(404, "La instalación seleccionada no existe o no pertenece a la empresa activa.")
+        clave_instalacion = str(fac.get("clave_instalacion") or "").strip()
+        if not clave_instalacion:
+            raise HTTPException(
+                400,
+                "La instalación seleccionada no tiene Clave Instalación. Captúrala en Administración antes de generar el reporte SAT.",
+            )
         if fac:
             fid = facility_id
             cap = fac.get("capacidad_tanque") or 0.0
