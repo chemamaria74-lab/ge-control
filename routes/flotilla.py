@@ -271,10 +271,7 @@ def manager_inventory(
         "id": profile.get("user_id"), "owner_user_id": profile.get("user_id"),
         "perfil_id": profile.get("id"), "tenant_id": profile.get("tenant_id"),
     }
-    facilities = [
-        row for row in _gas_lp_admin_facilities(user)
-        if str(row.get("tipo_instalacion") or "").casefold() == "estacion"
-    ]
+    facilities = list(_gas_lp_admin_facilities(user))
     group = None
     if group_id is not None:
         group_rows = (
@@ -655,6 +652,25 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         for row in vehicles if row.get("motive_id") is not None
     }
     allowed_vehicle_ids = _scoped_vehicle_ids(ctx, group_id)
+    allowed_expense_zone_ids: set[int] = set()
+    if group_id is not None:
+        scoped_groups = (
+            sb.table("fleet_groups").select("name,path").eq("tenant_id", tenant_id)
+            .eq("id", group_id).limit(1).execute().data or []
+        )
+        scope_words = _inventory_scope_words(
+            (scoped_groups[0].get("path") or scoped_groups[0].get("name")) if scoped_groups else ""
+        )
+        if scope_words:
+            expense_zones = (
+                get_supabase_admin().table("gas_lp_expense_zones").select("id,name")
+                .eq("tenant_id", tenant_id).eq("profile_id", int(ctx.get("perfil_id") or 0))
+                .eq("status", "active").execute().data or []
+            )
+            allowed_expense_zone_ids = {
+                int(row["id"]) for row in expense_zones
+                if scope_words & _inventory_scope_words(row.get("name"))
+            }
 
     def attach(rows: list[dict[str, Any]], *, allow_group_scope: bool = False) -> list[dict[str, Any]]:
         result = []
@@ -674,8 +690,10 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
                 vehicle_matches = vehicle_id is not None and int(vehicle_id) in allowed_vehicle_ids
                 group_matches = (
                     allow_group_scope and group_id is not None
-                    and row.get("group_id") is not None
-                    and int(row["group_id"]) == int(group_id)
+                    and (
+                        (row.get("group_id") is not None and int(row["group_id"]) == int(group_id))
+                        or (row.get("expense_zone_id") is not None and int(row["expense_zone_id"]) in allowed_expense_zone_ids)
+                    )
                 )
                 if not vehicle_matches and not group_matches:
                     continue
@@ -703,7 +721,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         profile_id = int(ctx.get("perfil_id") or 0)
         own_invoices = (
             expense_sb.table("gas_lp_expense_invoices")
-            .select("id,supplier_id,concept_id,expense_type,invoice_number,invoice_date,total_mxn,description,group_id,status,created_by")
+            .select("id,supplier_id,concept_id,expense_type,invoice_number,invoice_date,total_mxn,description,group_id,facility_id,expense_zone_id,status,created_by")
             .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
             # El tablero dice "Gastos registrados": debe incluir también los
             # que siguen en revisión u observados. Sólo se omiten los gastos
@@ -721,7 +739,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         voucher_ids = [int(row["voucher_id"]) for row in own_links]
         own_vouchers = (
             expense_sb.table("gas_lp_expense_vouchers")
-            .select("id,vehicle_id,group_id,issued_on,amount_mxn,status,description,driver_name,created_by_name")
+            .select("id,vehicle_id,group_id,expense_zone_id,issued_on,amount_mxn,status,description,driver_name,created_by_name")
             .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
             .in_("status", ["amount_pending", "ready_to_invoice", "invoiced"])
             .gte("issued_on", start.isoformat()).lte("issued_on", end.isoformat())
@@ -741,6 +759,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             expenses.append({
                 "vehicle_id": voucher.get("vehicle_id"), "occurred_at": invoice.get("invoice_date"),
                 "group_id": voucher.get("group_id") or invoice.get("group_id"),
+                "expense_zone_id": voucher.get("expense_zone_id") or invoice.get("expense_zone_id"),
                 "vehicle_number": "", "group_name": "", "zone_name": "",
                 "expense_type": "gasto_con_vale", "category": "", "description": voucher.get("description") or "",
                 "amount_mxn": link.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
@@ -752,6 +771,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             expenses.append({
                 "vehicle_id": voucher.get("vehicle_id"), "occurred_at": voucher.get("issued_on"),
                 "group_id": voucher.get("group_id"), "vehicle_number": "", "group_name": "", "zone_name": "",
+                "expense_zone_id": voucher.get("expense_zone_id"),
                 "expense_type": "vale", "category": "", "description": voucher.get("description") or "",
                 "amount_mxn": voucher.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
                 "source": "ge_control_voucher",
@@ -762,6 +782,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             expenses.append({
                 "vehicle_id": None, "occurred_at": invoice.get("invoice_date"), "vehicle_number": "",
                 "group_id": invoice.get("group_id"),
+                "expense_zone_id": invoice.get("expense_zone_id"),
                 "group_name": "", "zone_name": "", "expense_type": "gasto_directo",
                 "category": "", "description": invoice.get("description") or "",
                 "amount_mxn": invoice.get("total_mxn"), "submitted_by": "Gastos y pagos",

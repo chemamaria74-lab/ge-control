@@ -142,6 +142,19 @@ def _scope_required(authorization: str, x_perfil_id: str) -> dict:
     return scope
 
 
+def _profile_invoice_query(scope: dict, select: str = "*"):
+    """Invoices belong to the verified company profile, including legacy creators."""
+    query = (
+        get_supabase_admin()
+        .table(FACTURAS)
+        .select(select)
+        .eq("perfil_id", scope["perfil_id"])
+    )
+    if scope.get("tenant_id"):
+        query = query.eq("tenant_id", scope["tenant_id"])
+    return query
+
+
 @router.get("/configuracion-fiscal")
 async def get_fiscal_config(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
@@ -327,8 +340,8 @@ async def timbrar_factura_general(
 @router.get("/facturas")
 async def listar_facturas_generales(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    rows = (_sb_query(
-        FACTURAS, scope,
+    rows = (_profile_invoice_query(
+        scope,
         "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status"
     ).order("created_at", desc=True).execute().data or [])
     for row in rows:
@@ -349,10 +362,8 @@ async def actualizar_pago_factura(
     scope = _scope_required(authorization, x_perfil_id)
     try:
         rows = (
-            _sb_query(
-                FACTURAS,
-                scope,
-                "id,status,uuid_sat,cfdi_json,estado_pago,saldo_pendiente",
+            _profile_invoice_query(
+                scope, "id,status,uuid_sat,cfdi_json,estado_pago,saldo_pendiente"
             )
             .eq("id", factura_id)
             .limit(1)
@@ -376,8 +387,19 @@ async def actualizar_pago_factura(
         ),
         "saldo_pendiente": Decimal("0") if payload.estado_pago == "pagada" else total,
     }
-    if not _sb_update(FACTURAS, factura_id, scope, values):
-        raise HTTPException(404, "Factura no encontrada.")
+    try:
+        update = (
+            get_supabase_admin()
+            .table(FACTURAS)
+            .update({**values, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("perfil_id", scope["perfil_id"])
+            .eq("id", factura_id)
+        )
+        if scope.get("tenant_id"):
+            update = update.eq("tenant_id", scope["tenant_id"])
+        update.execute()
+    except Exception as exc:
+        raise HTTPException(500, "No se pudo actualizar el estado de cobro.") from exc
     return {"ok": True, "factura_id": factura_id, **values}
 
 

@@ -12,6 +12,7 @@
 #   PER50 → Almacenamiento GLP                 → actividad SAT: ALM
 
 import logging
+import re
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -39,6 +40,31 @@ PERMISO_CONFIG = {
     "PER50": {"actividad": "ALM", "descripcion": "Almacenamiento GLP",                  "patron": "LP/XXXXX/ALM/AAAA"},
     "PER51": {"actividad": "DIS", "descripcion": "Distribución GLP por vehículos",      "patron": "LP/XXXXX/DIST/REP/AAAA"},
 }
+
+SAT_INSTALLATION_PREFIX_BY_PERMIT = {
+    "PER40": "PDD",
+    "PER41": "DIS",
+    "PER42": "DIS",
+    "PER43": "EDS",
+    "PER44": "ESA",
+    "PER45": "CMN",
+    "PER50": "ALM",
+    "PER51": "DIS",
+}
+
+
+def validate_sat_installation_key(tipo_permiso: str, value: str) -> str:
+    """Valida la clave conforme al Apéndice 3 de la Guía SAT (SIGLA-0000)."""
+    key = str(value or "").strip().upper()
+    if not key:
+        raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
+    prefix = SAT_INSTALLATION_PREFIX_BY_PERMIT.get(tipo_permiso)
+    if prefix and not re.fullmatch(rf"{re.escape(prefix)}-\d{{4}}", key):
+        raise HTTPException(
+            400,
+            f"Clave Instalación inválida para {tipo_permiso}. Debe usar el formato {prefix}-0000 conforme al Apéndice 3 del SAT.",
+        )
+    return key
 
 def _get_actividad(tipo_permiso: str) -> str:
     """Retorna la clave de actividad SAT según el permiso (DIS, EXO, CMN, ALM)."""
@@ -205,10 +231,9 @@ async def add_facility(
     init_db()
     if not payload.nombre.strip():
         raise HTTPException(400, "El nombre de la instalación es requerido.")
-    if not payload.clave_instalacion.strip():
-        raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
     data = payload.model_dump()
     tp = data.get("tipo_permiso", "PER40")
+    data["clave_instalacion"] = validate_sat_installation_key(tp, data.get("clave_instalacion", ""))
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
     data["caracter"]          = "permisionario"
@@ -229,11 +254,10 @@ async def edit_facility(
     perfil_id = _require_active_profile(uid, perfil_id)
     if not get_facility(fid, uid, perfil_id=perfil_id):
         raise HTTPException(404, "Instalación no encontrada.")
-    if not payload.clave_instalacion.strip():
-        raise HTTPException(400, "La clave de instalación es requerida para generar reportes SAT.")
     data = payload.model_dump()
     data["perfil_id"] = perfil_id
     tp = data.get("tipo_permiso", "PER40")
+    data["clave_instalacion"] = validate_sat_installation_key(tp, data.get("clave_instalacion", ""))
     data["modalidad_permiso"] = _get_modalidad_from_tipo(tp)
     data["actividad_sat"]     = _get_actividad(tp)
     data["caracter"]          = "permisionario"

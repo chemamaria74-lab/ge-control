@@ -25,6 +25,7 @@ from services.sat_transformer import (
 )
 from services.gas_lp_inventory_control import build_station_ledger
 from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
+from routes.facilities import validate_sat_installation_key
 from routes.settings import _load as load_settings
 from supabase_config import get_supabase_admin
 
@@ -607,38 +608,55 @@ async def inventory_control(
     scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
     data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
     facilities = get_facilities(data_user_id, "gas_lp", perfil_id=perfil_id)
-    facilities_by_id = {_safe_int(item.get("id")): item for item in facilities}
 
-    # Una sola fuente de verdad: reutiliza el mismo alcance por RFC, filtros de
-    # vigencia y libro diario que ve el portal de Asistentes. La consulta directa
-    # anterior por perfil/tenant podía incorporar movimientos ajenos al RFC o
-    # interpretar distinto las instalaciones migradas.
-    from routes.internal_users_mod.facturas import gas_lp_internal_station_inventory
-    assistant_response = await gas_lp_internal_station_inventory(
-        token=token,
-        mes=periodo,
-        perfil_id=perfil_id,
+    # Usa la misma construcción de libro que Asistentes, pero con la sesión del
+    # administrador. No se invoca otro endpoint como intermediario: eso hacía
+    # fallar el análisis cuando el token oficial no era una sesión interna.
+    from routes.internal_users_mod.core import (
+        GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
+        _gas_lp_company_facturas_rows,
     )
-    assistant_payload = json.loads(assistant_response.body.decode("utf-8"))
+    admin = get_supabase_admin()
+    profile_rows = (
+        admin.table("perfiles_empresa")
+        .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
+        .eq("id", perfil_id).limit(1).execute().data or []
+    )
+    if not profile_rows:
+        raise HTTPException(404, "La empresa seleccionada no está disponible.")
+    profile = profile_rows[0]
+    inventory_user = {
+        "id": uid, "owner_user_id": data_user_id,
+        "tenant_id": profile.get("tenant_id"), "perfil_id": perfil_id,
+    }
+    invoices = _gas_lp_company_facturas_rows(
+        admin, inventory_user, profile, month=periodo,
+        limit=GAS_LP_LIST_LIMIT_MAX, include_carta_porte=False,
+        select=GAS_LP_FACTURAS_LIST_SELECT, company_fallback=True,
+        visibility_log=False,
+    )
     stations = []
-    for station in assistant_payload.get("stations") or []:
-        station_id = _safe_int(station.get("id"))
+    for facility in facilities:
+        station_id = _safe_int(facility.get("id"))
         if facility_id is not None and station_id != facility_id:
             continue
-        facility = facilities_by_id.get(station_id) or {
-            "id": station_id,
-            "nombre": station.get("nombre") or "Estación",
-            "tipo_instalacion": "estacion",
-        }
+        initial = 0.0
+        try:
+            reports = get_reports(data_user_id, periodo, facility_id=station_id, perfil_id=perfil_id)
+            if reports:
+                initial = float(reports[0].get("inventario_inicial") or 0)
+        except Exception:
+            pass
+        ledger = build_station_ledger(facility=facility, invoices=invoices, initial_inventory=initial)
         stations.append({
             "facility": facility,
             "ledger": {
                 "facility_id": station_id,
-                "current_inventory": station.get("inventario") or 0,
-                "capacity": station.get("capacidad") or 0,
-                "available_to_transfer": station.get("disponible") or 0,
-                "alerts": station.get("alertas") or [],
-                "days": station.get("dias") or [],
+                "current_inventory": ledger.get("current_inventory") or 0,
+                "capacity": ledger.get("capacity") or 0,
+                "available_to_transfer": ledger.get("available_to_transfer") or 0,
+                "alerts": ledger.get("alerts") or [],
+                "days": ledger.get("days") or [],
             },
         })
     return JSONResponse(content={"periodo": periodo, "stations": stations})
@@ -1143,6 +1161,10 @@ def _regenerate_history_report(
 
     settings = load_settings(data_user_id, perfil_id)
     settings, capacidad_tanque = _apply_facility_settings(settings, data_user_id, perfil_id, effective_facility_id)
+    settings["ClaveInstalacion"] = validate_sat_installation_key(
+        str(settings.get("ModalidadPermiso") or "PER40"),
+        settings.get("ClaveInstalacion", ""),
+    )
     anio = mes = None
     if periodo and len(periodo) >= 7:
         anio, mes = int(periodo[:4]), int(periodo[5:7])

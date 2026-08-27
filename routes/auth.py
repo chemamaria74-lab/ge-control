@@ -539,8 +539,12 @@ async def login(payload: LoginPayload, request: Request):
 
 
 @router.post("/auth/refresh")
-async def refresh(request: Request):
+async def refresh(request: Request, authorization: str = Header(default="")):
     """Renueva el JWT sin exponer el refresh token a JavaScript."""
+    current_token = _extract_bearer(authorization)
+    current_user_id = verify_token(current_token) if current_token else None
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="La sesión actual no es válida para renovarse.")
     refresh_token = request.cookies.get(REFRESH_COOKIE, "")
     if not refresh_token:
         raise HTTPException(status_code=401, detail="No hay una sesión renovable.")
@@ -550,6 +554,14 @@ async def refresh(request: Request):
         user = getattr(auth_resp, "user", None)
         if not session or not user:
             raise HTTPException(status_code=401, detail="La sesión ya no se puede renovar.")
+        if str(user.id) != str(current_user_id):
+            logger.warning("Refresh bloqueado por cambio de identidad entre JWT y cookie.")
+            response = JSONResponse(
+                status_code=409,
+                content={"detail": "La sesión renovable pertenece a otro usuario. Inicia sesión nuevamente."},
+            )
+            response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+            return response
         response = JSONResponse(content={
             "success": True,
             "token": session.access_token,

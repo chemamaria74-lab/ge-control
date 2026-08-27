@@ -33,6 +33,7 @@ from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
 from models.schemas import UploadResponse
 from routes.auth import obtener_acceso_modulo, resolve_profile_scope, verify_token, obtener_secciones_usuario
 from routes.settings import _load as load_settings
+from routes.facilities import validate_sat_installation_key
 from services.cfdi_parser import extract_cancelled_uuids_from_upload, parse_xml, parse_zip
 from services.database import (
     delete_period,
@@ -295,11 +296,10 @@ async def _upload_cfdi_impl(
         if not fac:
             raise HTTPException(404, "La instalación seleccionada no existe o no pertenece a la empresa activa.")
         clave_instalacion = str(fac.get("clave_instalacion") or "").strip()
-        if not clave_instalacion:
-            raise HTTPException(
-                400,
-                "La instalación seleccionada no tiene Clave Instalación. Captúrala en Administración antes de generar el reporte SAT.",
-            )
+        validate_sat_installation_key(
+            str(fac.get("tipo_permiso") or fac.get("modalidad_permiso") or "PER40"),
+            clave_instalacion,
+        )
         if fac:
             fid = facility_id
             cap = fac.get("capacidad_tanque") or 0.0
