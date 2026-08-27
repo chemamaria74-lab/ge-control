@@ -334,6 +334,10 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     inspection_credits: dict[tuple[str, str], dict[str, Any]] = {}
     for row in data.get("inspections", []):
         item = unit(row.get("vehicle_number"))
+        # Una inspeccion enviada por Motive prueba que la unidad esta integrada.
+        # No debe clasificarse como "sin GPS" solo porque en el periodo no haya
+        # viajes, eventos de seguridad ni kilometraje.
+        item["telemetry_observed"] = True
         item["inspections"] += 1
         driver_name = _text(row.get("driver_name")) or item["driver_name"] or "Sin conductor identificado"
         # La inspección identifica al chofer que usó la unidad aun si Motive no
