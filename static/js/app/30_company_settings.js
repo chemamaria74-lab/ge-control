@@ -312,6 +312,7 @@ function resetAppState() {
   if (typeof closeHistCapacityDecisionModal === 'function') closeHistCapacityDecisionModal();
   if (typeof closeHistDeliveryOriginModal === 'function') closeHistDeliveryOriginModal();
   if (typeof closeHistInventoryModal === 'function') closeHistInventoryModal();
+  if (typeof setHistBulkMode === 'function') setHistBulkMode(false);
   const confirmModal = document.getElementById('confirmModal');
   if (confirmModal) confirmModal.style.display = 'none';
   const histContent = document.getElementById('histContent');

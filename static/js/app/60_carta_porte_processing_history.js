@@ -1095,13 +1095,30 @@ function showHistCapacityDecision(detail) {
     'El balance del mes sí puede conservarse, pero el inventario final calculado rebasa el límite configurado para esta instalación. ¿Qué deseas hacer?';
   document.getElementById('histCapacityDecisionNumbers').innerHTML =
     `<b>Inventario calculado:</b> ${fmtLiters(detail.inventory_liters)} L<br>` +
+    `<b>Capacidad total registrada:</b> ${fmtLiters(detail.capacity_liters)} L<br>` +
     `<b>Límite de validación:</b> ${fmtLiters(detail.limit_liters)} L<br>` +
-    `<b>Diferencia:</b> <span style="color:#b91c1c;font-weight:800">${fmtLiters(detail.difference_liters)} L</span>`;
+    `<b>Exceso sobre el límite:</b> <span style="color:#b91c1c;font-weight:800">${fmtLiters(detail.difference_liters)} L</span>`;
   document.getElementById('histCapacityDecisionModal').style.display = 'flex';
 }
 
 function normalizeHistCapacityDetail(detail) {
-  if (detail && typeof detail === 'object' && detail.code === 'CAPACITY_EXCEEDED') return detail;
+  if (detail && typeof detail === 'object' && detail.code === 'CAPACITY_EXCEEDED') {
+    const normalized = { ...detail };
+    const inventory = Number(normalized.inventory_liters || 0);
+    let capacity = Number(normalized.capacity_liters || 0);
+    let limit = Number(normalized.limit_liters || 0);
+    const suppliedDifference = Number(normalized.difference_liters || 0);
+    // Compatibilidad con una respuesta transitoria que enviaba capacidad y
+    // límite desplazados una posición. Nunca usar el límite como autoconsumo.
+    if (!capacity && limit > 0 && suppliedDifference > limit && suppliedDifference < inventory) {
+      capacity = limit;
+      limit = suppliedDifference;
+    }
+    normalized.capacity_liters = capacity;
+    normalized.limit_liters = limit;
+    normalized.difference_liters = Math.max(0, inventory - limit);
+    return normalized;
+  }
   const message = typeof detail === 'string' ? detail : String(detail?.message || '');
   if (!/inventario calculado/i.test(message) || !/l[ií]mite de validaci[oó]n/i.test(message)) return null;
   const numbers = [...message.matchAll(/([\d,]+(?:\.\d+)?)\s*L/gi)]
@@ -1242,6 +1259,108 @@ document.getElementById('btnReopenHistMonth')?.addEventListener('click', () => {
 });
 
 let _histDeliveryToEdit = null;
+let _histBulkMode = false;
+let _histBulkRows = new Map();
+let _histBulkSelected = new Set();
+
+function isHistEditableDelivery(row) {
+  const isTransfer = row?.es_trasvase || String(row?.file_path || '').startsWith('traspaso:');
+  const isSelfConsumption = row?.es_autoconsumo
+    || String(row?.file_path || '').startsWith('manual:')
+    || String(row?.uuid || '').toUpperCase().startsWith('AUTO-');
+  return !!row?.uuid && !isTransfer && !isSelfConsumption && !_histMonthClosed;
+}
+
+function updateHistBulkUi() {
+  const count = _histBulkSelected.size;
+  const countEl = document.getElementById('histBulkCount');
+  const moveBtn = document.getElementById('histBulkMove');
+  const facility = document.getElementById('histBulkFacility');
+  const selectAll = document.getElementById('histBulkSelectAll');
+  if (countEl) countEl.textContent = `${count} seleccionada${count === 1 ? '' : 's'}`;
+  if (moveBtn) moveBtn.disabled = count === 0 || !facility?.value;
+  const eligibleCount = _histBulkRows.size;
+  if (selectAll) {
+    selectAll.checked = eligibleCount > 0 && count === eligibleCount;
+    selectAll.indeterminate = count > 0 && count < eligibleCount;
+  }
+}
+
+function setHistBulkMode(enabled) {
+  _histBulkMode = !!enabled && !_histMonthClosed;
+  if (!_histBulkMode) _histBulkSelected.clear();
+  const bar = document.getElementById('histBulkBar');
+  if (bar) bar.style.display = _histBulkMode ? 'flex' : 'none';
+  document.querySelectorAll('.hist-bulk-col').forEach(el => {
+    el.style.display = _histBulkMode ? '' : 'none';
+  });
+  document.querySelectorAll('.hist-bulk-checkbox').forEach(input => {
+    input.checked = _histBulkSelected.has(String(input.value || '').toUpperCase());
+  });
+  if (_histBulkMode) {
+    const select = document.getElementById('histBulkFacility');
+    select.innerHTML = '<option value="">Mover a instalación...</option>';
+    _facilities
+      .filter(facility => Number(facility.id) !== Number(_histFacilityId))
+      .forEach(facility => {
+        const option = document.createElement('option');
+        option.value = String(facility.id);
+        option.textContent = facility.nombre || facility.clave_instalacion || `Instalación #${facility.id}`;
+        select.appendChild(option);
+      });
+  }
+  updateHistBulkUi();
+}
+
+async function moveHistBulkDeliveries() {
+  const targetFacilityId = Number(document.getElementById('histBulkFacility')?.value || 0);
+  const selectedRows = [..._histBulkSelected].map(uuid => _histBulkRows.get(uuid)).filter(Boolean);
+  if (!targetFacilityId || selectedRows.length === 0) return;
+  const target = _facilities.find(facility => Number(facility.id) === targetFacilityId);
+  const liters = selectedRows.reduce((sum, row) => sum + Number(row.volumen_litros || 0), 0);
+  showConfirmModal(
+    `<b>Mover ${selectedRows.length} factura${selectedRows.length === 1 ? '' : 's'}</b><br><br>` +
+    `Se reasignarán <b>${fmt(liters)} L</b> a <b>${escapeHtml(target?.nombre || target?.clave_instalacion || 'la instalación seleccionada')}</b>.<br><br>` +
+    `Dejarán de afectar el inventario de la instalación actual y pasarán a la nueva instalación.`,
+    async () => {
+      const button = document.getElementById('histBulkMove');
+      const originalText = button?.textContent;
+      if (button) { button.disabled = true; button.textContent = 'Moviendo...'; }
+      try {
+        const res = await fetch(`/api/history/${histPeriodo}/deliveries/bulk-origin`, {
+          method: 'PUT',
+          headers: { ...authHeader(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_facility_id: _histFacilityId,
+            facility_id: targetFacilityId,
+            uuids: selectedRows.map(row => row.uuid),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : (data.detail?.message || 'No fue posible mover las salidas.'));
+        setHistBulkMode(false);
+        await loadHistorial();
+        showToast(`${data.moved_count || selectedRows.length} salidas movidas a ${data.facility_name || 'la instalación seleccionada'}.`, 'success');
+      } catch (error) {
+        setHistCloseInfo(error.message || 'No fue posible mover las salidas seleccionadas.', false);
+      } finally {
+        if (button) { button.disabled = false; button.textContent = originalText || 'Mover seleccionadas'; }
+        updateHistBulkUi();
+      }
+    },
+  );
+}
+
+document.getElementById('histBulkToggle')?.addEventListener('click', () => setHistBulkMode(!_histBulkMode));
+document.getElementById('histBulkCancel')?.addEventListener('click', () => setHistBulkMode(false));
+document.getElementById('histBulkFacility')?.addEventListener('change', updateHistBulkUi);
+document.getElementById('histBulkMove')?.addEventListener('click', moveHistBulkDeliveries);
+document.getElementById('histBulkSelectAll')?.addEventListener('change', event => {
+  _histBulkSelected.clear();
+  if (event.target.checked) _histBulkRows.forEach((_row, uuid) => _histBulkSelected.add(uuid));
+  document.querySelectorAll('.hist-bulk-checkbox').forEach(input => { input.checked = event.target.checked; });
+  updateHistBulkUi();
+});
 
 function closeHistDeliveryOriginModal() {
   const modal = document.getElementById('histDeliveryOriginModal');
@@ -1453,9 +1572,11 @@ async function loadHistorial() {
 
     // Tabla salidas
     const tbS = document.getElementById('tbodySalidas');
+    setHistBulkMode(false);
+    _histBulkRows = new Map();
     tbS.innerHTML = '';
     if ((data.salidas||[]).length === 0) {
-      tbS.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin registros de salidas para este periodo.</td></tr>';
+      tbS.innerHTML = '<tr><td colspan="7" class="hist-empty">Sin registros de salidas para este periodo.</td></tr>';
     } else {
       (data.salidas || []).forEach(r => {
         const tr = document.createElement('tr');
@@ -1467,7 +1588,27 @@ async function loadHistorial() {
         actionCell.style.textAlign = 'center';
         const isTransfer = r.es_trasvase || String(r.file_path || '').startsWith('traspaso:');
         const isSelfConsumption = r.es_autoconsumo || String(r.file_path || '').startsWith('manual:') || String(r.uuid || '').toUpperCase().startsWith('AUTO-');
-        if (r.uuid && !isTransfer && !isSelfConsumption && !_histMonthClosed) {
+        const editable = isHistEditableDelivery(r);
+        const selectionCell = document.createElement('td');
+        selectionCell.className = 'hist-bulk-col';
+        selectionCell.style.cssText = 'display:none;text-align:center';
+        if (editable) {
+          const normalizedUuid = String(r.uuid).trim().toUpperCase();
+          _histBulkRows.set(normalizedUuid, r);
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'hist-bulk-checkbox';
+          checkbox.value = normalizedUuid;
+          checkbox.setAttribute('aria-label', `Seleccionar factura ${truncUUID(r.uuid)}`);
+          checkbox.addEventListener('change', () => {
+            if (checkbox.checked) _histBulkSelected.add(normalizedUuid);
+            else _histBulkSelected.delete(normalizedUuid);
+            updateHistBulkUi();
+          });
+          selectionCell.appendChild(checkbox);
+        }
+        tr.insertBefore(selectionCell, tr.firstChild);
+        if (editable) {
           const editButton = document.createElement('button');
           editButton.type = 'button';
           editButton.className = 'btn-icon';
@@ -1487,6 +1628,9 @@ async function loadHistorial() {
         tbS.appendChild(tr);
       });
     }
+    const bulkToggle = document.getElementById('histBulkToggle');
+    if (bulkToggle) bulkToggle.style.display = _histBulkRows.size > 1 && !_histMonthClosed ? '' : 'none';
+    updateHistBulkUi();
 
     document.getElementById('histContent').style.display = 'block';
 
@@ -1536,6 +1680,7 @@ async function loadHistorial() {
 
 ['histAnio', 'histMes', 'histFacility'].forEach(id => {
   document.getElementById(id)?.addEventListener('change', () => {
+    setHistBulkMode(false);
     _histMonthClosed = false;
     const uploadBtn = document.getElementById('btnHistUploadProvider');
     const autoBtn = document.getElementById('btnHistAutoconsumo');
