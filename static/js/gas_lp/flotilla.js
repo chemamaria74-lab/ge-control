@@ -6,7 +6,7 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 3;
+  const REPORT_CACHE_VERSION = 6;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -315,24 +315,26 @@
   }
 
   function renderDashboard(analytics){
-    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
+    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], pendingInspections=analytics.pending_inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
       const behavior=row.top_behavior||row.primary_behavior||'Conducta por revisar';
       return `<div class="driver-risk-item"><button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
-    $('safeDrivers').innerHTML=safeDrivers.length?safeDrivers.map((row,index)=>`<div class="safe-driver-item"><button class="simple-row safe-driver-row" type="button" data-driver-search="${esc(row.driver_name)}"><span><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(row.vehicle_number)}${Number(row.inspections||0)?` · ${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}`:''}</small></span><strong>Sin eventos · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`).join(''):'<div class="empty">No se identificaron choferes con telemetría y cero eventos en este periodo.</div>';
+    $('safeDrivers').innerHTML=safeDrivers.length?safeDrivers.map((row,index)=>`<div class="safe-driver-item"><button class="simple-row safe-driver-row" type="button" data-driver-search="${esc(row.driver_name)}"><span><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(row.vehicle_number)}${Number(row.inspections||0)?` · ${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}`:''}</small></span><strong>✓ Sin eventos · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`).join(''):'<div class="empty">No se identificaron choferes sin eventos en este periodo.</div>';
     $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
-    const expenseTotals=analytics.totals||{}, registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0);
+    const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0);
     $('expenseSummary').innerHTML=expenseTotals.expense_available
-      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>`
+      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number||'Sin unidad vinculada')}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:'<div class="empty">El gasto no trae una unidad vinculada desde Motive.</div>'}`
       : '<div class="empty">No hay gastos documentados para esta zona y periodo.</div>';
-    $('inspectionCredits').innerHTML=inspections.length?inspections.map((row,index)=>{
+    const pendingInspectionHtml=pendingInspections.length?pendingInspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
       const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span>${defect.category?` <b>${esc(defect.category)}</b><br>`:''}${esc(defect.title||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
-      return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Este chofer no tiene pendientes abiertos.</div>'}</div></details>`;
-    }).join(''):'<div class="empty">No hay inspecciones registradas en este periodo.</div>';
+      return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} pendiente${Number(row.inspections)===1?'':'s'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle pendiente.</div>'}</div></details>`;
+    }).join(''):'<div class="empty">No hay inspecciones pendientes de atención.</div>';
+    const totalInspectionHtml=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} realizada${Number(row.inspections)===1?'':'s'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en este periodo.</div>';
+    $('inspectionCredits').innerHTML=`<div class="inspection-subhead">Inspecciones pendientes</div>${pendingInspectionHtml}<div class="inspection-subhead">Total de inspecciones realizadas</div>${totalInspectionHtml}`;
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
       const target=button.closest('.driver-risk-item,.safe-driver-item')?.querySelector('.driver-inline-detail');
