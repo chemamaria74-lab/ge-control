@@ -425,7 +425,9 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "overdue_defects": sum(row["overdue_defects"] for row in units),
         "vehicles_with_data": sum(1 for row in units if row["telemetry_available"]),
         "vehicles_without_gps": sum(
-            1 for row in units if not row["telemetry_available"]
+            1 for row in units
+            if row["vehicle_number"] != "Sin unidad vinculada"
+            and not row["telemetry_available"]
             and row["status"].casefold() not in out_statuses
             and row["availability_status"].casefold() not in out_statuses
         ),
