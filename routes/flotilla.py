@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import os
+import re
 import secrets
+import unicodedata
 from io import BytesIO
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -23,6 +25,13 @@ from services.fleet_reports import (
 )
 from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
 from services.fleet_alerts import store_webhook_event
+from services.database import get_reports
+from services.gas_lp_inventory_control import build_station_ledger
+from routes.internal_users_mod.core import (
+    GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
+    _gas_lp_admin_facilities, _gas_lp_cfdi_timezone,
+    _gas_lp_company_facturas_rows,
+)
 from services.flotilla_portal_auth import (
     FlotillaPortalAuthError,
     issue_flotilla_grant,
@@ -229,6 +238,78 @@ def _dates(start_date: date | None, end_date: date | None) -> tuple[date, date]:
     if (end - start).days > 730:
         raise HTTPException(400, "El periodo máximo de consulta es de 730 días.")
     return start, end
+
+
+def _inventory_scope_words(value: Any) -> set[str]:
+    normalized = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode().casefold()
+    ignored = {"gas", "lp", "lux", "zona", "grupo", "estacion", "planta", "de", "la", "el"}
+    return {word for word in re.findall(r"[a-z0-9]+", normalized) if len(word) > 2 and word not in ignored}
+
+
+@router.get("/flotilla/inventory")
+def manager_inventory(
+    month: str = Query(default=""), group_id: int | None = Query(default=None),
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    """Inventario operativo de estaciones para las pestañas del Portal de Gerentes."""
+    ctx = _context(authorization, x_flotilla_access)
+    _require_group_access(ctx, group_id)
+    month = str(month or datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m"))[:7]
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(400, "Mes inválido.")
+    sb = get_supabase_admin()
+    profile_rows = (
+        sb.table("perfiles_empresa").select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
+        .eq("id", ctx.get("perfil_id")).eq("tenant_id", ctx["tenant_id"])
+        .eq("activo", True).limit(1).execute().data or []
+    )
+    if not profile_rows:
+        raise HTTPException(403, "La empresa asignada no está activa.")
+    profile = profile_rows[0]
+    user = {
+        "id": profile.get("user_id"), "owner_user_id": profile.get("user_id"),
+        "perfil_id": profile.get("id"), "tenant_id": profile.get("tenant_id"),
+    }
+    facilities = [
+        row for row in _gas_lp_admin_facilities(user)
+        if str(row.get("tipo_instalacion") or "").casefold() == "estacion"
+    ]
+    group = None
+    if group_id is not None:
+        group_rows = (
+            ctx["sb"].table("fleet_groups").select("id,name,path")
+            .eq("tenant_id", ctx["tenant_id"]).eq("id", group_id).limit(1).execute().data or []
+        )
+        group = group_rows[0] if group_rows else None
+    if ctx.get("identity_type") == "internal" and group:
+        scope_words = _inventory_scope_words(group.get("path") or group.get("name"))
+        facilities = [
+            facility for facility in facilities
+            if scope_words & _inventory_scope_words(facility.get("nombre"))
+        ]
+    rows = _gas_lp_company_facturas_rows(
+        sb, user, profile, month=month, limit=GAS_LP_LIST_LIMIT_MAX,
+        include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
+        company_fallback=True, visibility_log=False,
+    )
+    stations = []
+    for facility in facilities:
+        initial = 0.0
+        try:
+            reports = get_reports(profile.get("user_id"), month, facility_id=facility.get("id"), perfil_id=profile.get("id"))
+            if reports:
+                initial = float(reports[0].get("inventario_inicial") or 0)
+        except Exception:
+            pass
+        ledger = build_station_ledger(facility=facility, invoices=rows, initial_inventory=initial)
+        stations.append({
+            "id": facility.get("id"), "name": facility.get("nombre") or "Estación",
+            "inventory": ledger["current_inventory"], "capacity": ledger["capacity"],
+            "available": ledger["available_to_transfer"], "alerts": ledger["alerts"],
+            "days": ledger["days"],
+        })
+    return {"month": month, "group": group, "stations": stations}
 
 
 def _integration(sb: Any, tenant_id: str) -> dict[str, Any] | None:
@@ -566,7 +647,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
     }
     allowed_vehicle_ids = _scoped_vehicle_ids(ctx, group_id)
 
-    def attach(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def attach(rows: list[dict[str, Any]], *, allow_group_scope: bool = False) -> list[dict[str, Any]]:
         result = []
         for row in rows:
             vehicle_id = row.get("vehicle_id")
@@ -580,8 +661,15 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
                     vehicle_id = vehicle_id_by_motive_id.get(int(motive_vehicle_id))
                 except (TypeError, ValueError):
                     vehicle_id = None
-            if allowed_vehicle_ids is not None and (vehicle_id is None or int(vehicle_id) not in allowed_vehicle_ids):
-                continue
+            if allowed_vehicle_ids is not None:
+                vehicle_matches = vehicle_id is not None and int(vehicle_id) in allowed_vehicle_ids
+                group_matches = (
+                    allow_group_scope and group_id is not None
+                    and row.get("group_id") is not None
+                    and int(row["group_id"]) == int(group_id)
+                )
+                if not vehicle_matches and not group_matches:
+                    continue
             item = dict(row)
             if vehicle_id is not None:
                 item["vehicle_id"] = int(vehicle_id)
@@ -608,7 +696,10 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             expense_sb.table("gas_lp_expense_invoices")
             .select("id,supplier_id,concept_id,expense_type,invoice_number,invoice_date,total_mxn,description,group_id,status,created_by")
             .eq("tenant_id", tenant_id).eq("profile_id", profile_id)
-            .in_("status", ["accepted", "sent_to_accountant", "paid"])
+            # El tablero dice "Gastos registrados": debe incluir también los
+            # que siguen en revisión u observados. Sólo se omiten los gastos
+            # rechazados o cancelados.
+            .in_("status", ["pending_review", "observed", "accepted", "sent_to_accountant", "paid"])
             .gte("invoice_date", start.isoformat()).lte("invoice_date", end.isoformat())
             .execute().data or []
         )
@@ -636,6 +727,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             linked_invoice_ids.add(int(invoice["id"]))
             expenses.append({
                 "vehicle_id": voucher.get("vehicle_id"), "occurred_at": invoice.get("invoice_date"),
+                "group_id": voucher.get("group_id") or invoice.get("group_id"),
                 "vehicle_number": "", "group_name": "", "zone_name": "",
                 "expense_type": "gasto_con_vale", "category": "", "description": voucher.get("description") or "",
                 "amount_mxn": link.get("amount_mxn"), "submitted_by": voucher.get("created_by_name") or "",
@@ -646,6 +738,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
                 continue
             expenses.append({
                 "vehicle_id": None, "occurred_at": invoice.get("invoice_date"), "vehicle_number": "",
+                "group_id": invoice.get("group_id"),
                 "group_name": "", "zone_name": "", "expense_type": "gasto_directo",
                 "category": "", "description": invoice.get("description") or "",
                 "amount_mxn": invoice.get("total_mxn"), "submitted_by": "Gastos y pagos",
@@ -740,7 +833,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
     )
     latest_sync = latest_runs[0] if latest_runs else {}
     return {
-        "vehicles": selected_vehicles, "expenses": attach(expenses), "fuel": attach(fuel),
+        "vehicles": selected_vehicles, "expenses": attach(expenses, allow_group_scope=True), "fuel": attach(fuel),
         "driver_events": attach(events), "speeding": attach(speeding), "activity": attach(activity),
         "faults": attach(faults), "inspections": selected_inspections, "defects": attach(defects),
         "metrics": attach(metrics), "utilization": attach(utilization), "mileage": attach(mileage),

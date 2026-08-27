@@ -600,28 +600,47 @@ async def inventory_control(
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
-    """Vista administrativa del libro operativo por estación; no altera datos."""
+    """Vista administrativa del mismo libro operativo usado por Asistentes."""
     uid, token = _auth(authorization)
     _deny_assistant_reports(uid, token)
     perfil_id = _require_perfil(uid, token, x_perfil_id)
     scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
     data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
     facilities = get_facilities(data_user_id, "gas_lp", perfil_id=perfil_id)
-    if facility_id is not None:
-        facilities = [f for f in facilities if _safe_int(f.get("id")) == facility_id]
-    invoices = []
-    try:
-        q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("perfil_id", perfil_id)
-        if scope.get("tenant_id"): q = q.eq("tenant_id", scope.get("tenant_id"))
-        invoices = q.gte("fecha_emision", f"{periodo}-01T00:00:00-06:00").lt("fecha_emision", f"{_next_period(periodo)}-01T00:00:00-06:00").order("fecha_emision").limit(GAS_LP_HISTORY_FACTURAS_LIMIT).execute().data or []
-    except Exception as exc:
-        logger.warning("inventory_control_invoice_query_failed: %s", exc)
+    facilities_by_id = {_safe_int(item.get("id")): item for item in facilities}
+
+    # Una sola fuente de verdad: reutiliza el mismo alcance por RFC, filtros de
+    # vigencia y libro diario que ve el portal de Asistentes. La consulta directa
+    # anterior por perfil/tenant podía incorporar movimientos ajenos al RFC o
+    # interpretar distinto las instalaciones migradas.
+    from routes.internal_users_mod.facturas import gas_lp_internal_station_inventory
+    assistant_response = await gas_lp_internal_station_inventory(
+        token=token,
+        mes=periodo,
+        perfil_id=perfil_id,
+    )
+    assistant_payload = json.loads(assistant_response.body.decode("utf-8"))
     stations = []
-    for facility in facilities:
-        initial = 0.0
-        reports = get_reports(data_user_id, periodo, facility_id=_safe_int(facility.get("id")), perfil_id=perfil_id)
-        if reports: initial = float(reports[0].get("inventario_inicial") or 0)
-        stations.append({"facility": facility, "ledger": build_station_ledger(facility=facility, invoices=invoices, initial_inventory=initial)})
+    for station in assistant_payload.get("stations") or []:
+        station_id = _safe_int(station.get("id"))
+        if facility_id is not None and station_id != facility_id:
+            continue
+        facility = facilities_by_id.get(station_id) or {
+            "id": station_id,
+            "nombre": station.get("nombre") or "Estación",
+            "tipo_instalacion": "estacion",
+        }
+        stations.append({
+            "facility": facility,
+            "ledger": {
+                "facility_id": station_id,
+                "current_inventory": station.get("inventario") or 0,
+                "capacity": station.get("capacidad") or 0,
+                "available_to_transfer": station.get("disponible") or 0,
+                "alerts": station.get("alertas") or [],
+                "days": station.get("dias") or [],
+            },
+        })
     return JSONResponse(content={"periodo": periodo, "stations": stations})
 
 
