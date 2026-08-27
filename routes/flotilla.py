@@ -570,9 +570,16 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         result = []
         for row in rows:
             vehicle_id = row.get("vehicle_id")
-            motive_vehicle_id = row.get("motive_vehicle_id")
+            raw_metadata = row.get("raw_metadata") if isinstance(row.get("raw_metadata"), dict) else {}
+            # Algunos gastos de Motive Card y registros históricos sólo traen
+            # el ID de unidad dentro de raw_metadata. Úsalo para recuperar la
+            # relación antes de decidir si pertenece a la zona.
+            motive_vehicle_id = row.get("motive_vehicle_id") or raw_metadata.get("motive_vehicle_id")
             if vehicle_id is None and motive_vehicle_id is not None:
-                vehicle_id = vehicle_id_by_motive_id.get(int(motive_vehicle_id))
+                try:
+                    vehicle_id = vehicle_id_by_motive_id.get(int(motive_vehicle_id))
+                except (TypeError, ValueError):
+                    vehicle_id = None
             if allowed_vehicle_ids is not None and (vehicle_id is None or int(vehicle_id) not in allowed_vehicle_ids):
                 continue
             item = dict(row)
@@ -591,7 +598,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         dict(row) for row in vehicles
         if allowed_vehicle_ids is None or int(row["id"]) in allowed_vehicle_ids
     ]
-    expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
+    expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source,raw_metadata"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
     # Gastos propios de GE Control son independientes de Motive Card y de CFDI.
     # Se consultan con service role, siempre acotados por tenant/empresa.
     try:
@@ -647,7 +654,7 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
     except Exception:
         # Despliegues anteriores a la migración siguen mostrando la caché vigente.
         pass
-    fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
+    fuel = _collect(_between(sb.table("fleet_fuel_purchases").select("vehicle_id,motive_vehicle_id,purchased_at,fuel_type,quantity_liters,total_cost,currency,vendor,odometer_km"), "purchased_at", start, end).eq("tenant_id", tenant_id).order("purchased_at", desc=True))
     events = _collect(_between(sb.table("fleet_driver_events").select("vehicle_id,started_at,ended_at,driver_name,event_type,primary_behavior,secondary_behaviors,severity,coaching_status,duration_seconds,location,raw_metadata"), "started_at", start, end).eq("tenant_id", tenant_id).order("started_at", desc=True))
     discarded_statuses = {
         "discarded", "dismissed", "rejected", "invalid", "not_coachable",
@@ -938,6 +945,8 @@ def report_catalog(
                 "drivers_without_events": analytics["drivers_without_events"],
                 "units_without_gps": analytics["units_without_gps"],
                 "inspection_credits": analytics["inspection_credits"],
+                "pending_inspection_credits": analytics["pending_inspection_credits"],
+                "expense_units": analytics["expense_units"],
                 "inspection_details": inspection_details,
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],

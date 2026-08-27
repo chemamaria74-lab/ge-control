@@ -40,6 +40,12 @@ class DeliveryOriginPayload(BaseModel):
     facility_id: int = Field(gt=0)
     uuid: str = Field(default="", max_length=80)
 
+
+class BulkDeliveryOriginPayload(BaseModel):
+    source_facility_id: int = Field(gt=0)
+    facility_id: int = Field(gt=0)
+    uuids: list[str] = Field(min_length=1, max_length=500)
+
 GAS_LP_HISTORY_FACTURAS_SELECT = ",".join([
     "id",
     "tenant_id",
@@ -630,6 +636,143 @@ async def list_periods(
     perfil_id = _require_perfil(uid, token, x_perfil_id)
     return JSONResponse(content={
         "periods": get_available_periods(uid, facility_id=facility_id, perfil_id=perfil_id)
+    })
+
+
+@router.put("/history/{periodo}/deliveries/bulk-origin")
+async def update_delivery_origins_bulk(
+    periodo: str,
+    payload: BulkDeliveryOriginPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Reasigna en bloque ventas seleccionadas, nunca traspasos o autoconsumos."""
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+
+    source = get_facility(payload.source_facility_id, data_user_id, perfil_id=perfil_id)
+    target = get_facility(payload.facility_id, data_user_id, perfil_id=perfil_id)
+    if not source or not target:
+        raise HTTPException(404, "La instalación origen o destino no pertenece a la empresa activa.")
+    if payload.source_facility_id == payload.facility_id:
+        raise HTTPException(409, "Selecciona una instalación diferente para mover las salidas.")
+    for facility_id in {payload.source_facility_id, payload.facility_id}:
+        if get_closed_report(data_user_id, periodo, facility_id, perfil_id):
+            raise HTTPException(409, "No se pueden mover salidas porque el mes está cerrado en una de las instalaciones.")
+
+    requested = list(dict.fromkeys(
+        str(uuid or "").strip().upper() for uuid in payload.uuids if str(uuid or "").strip()
+    ))
+    if not requested:
+        raise HTTPException(400, "Selecciona al menos una factura de salida.")
+
+    persisted = get_records(
+        data_user_id, periodo,
+        facility_id=payload.source_facility_id,
+        perfil_id=perfil_id,
+    )
+    live = _history_invoice_records(
+        uid, token, periodo, perfil_id, payload.source_facility_id,
+    )
+    valid_rows = _merge_derived_records(persisted, live).get("salidas") or []
+    valid_uuids = {
+        str(row.get("uuid") or "").strip().upper()
+        for row in valid_rows
+        if str(row.get("uuid") or "").strip()
+        and not row.get("es_trasvase")
+        and not row.get("es_autoconsumo")
+        and not str(row.get("file_path") or "").startswith(("traspaso:", "manual:"))
+        and not str(row.get("uuid") or "").upper().startswith("AUTO-")
+    }
+    invalid = [uuid for uuid in requested if uuid not in valid_uuids]
+    if invalid:
+        raise HTTPException(
+            409,
+            f"{len(invalid)} selección(es) ya no son ventas editables de la instalación actual. Recarga el reporte e inténtalo nuevamente.",
+        )
+
+    requested_set = set(requested)
+    record_ids = [
+        row.get("id") for row in (persisted.get("salidas") or [])
+        if str(row.get("uuid") or "").strip().upper() in requested_set
+        and _safe_int(row.get("facility_id")) == payload.source_facility_id
+        and not row.get("es_autoconsumo")
+        and not str(row.get("file_path") or "").startswith(("traspaso:", "manual:"))
+    ]
+
+    invoice_rows = []
+    q = get_supabase_admin().table("gas_lp_facturas").select(GAS_LP_HISTORY_FACTURAS_SELECT).eq("perfil_id", perfil_id)
+    if scope.get("tenant_id"):
+        q = q.eq("tenant_id", scope.get("tenant_id"))
+    else:
+        q = q.eq("user_id", data_user_id)
+    next_period = _next_period(periodo)
+    if next_period:
+        q = q.gte("fecha_emision", f"{periodo}-01T00:00:00-06:00").lt("fecha_emision", f"{next_period}-01T00:00:00-06:00")
+    invoice_rows = q.limit(GAS_LP_HISTORY_FACTURAS_LIMIT).execute().data or []
+    invoice_ids = [
+        row.get("id") for row in invoice_rows
+        if _invoice_uuid(row).strip().upper() in requested_set
+        and _invoice_facility_id(row) == payload.source_facility_id
+        and not _invoice_cancelada(row)
+        and not _invoice_is_carta_porte(row)
+        and not _invoice_is_transfer(row)
+    ]
+
+    sb = get_supabase_admin()
+    updated_invoice_count = 0
+    updated_record_count = 0
+    for start in range(0, len(invoice_ids), 100):
+        chunk = invoice_ids[start:start + 100]
+        if not chunk:
+            continue
+        update_q = (
+            sb.table("gas_lp_facturas")
+            .update({
+                "facility_id": payload.facility_id,
+                "origen_facility_id": payload.facility_id,
+            })
+            .eq("perfil_id", perfil_id)
+            .in_("id", chunk)
+        )
+        if scope.get("tenant_id"):
+            update_q = update_q.eq("tenant_id", scope.get("tenant_id"))
+        else:
+            update_q = update_q.eq("user_id", data_user_id)
+        updated_invoice_count += len(update_q.execute().data or [])
+
+    for start in range(0, len(record_ids), 100):
+        chunk = record_ids[start:start + 100]
+        rows = (
+            sb.table("records")
+            .update({"facility_id": payload.facility_id})
+            .eq("user_id", data_user_id)
+            .eq("perfil_id", perfil_id)
+            .eq("periodo", periodo)
+            .eq("tipo", "salida")
+            .eq("facility_id", payload.source_facility_id)
+            .in_("id", chunk)
+            .execute().data or []
+        )
+        updated_record_count += len(rows)
+
+    if updated_invoice_count == 0 and updated_record_count == 0:
+        raise HTTPException(500, "No fue posible mover las salidas seleccionadas.")
+    logger.info(
+        "delivery_origins_bulk_corrected periodo=%s perfil=%s from=%s to=%s requested=%s invoices=%s records=%s by=%s",
+        periodo, perfil_id, payload.source_facility_id, payload.facility_id,
+        len(requested), updated_invoice_count, updated_record_count, uid,
+    )
+    return JSONResponse(content={
+        "ok": True,
+        "moved_count": len(requested),
+        "updated_invoices": updated_invoice_count,
+        "updated_records": updated_record_count,
+        "facility_id": payload.facility_id,
+        "facility_name": target.get("nombre") or target.get("clave_instalacion") or "",
     })
 
 
