@@ -427,19 +427,27 @@ def test_asistente_physical_control_only_shows_captured_and_theoretical_values()
         assert removed not in physical_table
 
 
-def test_conciliacion_exposes_theoretical_station_inventory_percentage():
+def test_station_inventory_is_not_exposed_in_conciliacion_and_remains_in_admin():
     html = _conciliacion_frontend_source()
+    admin_html = _expand_frontend_includes((ROOT / "templates" / "app.html").read_text(encoding="utf-8"))
+    admin_js = (ROOT / "static" / "js" / "app" / "60_carta_porte_processing_history.js").read_text(encoding="utf-8")
     route_source = inspect.getsource(internal_users.gas_lp_internal_station_inventory)
 
-    for token in (
+    for removed in (
         'data-tab="inventario"',
         'data-section="inventario"',
         "loadConciliationInventory",
         "concInventoryPercent",
+    ):
+        assert removed not in html
+    for token in (
+        "Gráfica de inventario",
+        "Control físico",
         "Nivel teórico",
+        "Diferencia chofer vs. CFDI",
         "no es una medición física del tanque",
     ):
-        assert token in html
+        assert token in admin_html + admin_js
     assert "_gas_lp_factura_access_context(token, perfil_id=perfil_id)" in route_source
 
 
