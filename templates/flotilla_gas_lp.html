@@ -26,7 +26,9 @@
     .inspection-subhead{margin:12px 0 4px;padding:8px 10px;border-radius:8px;background:#f7f3ed;color:#6b1022;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.inspection-subhead:first-child{margin-top:0}
     .safe-driver-row{width:100%;border:0;background:transparent;text-align:left;color:var(--ink);cursor:pointer}.safe-driver-row strong{color:var(--green)}.safe-driver-row:hover{background:#f1faf4}
     .expense-summary{display:grid;gap:7px;padding:14px;border-radius:10px;background:#f7f3ed}.expense-summary strong{font-size:28px;color:#6b1022}.expense-summary span{font-weight:800}.expense-summary small{color:var(--muted)}
+    .manager-workspace-tabs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}.manager-workspace-tab{min-height:76px;border:2px solid #ded7cf;border-radius:15px;background:#fff;color:#322d29;font:inherit;font-size:20px;font-weight:900;cursor:pointer;box-shadow:0 8px 22px rgba(45,32,22,.06)}.manager-workspace-tab i{margin-right:9px;color:#7a1e2c}.manager-workspace-tab.active{border-color:#7a1e2c;background:#7a1e2c;color:#fff}.manager-workspace-tab.active i{color:#fff}.manager-workspace-panel[hidden]{display:none!important}.inventory-shell{display:grid;gap:18px}.inventory-head{display:flex;justify-content:space-between;gap:20px;align-items:end}.inventory-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.inventory-controls label{display:grid;gap:6px;font-size:12px;font-weight:800}.inventory-controls input{padding:10px 12px;border:1px solid #d8d0c7;border-radius:9px;font:inherit}.inventory-view-tabs{display:flex;gap:10px}.inventory-view-tab{padding:11px 16px;border:1px solid #d8d0c7;border-radius:10px;background:#fff;color:#4f4741;font:inherit;font-weight:850;cursor:pointer}.inventory-view-tab.active{background:#7a1e2c;border-color:#7a1e2c;color:#fff}.inventory-station{padding:18px;border:1px solid #e4ddd4;border-radius:13px;background:#fff;margin-top:12px}.inventory-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:13px}.inventory-stat{padding:11px;border-radius:9px;background:#f7f3ed}.inventory-stat small{display:block;color:#756d66}.inventory-stat strong{display:block;margin-top:4px;font-size:17px}.inventory-chart{display:block;width:100%;height:230px;margin-top:14px;border:1px solid #e5dfd8;border-radius:10px;background:#faf8f5}.inventory-table{overflow:auto;margin-top:12px}.inventory-table table{width:100%;min-width:1050px;border-collapse:collapse}.inventory-table th,.inventory-table td{padding:10px;border-bottom:1px solid #ebe5de;text-align:left;font-size:12px}.inventory-message{margin-top:10px;font-size:13px;font-weight:800}
     @media(max-width:700px){.report-downloads{grid-template-columns:1fr}}
+    @media(max-width:700px){.manager-workspace-tabs{grid-template-columns:1fr 1fr;gap:8px}.manager-workspace-tab{min-height:62px;font-size:16px}.inventory-head{align-items:stretch;flex-direction:column}.inventory-stats{grid-template-columns:1fr 1fr}}
   </style>
 </head>
 <body>
@@ -53,6 +55,11 @@
   </header>
 
   <main class="fleet-shell">
+    <nav class="manager-workspace-tabs" id="managerWorkspaceTabs" aria-label="Secciones del Portal de Gerentes">
+      <button class="manager-workspace-tab active" type="button" data-manager-tab="gps" aria-selected="true"><i class="fa-solid fa-satellite-dish"></i> GPS</button>
+      <button class="manager-workspace-tab" type="button" data-manager-tab="inventory" aria-selected="false"><i class="fa-solid fa-chart-line"></i> Inventario</button>
+    </nav>
+    <div class="manager-workspace-panel" id="managerGpsPanel">
     <section class="fleet-hero">
       <div>
         <span class="eyebrow"><i class="fa-solid fa-satellite-dish"></i> Integración Motive</span>
@@ -142,6 +149,18 @@
       </div>
       <div class="pagination"><button id="prevPage" type="button">Anterior</button><span id="pageLabel">Página 1</span><button id="nextPage" type="button">Siguiente</button></div>
     </section>
+    </div>
+
+    <section class="manager-workspace-panel inventory-shell" id="managerInventoryPanel" hidden>
+      <section class="fleet-card inventory-head">
+        <div><span class="eyebrow"><i class="fa-solid fa-warehouse"></i> Inventario de estaciones</span><h2>Control de inventario</h2><p>Inventario teórico, movimientos diarios y lecturas físicas de las estaciones de tu zona.</p></div>
+        <div class="inventory-controls"><label>Mes<input id="managerInventoryMonth" type="month"></label><button class="btn-primary" id="loadManagerInventory" type="button"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button></div>
+      </section>
+      <section class="fleet-card">
+        <div class="inventory-view-tabs" aria-label="Vista de inventario"><button class="inventory-view-tab active" data-inventory-view="charts" type="button"><i class="fa-solid fa-chart-line"></i> Gráficas</button><button class="inventory-view-tab" data-inventory-view="physical" type="button"><i class="fa-solid fa-clipboard-check"></i> Control físico</button></div>
+        <div id="managerInventoryResults" class="empty">Selecciona un mes para consultar el inventario.</div>
+      </section>
+    </section>
   </main>
 
   <aside class="detail-drawer" id="detailDrawer" aria-hidden="true">
@@ -151,6 +170,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260827-expenses-by-unit-1"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260827-manager-inventory-tabs-1"></script>
 </body>
 </html>
