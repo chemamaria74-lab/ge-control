@@ -730,6 +730,23 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
             .gte("invoice_date", start.isoformat()).lte("invoice_date", end.isoformat())
             .execute().data or []
         )
+        supplier_ids = sorted({int(row["supplier_id"]) for row in own_invoices if row.get("supplier_id") is not None})
+        concept_ids = sorted({int(row["concept_id"]) for row in own_invoices if row.get("concept_id") is not None})
+        suppliers = (
+            expense_sb.table("gas_lp_expense_suppliers")
+            .select("id,commercial_name,legal_name").eq("tenant_id", tenant_id)
+            .in_("id", supplier_ids).execute().data or []
+        ) if supplier_ids else []
+        concepts = (
+            expense_sb.table("gas_lp_expense_concepts")
+            .select("id,name").eq("tenant_id", tenant_id)
+            .in_("id", concept_ids).execute().data or []
+        ) if concept_ids else []
+        supplier_by_id = {
+            int(row["id"]): row.get("commercial_name") or row.get("legal_name") or "Proveedor no identificado"
+            for row in suppliers
+        }
+        concept_by_id = {int(row["id"]): row.get("name") or "Sin concepto" for row in concepts}
         invoice_ids = [int(row["id"]) for row in own_invoices]
         own_links = (
             expense_sb.table("gas_lp_expense_invoice_vouchers")
@@ -797,7 +814,10 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
                 "group_id": invoice.get("group_id"),
                 "expense_zone_id": invoice.get("expense_zone_id"),
                 "group_name": "", "zone_name": "", "expense_type": "gasto_directo",
-                "category": "", "description": invoice.get("description") or "",
+                "category": concept_by_id.get(int(invoice["concept_id"])) if invoice.get("concept_id") is not None else "Sin concepto",
+                "description": invoice.get("description") or "",
+                "invoice_number": invoice.get("invoice_number") or "Sin folio",
+                "supplier_name": supplier_by_id.get(int(invoice["supplier_id"])) if invoice.get("supplier_id") is not None else "Proveedor no identificado",
                 "amount_mxn": invoice.get("total_mxn"), "submitted_by": "Gastos y pagos",
                 "source": "ge_control_direct",
             })
