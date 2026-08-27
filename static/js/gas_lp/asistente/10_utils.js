@@ -232,7 +232,7 @@ function switchInventoryTab(tab){
   if(month && !month.value) month.value = todayKey().slice(0,7);
   const title = document.getElementById('assistantInventoryTitle');
   const description = document.getElementById('assistantInventoryDescription');
-  if(title) title.textContent = ASSISTANT_STATION_VIEW === 'fisico' ? 'Control físico' : 'Control de estaciones';
+  if(title) title.textContent = ASSISTANT_STATION_VIEW === 'fisico' ? 'Control físico' : 'Inventario de instalaciones';
   if(description) description.textContent = ASSISTANT_STATION_VIEW === 'fisico'
     ? 'Consulta las lecturas físicas registradas y compáralas con los litros del CFDI.'
     : 'Consulta por mes el inventario teórico calculado con las ventas y los traspasos registrados.';
@@ -278,7 +278,7 @@ async function loadAssistantStationControl(options={}){
   try {
     const stations = options.renderOnly ? (TRANSFER_INVENTORY_STATIONS || []) : ((await api(`/api/internal-auth/gas-lp/inventario-estaciones?mes=${encodeURIComponent(month)}`)).stations || []);
     if(!options.renderOnly) TRANSFER_INVENTORY_STATIONS = stations;
-    if(!stations.length){ host.textContent = 'No hay estaciones configuradas para esta empresa.'; return; }
+    if(!stations.length){ host.textContent = 'No hay instalaciones configuradas para esta empresa.'; return; }
     host.className = '';
     host.innerHTML = stations.map(s => {
       if(ASSISTANT_STATION_VIEW === 'fisico'){
