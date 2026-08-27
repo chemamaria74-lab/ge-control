@@ -12,6 +12,11 @@ def _money(value: Decimal | int | float | str) -> str:
     return str(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def _sat_rate(value: Decimal | int | float | str) -> str:
+    """SAT c_TasaOCuota values are serialized with exactly six decimals."""
+    return format(Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f")
+
+
 class CfdiParty(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rfc: str = Field(min_length=12, max_length=13)
@@ -123,7 +128,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "ValorUnitario": _money(base),
         "Importe": _money(item.cantidad * base),
         "ObjetoImp": item.objeto_imp,
-        **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(item.iva_tasa), "Importe": _money(item.cantidad * base * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
+        **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(item.iva_tasa), "Importe": _money(item.cantidad * base * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
     } for item, base in zip(payload.conceptos, bases)]
     result = {
         "Version": "4.0",
@@ -164,7 +169,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
                 "TotalImpuestosTrasladados": _money(iva_total),
                 "Traslados": [
                     {
-                        "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(rate),
+                        "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(rate),
                         "Base": _money(sum(
                             item.cantidad * base
                             for item, base in zip(payload.conceptos, bases)
@@ -194,8 +199,8 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
                 base = Decimal(concept["Importe"])
                 concept_retenciones = []
                 if payload.retencion_isr_tasa > 0:
-                    concept_retenciones.append({"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)})
+                    concept_retenciones.append({"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)})
                 if payload.retencion_iva_tasa > 0:
-                    concept_retenciones.append({"Base": _money(base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": str(payload.retencion_iva_tasa), "Importe": _money(base * payload.retencion_iva_tasa)})
+                    concept_retenciones.append({"Base": _money(base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(payload.retencion_iva_tasa), "Importe": _money(base * payload.retencion_iva_tasa)})
                 taxes["Retenciones"] = concept_retenciones
     return result
