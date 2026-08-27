@@ -264,28 +264,23 @@ function _transferNumber(value) {
 function _transferChart(days) {
   const chartDays = (days || []).slice(-14);
   if (!chartDays.length) return '<div style="color:#64748b;padding:1rem 0">Sin movimientos en este mes.</div>';
-  const width = 960, height = 250, left = 44, right = 20, top = 20, bottom = 42;
-  const plotW = width - left - right, plotH = height - top - bottom;
-  const inventory = chartDays.map(d => _transferNumber(d.inventario_final));
-  const maxMovement = Math.max(1, ...chartDays.flatMap(d => [_transferNumber(d.ventas), _transferNumber(d.traspasos_recibidos)]));
-  const minInventory = Math.min(0, ...inventory);
-  const maxInventory = Math.max(1, ...inventory);
-  const yMin = Math.min(0, minInventory, -maxMovement * .25);
-  const yMax = Math.max(maxInventory, maxMovement * .25, 1);
-  const range = Math.max(1, yMax - yMin);
-  const y = value => top + (yMax - value) / range * plotH;
-  const x = index => left + (chartDays.length === 1 ? plotW / 2 : index * plotW / (chartDays.length - 1));
-  const zeroY = y(0);
-  const barWidth = Math.max(8, Math.min(28, plotW / Math.max(1, chartDays.length) * .22));
-  const bars = chartDays.map((d, index) => {
-    const cx = x(index), received = _transferNumber(d.traspasos_recibidos), sales = _transferNumber(d.ventas);
+  const width = 720, height = 210, left = 52, right = 12, top = 16, bottom = 32;
+  const values = chartDays.flatMap(d => [_transferNumber(d.inventario_final), _transferNumber(d.inventario_inicio), _transferNumber(d.traspasos_recibidos), -_transferNumber(d.ventas), 0]);
+  const low = Math.min(0, ...values), high = Math.max(1, ...values);
+  const span = Math.max(1, high - low);
+  const x = index => left + (chartDays.length === 1 ? (width - left - right) / 2 : index * (width - left - right) / (chartDays.length - 1));
+  const y = value => top + (high - value) * (height - top - bottom) / span;
+  const baseline = y(0);
+  const linePoints = chartDays.map((day, index) => `${x(index).toFixed(1)},${y(_transferNumber(day.inventario_final)).toFixed(1)}`).join(' ');
+  const bars = chartDays.map((day, index) => {
+    const received = _transferNumber(day.traspasos_recibidos), sales = _transferNumber(day.ventas), center = x(index);
     const receivedY = y(received), salesY = y(-sales);
-    const title = escapeHtml(`${d.fecha}: recibidos ${_transferLiters(received)}, ventas ${_transferLiters(sales)}, inventario ${_transferLiters(d.inventario_final)}`);
-    return `<g><title>${title}</title><rect x="${cx - barWidth - 2}" y="${Math.min(zeroY, receivedY)}" width="${barWidth}" height="${Math.abs(zeroY - receivedY)}" rx="3" fill="#10b981"/><rect x="${cx + 2}" y="${Math.min(zeroY, salesY)}" width="${barWidth}" height="${Math.abs(zeroY - salesY)}" rx="3" fill="#ef4444"/><text x="${cx}" y="${height - 14}" text-anchor="middle" fill="#64748b" font-size="12">${escapeHtml(String(d.fecha).slice(-2))}</text></g>`;
+    const barWidth = Math.max(5, Math.min(18, (width - left - right) / Math.max(chartDays.length * 3, 1)));
+    const title = escapeHtml(`${day.fecha}: ventas ${_transferLiters(sales)}, recibidos ${_transferLiters(received)}, inventario final ${_transferLiters(day.inventario_final)}`);
+    return `<g><title>${title}</title><rect x="${(center - barWidth - 2).toFixed(1)}" y="${Math.min(receivedY, baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline - receivedY).toFixed(1)}" rx="2" fill="#10b981"/><rect x="${(center + 2).toFixed(1)}" y="${Math.min(salesY, baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline - salesY).toFixed(1)}" rx="2" fill="#ef4444"/><text x="${center.toFixed(1)}" y="${height - 9}" text-anchor="middle" font-size="10" fill="#64748b">${escapeHtml(String(day.fecha || '').slice(8, 10))}</text></g>`;
   }).join('');
-  const points = inventory.map((value, index) => `${x(index)},${y(value)}`).join(' ');
-  const dots = inventory.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="4" fill="#2563eb"><title>${escapeHtml(`${chartDays[index].fecha}: inventario ${_transferLiters(value)}`)}</title></circle>`).join('');
-  return `<div style="margin:.8rem 0 .55rem;color:#64748b;font-weight:700">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario al cierre.</div><div style="overflow:auto;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario" style="display:block;width:100%;min-width:620px;height:auto"><line x1="${left}" x2="${width - right}" y1="${zeroY}" y2="${zeroY}" stroke="#94a3b8"/><text x="8" y="${Math.max(14, zeroY - 6)}" fill="#64748b" font-size="12">0</text>${bars}<polyline points="${points}" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg></div><div style="font-size:.82rem;font-weight:800;margin-top:.55rem"><span style="color:#2563eb">━ Inventario final</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
+  const dots = chartDays.map((day, index) => `<circle cx="${x(index).toFixed(1)}" cy="${y(_transferNumber(day.inventario_final)).toFixed(1)}" r="3.5" fill="#2563eb"><title>${escapeHtml(`${day.fecha}: inventario final ${_transferLiters(day.inventario_final)}`)}</title></circle>`).join('');
+  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width - right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top + 8).toFixed(1)}" font-size="10" fill="#64748b">${_transferLiters(high)}</text><text x="4" y="${(baseline - 4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height - bottom).toFixed(1)}" font-size="10" fill="#dc2626">${_transferLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
 }
 
 function _transferPhysicalTable(days, stationCapacity = 0) {
@@ -294,15 +289,17 @@ function _transferPhysicalTable(days, stationCapacity = 0) {
   const rows = records.map(({day, transfer, control}) => {
     const capacity = _transferNumber(control.capacidad_litros || stationCapacity);
     const theoretical = _transferNumber(day.inventario_final);
-    const real = capacity > 0 && control.despues_pct != null ? capacity * _transferNumber(control.despues_pct) / 100 : null;
-    const difference = real === null ? null : real - theoretical;
-    const differencePct = difference === null || capacity <= 0 ? null : difference / capacity * 100;
-    const alert = Boolean(control.alerta || (difference !== null && Math.abs(difference) > capacity * .05));
-    const color = alert ? '#b91c1c' : '#166534';
+    const driverLiters = _transferNumber(control.litros_declarados);
+    const cfdiLiters = _transferNumber(control.litros_cfdi || transfer.litros);
+    const difference = driverLiters - cfdiLiters;
+    const color = Math.abs(difference) > .01 ? '#b91c1c' : '#166534';
     const signed = value => value === null ? '—' : `${value > 0 ? '+' : ''}${Number(value).toLocaleString('es-MX', {maximumFractionDigits: 2})}`;
-    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${escapeHtml(control.antes_pct ?? '—')}%</td><td>${escapeHtml(control.despues_pct ?? '—')}%</td><td>${_transferLiters(control.litros_declarados)}</td><td>${_transferLiters(control.litros_cfdi || transfer.litros)}</td><td>${_transferLiters(capacity)}</td><td>${_transferLiters(theoretical)}</td><td>${real === null ? '—' : _transferLiters(real)}</td><td style="color:${color};font-weight:800">${signed(difference)} L</td><td style="color:${color};font-weight:800">${signed(differencePct)}%</td><td><b style="color:${color}">${alert ? 'Revisar diferencia' : 'Dentro de tolerancia'}</b></td></tr>`;
+    const level = capacity > 0 ? `${(theoretical / capacity * 100).toLocaleString('es-MX', {maximumFractionDigits: 1})}%` : '—';
+    const before = control.antes_pct == null ? '—' : `${escapeHtml(control.antes_pct)}%`;
+    const after = control.despues_pct == null ? '—' : `${escapeHtml(control.despues_pct)}%`;
+    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${before}</td><td>${after}</td><td>${_transferLiters(driverLiters)}</td><td>${_transferLiters(cfdiLiters)}</td><td style="color:${color};font-weight:800">${signed(difference)} L</td><td>${_transferLiters(capacity)}</td><td>${_transferLiters(theoretical)}</td><td style="font-weight:800">${level}</td></tr>`;
   }).join('');
-  return `<div style="font-size:.82rem;color:#64748b;margin-top:.8rem">El inventario real se calcula con el porcentaje final del tanque y se compara contra el inventario teórico al cierre.</div><div style="overflow:auto;margin-top:.5rem"><table style="width:100%;min-width:1250px;font-size:.82rem;border-collapse:collapse"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Chofer</th><th>CFDI</th><th>Capacidad tanque</th><th>Inventario teórico</th><th>Inventario real</th><th>Dif. litros</th><th>Dif. %</th><th>Resultado</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div style="font-size:12px;color:#64748b;margin:10px 0 7px">Lecturas y litros capturados por la asistente para cada traspaso.</div><div style="overflow:auto"><table style="width:100%;min-width:1080px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros reportados por el chofer</th><th>Litros facturados (CFDI)</th><th>Diferencia chofer vs. CFDI</th><th>Capacidad del tanque</th><th>Inventario teórico</th><th>Nivel teórico</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderTransferAnalysis(data) {
@@ -312,10 +309,15 @@ function renderTransferAnalysis(data) {
   host.style.display = '';
   if (!stations.length) { host.textContent = 'No hay instalaciones para analizar.'; return; }
   host.innerHTML = stations.map(({facility, ledger}) => {
-    const alerts = ledger.alerts || [];
-    const alertHtml = alerts.length ? alerts.map(a => `<li><b>${a.fecha}:</b> ${a.mensaje} (${_transferLiters(a.inventario_final)})</li>`).join('') : '<li>Sin alertas en este mes.</li>';
+    const inventory = _transferNumber(ledger.current_inventory);
+    const capacity = _transferNumber(ledger.capacity);
+    const negative = inventory < 0;
+    const overCapacity = capacity > 0 && inventory > capacity * 1.03;
+    const tone = negative || overCapacity ? '#991b1b' : '#166534';
+    const message = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
+    const level = capacity > 0 ? `${(inventory / capacity * 100).toLocaleString('es-MX', {maximumFractionDigits: 1})}%` : '—';
     const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days, ledger.capacity) : _transferChart(ledger.days);
-    return `<div style="border:1px solid #dbeafe;border-radius:10px;padding:1rem;margin-bottom:1rem;background:#fff"><h3 style="margin:0 0 .6rem">${escapeHtml(facility.nombre || 'Estación')}</h3><div class="grid2" style="margin-bottom:.7rem"><div><b>Inventario calculado:</b> ${_transferLiters(ledger.current_inventory)}</div><div><b>Capacidad usada:</b> ${_transferLiters(ledger.capacity)} · <b>Disponible:</b> ${_transferLiters(ledger.available_to_transfer)}</div></div><div style="font-size:.84rem;margin-bottom:.7rem;color:${alerts.length ? '#92400e' : '#166534'}"><b>Alertas:</b><ul style="margin:.3rem 0;padding-left:1.2rem">${alertHtml}</ul></div>${content}</div>`;
+    return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${tone};border-radius:8px;padding:14px;margin-bottom:10px;background:#fff"><b>${escapeHtml(facility.nombre || 'Estación')}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small style="color:#64748b">Inventario teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${_transferLiters(inventory)}</b></div><div><small style="color:#64748b">Nivel teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${level}</b></div><div><small style="color:#64748b">Capacidad</small><br><b>${_transferLiters(capacity)}</b></div><div><small style="color:#64748b">Puedes enviar</small><br><b>${_transferLiters(ledger.available_to_transfer)}</b></div></div><div style="margin-top:8px;color:#64748b;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${escapeHtml(message)}</div>${content}</div>`;
   }).join('');
 }
 
@@ -1102,22 +1104,32 @@ function showHistCapacityDecision(detail) {
 }
 
 function normalizeHistCapacityDetail(detail) {
-  if (detail && typeof detail === 'object' && detail.code === 'CAPACITY_EXCEEDED') {
-    const normalized = { ...detail };
+  const normalizeNumbers = raw => {
+    const normalized = { ...raw };
     const inventory = Number(normalized.inventory_liters || 0);
     let capacity = Number(normalized.capacity_liters || 0);
     let limit = Number(normalized.limit_liters || 0);
     const suppliedDifference = Number(normalized.difference_liters || 0);
-    // Compatibilidad con una respuesta transitoria que enviaba capacidad y
-    // límite desplazados una posición. Nunca usar el límite como autoconsumo.
-    if (!capacity && limit > 0 && suppliedDifference > limit && suppliedDifference < inventory) {
+
+    // Compatibilidad con la respuesta anterior, que enviaba:
+    // capacidad=0, límite=capacidad física y diferencia=límite con margen.
+    // Ejemplo: 0 / 171,150 / 205,380 para una capacidad con margen de 20 %.
+    if (capacity <= 0 && limit > 0 && suppliedDifference > limit && suppliedDifference < inventory) {
       capacity = limit;
       limit = suppliedDifference;
     }
+
+    normalized.inventory_liters = inventory;
     normalized.capacity_liters = capacity;
     normalized.limit_liters = limit;
+    // El autoconsumo siempre debe ser el exceso real, nunca un valor recibido
+    // como "diferencia" sin comprobarlo.
     normalized.difference_liters = Math.max(0, inventory - limit);
     return normalized;
+  };
+
+  if (detail && typeof detail === 'object' && detail.code === 'CAPACITY_EXCEEDED') {
+    return normalizeNumbers(detail);
   }
   const message = typeof detail === 'string' ? detail : String(detail?.message || '');
   if (!/inventario calculado/i.test(message) || !/l[ií]mite de validaci[oó]n/i.test(message)) return null;
@@ -1128,14 +1140,14 @@ function normalizeHistCapacityDetail(detail) {
   const inventory = numbers[0];
   const capacity = numbers[1];
   const limit = numbers[2];
-  return {
+  return normalizeNumbers({
     code: 'CAPACITY_EXCEEDED',
     message,
     inventory_liters: inventory,
     capacity_liters: capacity,
     limit_liters: limit,
-    difference_liters: numbers[3] ?? Math.max(0, inventory - limit),
-  };
+    difference_liters: numbers[3] ?? 0,
+  });
 }
 
 function prepareCapacityDifferenceAsAutoconsumo() {
