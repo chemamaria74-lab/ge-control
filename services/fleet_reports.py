@@ -218,6 +218,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             "utilization_pct": None, "engine_hours_available": False,
             "telemetry_observed": False,
             "telemetry_available": False, "coverage_status": "Sin datos GPS / revisión manual",
+            "status": "", "availability_status": "",
         })
 
     def driver(value: Any, vehicle_number: Any) -> dict[str, Any]:
@@ -235,6 +236,8 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     for row in data.get("vehicles", []):
         item = unit(row.get("vehicle_number"))
         item["driver_name"] = _text(row.get("current_driver_name"))
+        item["status"] = _text(row.get("status"))
+        item["availability_status"] = _text(row.get("availability_status"))
         if item["driver_name"]:
             # Mantener visible el conductor asignado aun cuando durante el
             # periodo tenga cero eventos. No se incluye en capacitación.
@@ -409,6 +412,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         unit_rows.values(),
         key=lambda row: (-(row["security"] + row["speeding"]), row["vehicle_number"]),
     )
+    out_statuses = {"out_of_service", "out of service", "inactive", "deactivated", "maintenance", "shop"}
     totals = {
         "expenses_mxn": sum(row["expense_mxn"] for row in units),
         "maintenance_mxn": sum(row["maintenance_mxn"] for row in units),
@@ -420,7 +424,11 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "open_defects": sum(row["open_defects"] for row in units),
         "overdue_defects": sum(row["overdue_defects"] for row in units),
         "vehicles_with_data": sum(1 for row in units if row["telemetry_available"]),
-        "vehicles_without_gps": sum(1 for row in units if not row["telemetry_available"]),
+        "vehicles_without_gps": sum(
+            1 for row in units if not row["telemetry_available"]
+            and row["status"].casefold() not in out_statuses
+            and row["availability_status"].casefold() not in out_statuses
+        ),
     }
     totals["distance_available"] = any(row["distance_km"] > 0 for row in units)
     totals["engine_hours_available"] = any(row["engine_hours_available"] for row in units)
@@ -473,7 +481,12 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         and not (row["security"] + row["speeding"])
     ]
     attention_units = [row for row in units if row["telemetry_available"] and row["security"] + row["speeding"] > 0]
-    units_without_gps = [row for row in units if not row["telemetry_available"]]
+    units_without_gps = [
+        row for row in units
+        if not row["telemetry_available"]
+        and row["status"].casefold() not in out_statuses
+        and row["availability_status"].casefold() not in out_statuses
+    ]
     units_without_driver = [row for row in units if not _text(row.get("driver_name"))]
     inspection_credit_rows = sorted(
         inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
