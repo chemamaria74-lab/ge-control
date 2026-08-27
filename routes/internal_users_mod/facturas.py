@@ -357,9 +357,9 @@ async def gas_lp_credito_recordatorios_candidatos(
 
 
 @router.get("/internal-auth/gas-lp/inventario-estaciones")
-async def gas_lp_internal_station_inventory(token: str, mes: str | None = None):
-    """Resumen operativo para asistentes; no expone conciliación fiscal."""
-    ctx = _gas_lp_internal_context(token)
+async def gas_lp_internal_station_inventory(token: str, mes: str | None = None, perfil_id: int | None = None):
+    """Resumen operativo para asistentes y conciliación; no expone datos fiscales."""
+    ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
     month = str(mes or datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m"))[:7]
@@ -376,8 +376,6 @@ async def gas_lp_internal_station_inventory(token: str, mes: str | None = None):
         raise _safe_internal_error("gas_lp_station_inventory", exc)
     stations = []
     for facility in _gas_lp_admin_facilities(user):
-        if str(facility.get("tipo_instalacion") or "").lower() != "estacion":
-            continue
         initial = 0.0
         try:
             reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility.get("id"), perfil_id=user.get("perfil_id"))
