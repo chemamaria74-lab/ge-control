@@ -227,6 +227,7 @@ def test_general_expenses_are_not_reported_as_a_unit_without_gps():
     assert analytics["expense_units"] == []
     assert analytics["general_expenses"] == {"expenses_mxn": 1200.0, "purchased_liters": 0.0}
     assert all(row["vehicle_number"] != "Sin unidad vinculada" for row in analytics["units_without_gps"])
+    assert analytics["totals"]["vehicles_without_gps"] == 1
 
 
 def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_driver():
