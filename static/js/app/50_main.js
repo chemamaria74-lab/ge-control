@@ -1623,10 +1623,15 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const editId = document.getElementById('facilityEditId').value;
   const nombre = document.getElementById('fac_nombre').value.trim();
   if (!nombre) { st.textContent = 'El nombre es requerido.'; st.style.color='#dc2626'; return; }
-  const claveInstalacion = document.getElementById('fac_clave').value.trim();
+  const claveInstalacion = document.getElementById('fac_clave').value.trim().toUpperCase();
   if (!claveInstalacion) { st.textContent = 'La clave de instalación es requerida.'; st.style.color='#dc2626'; return; }
-  st.textContent = 'Guardando...'; st.style.color = '#64748b';
   const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
+  const clavePrefixes = {PER40:'PDD',PER41:'DIS',PER42:'DIS',PER43:'EDS',PER44:'ESA',PER45:'CMN',PER50:'ALM',PER51:'DIS'};
+  const clavePrefix = clavePrefixes[tipoPermiso];
+  if (clavePrefix && !new RegExp(`^${clavePrefix}-\\d{4}$`).test(claveInstalacion)) {
+    st.textContent = `La clave SAT para ${tipoPermiso} debe tener formato ${clavePrefix}-0000.`; st.style.color='#dc2626'; return;
+  }
+  st.textContent = 'Guardando...'; st.style.color = '#64748b';
   const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
   const tempDefault = document.getElementById('fac_temp_default').value;
   const body = {
@@ -2221,11 +2226,17 @@ const PERMISO_ACTIVIDAD = {
 };
 function actualizarInfoPermiso(tipoPermiso) {
   const info = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS', desc:'Distribución'};
+  const satPrefixes = {PER40:'PDD',PER41:'DIS',PER42:'DIS',PER43:'EDS',PER44:'ESA',PER45:'CMN',PER50:'ALM',PER51:'DIS'};
+  const satPrefix = satPrefixes[tipoPermiso] || 'PDD';
   const codeEl = document.getElementById('fac_actividad_code');
   const descEl = document.getElementById('fac_actividad_desc');
   const badge  = document.getElementById('fac_actividad_badge');
   if (codeEl) codeEl.textContent = info.code;
   if (descEl) descEl.textContent = info.desc;
+  const claveEl = document.getElementById('fac_clave');
+  const claveHint = document.getElementById('facClaveHint');
+  if (claveEl) claveEl.placeholder = `Ej. ${satPrefix}-0001`;
+  if (claveHint) claveHint.textContent = `Formato SAT requerido: ${satPrefix}-0000`;
   if (badge) {
     badge.style.background = info.code === 'EXO' ? '#fef9c3' : '#eff6ff';
     badge.style.borderColor = info.code === 'EXO' ? '#fcd34d' : '#bfdbfe';

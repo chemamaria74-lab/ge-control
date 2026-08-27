@@ -307,7 +307,7 @@ function renderTransferAnalysis(data) {
   if (!host) return;
   const stations = data.stations || [];
   host.style.display = '';
-  if (!stations.length) { host.textContent = 'No hay estaciones para analizar con los filtros seleccionados.'; return; }
+  if (!stations.length) { host.textContent = 'No hay instalaciones para analizar con los filtros seleccionados.'; return; }
   host.innerHTML = stations.map(({facility, ledger}) => {
     const inventory = _transferNumber(ledger.current_inventory);
     const capacity = _transferNumber(ledger.capacity);
@@ -317,7 +317,7 @@ function renderTransferAnalysis(data) {
     const message = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
     const level = capacity > 0 ? `${(inventory / capacity * 100).toLocaleString('es-MX', {maximumFractionDigits: 1})}%` : '—';
     const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days, ledger.capacity) : _transferChart(ledger.days);
-    return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${tone};border-radius:8px;padding:14px;margin-bottom:10px;background:#fff"><b>${escapeHtml(facility.nombre || 'Estación')}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small style="color:#64748b">Inventario teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${_transferLiters(inventory)}</b></div><div><small style="color:#64748b">Nivel teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${level}</b></div><div><small style="color:#64748b">Capacidad</small><br><b>${_transferLiters(capacity)}</b></div><div><small style="color:#64748b">Puedes enviar</small><br><b>${_transferLiters(ledger.available_to_transfer)}</b></div></div><div style="margin-top:8px;color:#64748b;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${escapeHtml(message)}</div>${content}</div>`;
+    return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${tone};border-radius:8px;padding:14px;margin-bottom:10px;background:#fff"><b>${escapeHtml(facility.nombre || 'Instalación')}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small style="color:#64748b">Inventario teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${_transferLiters(inventory)}</b></div><div><small style="color:#64748b">Nivel teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${level}</b></div><div><small style="color:#64748b">Capacidad</small><br><b>${_transferLiters(capacity)}</b></div><div><small style="color:#64748b">Puedes enviar</small><br><b>${_transferLiters(ledger.available_to_transfer)}</b></div></div><div style="margin-top:8px;color:#64748b;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${escapeHtml(message)}</div>${content}</div>`;
   }).join('');
 }
 
