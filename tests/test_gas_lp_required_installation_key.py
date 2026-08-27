@@ -64,13 +64,14 @@ def test_cfdi_report_rejects_facility_without_installation_key(monkeypatch):
     assert "clave de instalación es requerida" in exc.value.detail.lower()
 
 
-def test_sat_key_for_expendio_requires_eds_and_four_digits():
+def test_sat_key_for_expendio_accepts_eds_or_exo_and_four_digits():
     with pytest.raises(HTTPException) as exc:
         facilities.validate_sat_installation_key("PER43", "EXP-17068")
 
     assert exc.value.status_code == 400
-    assert "EDS-0000" in exc.value.detail
+    assert "EDS-0000 o EXO-0000" in exc.value.detail
     assert facilities.validate_sat_installation_key("PER43", "eds-7068") == "EDS-7068"
+    assert facilities.validate_sat_installation_key("PER43", "exo-7068") == "EXO-7068"
 
 
 def test_cfdi_report_rejects_unknown_selected_facility(monkeypatch):
