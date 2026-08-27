@@ -167,7 +167,8 @@ def test_inspection_driver_without_events_is_visible_and_explains_missing_assign
         "driver_events": [], "speeding": [],
     })
 
-    assert analytics["units_without_gps"][0]["driver_name"] == "MIGUEL ANGEL"
+    assert analytics["units_without_gps"] == []
+    assert analytics["units"][0]["coverage_status"] == "Con datos GPS"
     assert analytics["drivers_without_events"] == [{
         "driver_name": "MIGUEL ANGEL",
         "vehicle_number": "UTILITARIA MIGUEL",

@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260827-expenses-by-unit-1" in template
+    assert "flotilla.js?v=20260827-manager-inventory-tabs-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -182,11 +182,26 @@ def test_manager_dashboard_orders_operational_cards_by_priority():
 def test_manager_dashboard_includes_zone_expense_card():
     template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
     frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
 
     assert 'id="expensesPanel"' in template
     assert "Gastos registrados" in template
     assert 'id="expenseSummary"' in template
     assert "registeredExpenses" in frontend
+    assert '["pending_review", "observed", "accepted", "sent_to_accountant", "paid"]' in backend
+
+
+def test_manager_portal_has_large_gps_and_inventory_tabs():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+
+    assert 'data-manager-tab="gps"' in template
+    assert 'data-manager-tab="inventory"' in template
+    assert 'data-inventory-view="charts"' in template
+    assert 'data-inventory-view="physical"' in template
+    assert "loadManagerInventory" in frontend
+    assert '@router.get("/flotilla/inventory")' in backend
 
 
 def test_catalog_exposes_zero_event_drivers_and_expense_totals_to_dashboard():

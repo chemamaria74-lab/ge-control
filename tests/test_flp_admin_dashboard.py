@@ -180,6 +180,50 @@ def test_history_capacity_falls_back_to_legacy_mirror(monkeypatch):
     assert capacity == 180000
 
 
+def test_admin_inventory_control_reuses_assistant_station_ledger(monkeypatch):
+    import json
+    from fastapi.responses import JSONResponse
+    import routes.history as history
+    import routes.internal_users_mod.facturas as internal_facturas
+
+    monkeypatch.setattr(history, "_auth", lambda _authorization: ("admin-1", "token-1"))
+    monkeypatch.setattr(history, "_deny_assistant_reports", lambda *_args: None)
+    monkeypatch.setattr(history, "_require_perfil", lambda *_args: 8)
+    monkeypatch.setattr(history, "resolve_profile_scope", lambda *_args, **_kwargs: {
+        "data_user_id": "owner-1", "tenant_id": "tenant-1",
+    })
+    monkeypatch.setattr(history, "get_facilities", lambda *_args, **_kwargs: [
+        {"id": 10, "nombre": "Planta", "tipo_instalacion": "planta"},
+        {"id": 20, "nombre": "Estación Zacatecas", "tipo_instalacion": "estacion"},
+    ])
+
+    async def assistant_inventory(**_kwargs):
+        return JSONResponse({"mes": "2026-08", "stations": [{
+            "id": 20,
+            "nombre": "Estación Zacatecas",
+            "inventario": -5222.18,
+            "capacidad": 5000,
+            "disponible": 10372.18,
+            "alertas": [],
+            "dias": [{"fecha": "2026-08-27", "inventario_final": -5222.18}],
+        }]})
+
+    monkeypatch.setattr(internal_facturas, "gas_lp_internal_station_inventory", assistant_inventory)
+
+    response = asyncio.run(history.inventory_control(
+        periodo="2026-08",
+        facility_id=20,
+        authorization="Bearer token",
+        x_perfil_id="8",
+    ))
+    payload = json.loads(response.body)
+
+    assert len(payload["stations"]) == 1
+    assert payload["stations"][0]["facility"]["nombre"] == "Estación Zacatecas"
+    assert payload["stations"][0]["ledger"]["current_inventory"] == -5222.18
+    assert payload["stations"][0]["ledger"]["days"][0]["inventario_final"] == -5222.18
+
+
 def test_snapshot_does_not_restore_delivery_reassigned_by_uuid(monkeypatch):
     import routes.history as history
 
