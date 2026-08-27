@@ -200,3 +200,34 @@ def test_snapshot_does_not_restore_delivery_reassigned_by_uuid(monkeypatch):
     )
 
     assert [row["uuid"] for row in filtered["salidas"]] == ["STAYS-HERE"]
+
+
+def test_bulk_delivery_route_precedes_dynamic_invoice_route():
+    import routes.history as history
+
+    paths = [route.path for route in history.router.routes]
+
+    assert "/history/{periodo}/deliveries/bulk-origin" in paths
+    assert paths.index("/history/{periodo}/deliveries/bulk-origin") < paths.index(
+        "/history/{periodo}/deliveries/{invoice_id}/origin"
+    )
+
+
+def test_bulk_delivery_payload_limits_selection_size():
+    import pytest
+    from pydantic import ValidationError
+    from routes.history import BulkDeliveryOriginPayload
+
+    payload = BulkDeliveryOriginPayload(
+        source_facility_id=10,
+        facility_id=20,
+        uuids=["UUID-1", "UUID-2"],
+    )
+    assert payload.uuids == ["UUID-1", "UUID-2"]
+
+    with pytest.raises(ValidationError):
+        BulkDeliveryOriginPayload(
+            source_facility_id=10,
+            facility_id=20,
+            uuids=[],
+        )

@@ -390,6 +390,19 @@ def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail()
     assert "grid-template-columns:1.35fr .85fr" not in assistant_html
 
 
+def test_asistente_inventory_labels_theoretical_level_and_explains_estimate():
+    assistant_html = _assistant_frontend_source()
+
+    for token in (
+        "function assistantStationPercent(inventory, capacity)",
+        "Inventario teórico",
+        "Nivel teórico",
+        "no es una medición física del tanque",
+        "assistantStationPercent(s.inventario,s.capacidad)",
+    ):
+        assert token in assistant_html
+
+
 def test_asistente_carta_porte_instalaciones_fallback_to_admin_facilities():
     assistant_html = _assistant_frontend_source()
 

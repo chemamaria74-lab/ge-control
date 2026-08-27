@@ -175,6 +175,36 @@ def test_inspection_driver_without_events_is_visible_and_explains_missing_assign
     }]
 
 
+def test_inspection_dashboard_separates_open_pending_from_total_completed_work():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Ana"}],
+        "inspections": [
+            {"id": 11, "vehicle_number": "U-1", "driver_name": "Ana"},
+            {"id": 12, "vehicle_number": "U-1", "driver_name": "Ana"},
+        ],
+        "defects": [
+            {"inspection_id": 11, "vehicle_number": "U-1", "status": "open"},
+            {"inspection_id": 11, "vehicle_number": "U-1", "status": "open"},
+            {"inspection_id": 12, "vehicle_number": "U-1", "status": "resolved", "resolved_at": "2026-08-27"},
+        ],
+    })
+
+    assert analytics["inspection_credits"] == [{"vehicle_number": "U-1", "driver_name": "Ana", "inspections": 2}]
+    assert analytics["pending_inspection_credits"] == [{"vehicle_number": "U-1", "driver_name": "Ana", "inspections": 1}]
+
+
+def test_expense_units_keep_the_unit_and_assigned_driver_for_dashboard():
+    analytics = fleet_analytics({
+        "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Ana"}],
+        "fuel": [{"vehicle_number": "U-1", "quantity_liters": 42, "total_cost": 900, "currency": "MXN"}],
+        "_sync": {"datasets": {"card_expenses": {"status": "unavailable"}}},
+    })
+
+    assert analytics["expense_units"] == [{
+        "vehicle_number": "U-1", "driver_name": "Ana", "expenses_mxn": 900.0, "purchased_liters": 42.0,
+    }]
+
+
 def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_driver():
     analytics = fleet_analytics({
         "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Chofer asignado"}],

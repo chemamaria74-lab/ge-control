@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260826-dashboard-data-consistency-1" in template
+    assert "flotilla.js?v=20260827-expenses-by-unit-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -194,6 +194,27 @@ def test_catalog_exposes_zero_event_drivers_and_expense_totals_to_dashboard():
 
     assert '"drivers_without_events": analytics["drivers_without_events"]' in backend
     assert '"totals": analytics["totals"]' in backend
+
+
+def test_catalog_recovers_motive_vehicle_links_and_exposes_expenses_by_unit():
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert 'raw_metadata.get("motive_vehicle_id")' in backend
+    assert '"vehicle_id,motive_vehicle_id,purchased_at' in backend
+    assert '"expense_units": analytics["expense_units"]' in backend
+    assert "Gasto por unidad" in frontend
+
+
+def test_inspection_dashboard_lists_pending_before_all_completed_inspections():
+    template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+
+    assert "Pendientes arriba · total realizado abajo" in template
+    assert "pending_inspection_credits" in frontend
+    assert "Total de inspecciones realizadas" in frontend
+    assert '"pending_inspection_credits": analytics["pending_inspection_credits"]' in backend
 
 
 def test_manager_dashboard_exposes_only_excel_and_server_rejects_pdf():
