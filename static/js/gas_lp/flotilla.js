@@ -6,9 +6,9 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 6;
+  const REPORT_CACHE_VERSION = 7;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null, inventoryView:'charts', inventoryData:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -503,6 +503,51 @@
     const localDate=value=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
     $('endDate').value=localDate(today);
     $('startDate').value=localDate(start);
+    $('managerInventoryMonth').value=localDate(today).slice(0,7);
+  }
+
+  function switchManagerWorkspace(name){
+    const inventory=name==='inventory';
+    $('managerGpsPanel').hidden=inventory;
+    $('managerInventoryPanel').hidden=!inventory;
+    document.querySelectorAll('[data-manager-tab]').forEach(button=>{
+      const active=button.dataset.managerTab===name;
+      button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));
+    });
+    if(inventory&&!state.inventoryData)loadManagerInventory();
+  }
+  const inventoryLiters=value=>`${fmt(value)} L`;
+  const inventoryPercent=(value,capacity)=>Number(capacity||0)>0?`${fmt(Number(value||0)/Number(capacity)*100)}%`:'—';
+  function inventoryChart(days){
+    const rows=(days||[]).slice(-14);if(!rows.length)return '<div class="empty">Sin movimientos diarios en este mes.</div>';
+    const width=760,height=230,left=55,right=15,top=18,bottom=34;
+    const values=rows.flatMap(row=>[Number(row.inventario_final||0),Number(row.traspasos_recibidos||0),-Number(row.ventas||0),0]);
+    const low=Math.min(...values),high=Math.max(1,...values),span=Math.max(1,high-low);
+    const x=index=>left+(rows.length===1?(width-left-right)/2:index*(width-left-right)/(rows.length-1));
+    const y=value=>top+(high-value)*(height-top-bottom)/span,baseline=y(0);
+    const bars=rows.map((row,index)=>{const received=Number(row.traspasos_recibidos||0),sales=Number(row.ventas||0),center=x(index),barWidth=Math.max(5,Math.min(17,(width-left-right)/Math.max(rows.length*3,1)));return `<g><title>${esc(`${row.fecha}: recibidos ${inventoryLiters(received)}, ventas ${inventoryLiters(sales)}`)}</title><rect x="${center-barWidth-2}" y="${Math.min(y(received),baseline)}" width="${barWidth}" height="${Math.abs(baseline-y(received))}" rx="2" fill="#18865b"/><rect x="${center+2}" y="${Math.min(y(-sales),baseline)}" width="${barWidth}" height="${Math.abs(baseline-y(-sales))}" rx="2" fill="#b94c61"/><text x="${center}" y="${height-10}" text-anchor="middle" font-size="10" fill="#756d66">${esc(String(row.fecha||'').slice(8,10))}</text></g>`;}).join('');
+    const points=rows.map((row,index)=>`${x(index)},${y(Number(row.inventario_final||0))}`).join(' ');
+    const dots=rows.map((row,index)=>`<circle cx="${x(index)}" cy="${y(Number(row.inventario_final||0))}" r="3.5" fill="#7a1e2c"><title>${esc(`${row.fecha}: inventario ${inventoryLiters(row.inventario_final)}`)}</title></circle>`).join('');
+    return `<svg class="inventory-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario"><line x1="${left}" y1="${baseline}" x2="${width-right}" y2="${baseline}" stroke="#aaa19a"/>${bars}<polyline points="${points}" fill="none" stroke="#7a1e2c" stroke-width="3" stroke-linejoin="round"/>${dots}</svg><div class="empty">Línea vino: inventario teórico · Verde: recibido · Rosa: ventas</div>`;
+  }
+  function inventoryPhysicalTable(station){
+    const rows=(station.days||[]).flatMap(day=>(day.traspasos||[]).map(transfer=>({day,control:transfer.control_fisico}))).filter(row=>row.control&&Object.keys(row.control).length);
+    if(!rows.length)return '<div class="empty">No hay controles físicos capturados para esta estación en el mes.</div>';
+    const value=(raw,suffix=' L')=>raw===null||raw===undefined||raw===''?'—':`${fmt(raw)}${suffix}`;
+    return `<div class="inventory-table"><table><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros del chofer</th><th>Litros CFDI</th><th>Diferencia</th><th>Capacidad</th><th>Inventario teórico</th><th>Nivel</th></tr></thead><tbody>${rows.map(({day,control})=>{const capacity=Number(control.capacidad_litros||station.capacity||0),difference=Number(control.litros_declarados||0)-Number(control.litros_cfdi||0);return `<tr><td>${esc(day.fecha||'')}</td><td>${value(control.antes_pct,'%')}</td><td>${value(control.despues_pct,'%')}</td><td>${value(control.litros_declarados)}</td><td>${value(control.litros_cfdi)}</td><td><strong>${difference>0?'+':''}${fmt(difference)} L</strong></td><td>${value(capacity)}</td><td>${value(day.inventario_final)}</td><td>${inventoryPercent(day.inventario_final,capacity)}</td></tr>`;}).join('')}</tbody></table></div>`;
+  }
+  function renderManagerInventory(){
+    const stations=state.inventoryData?.stations||[],host=$('managerInventoryResults');
+    if(!stations.length){host.className='empty';host.textContent='No se encontraron estaciones de inventario para la zona asignada.';return;}
+    host.className='';host.innerHTML=stations.map(station=>{const inventory=Number(station.inventory||0),capacity=Number(station.capacity||0),warning=inventory<0||(capacity>0&&inventory>capacity*1.03),tone=warning?'#991b1b':'#166534';return `<article class="inventory-station" style="border-left:5px solid ${tone}"><h3>${esc(station.name)}</h3>${state.inventoryView==='physical'?inventoryPhysicalTable(station):`<div class="inventory-stats"><div class="inventory-stat"><small>Inventario teórico</small><strong>${inventoryLiters(inventory)}</strong></div><div class="inventory-stat"><small>Nivel teórico</small><strong>${inventoryPercent(inventory,capacity)}</strong></div><div class="inventory-stat"><small>Capacidad</small><strong>${inventoryLiters(capacity)}</strong></div><div class="inventory-stat"><small>Puedes recibir</small><strong>${inventoryLiters(station.available)}</strong></div></div><div class="inventory-message" style="color:${tone}">${warning?'Revisa los movimientos o lecturas de esta estación.':'Inventario dentro del rango esperado.'}</div>${inventoryChart(station.days)}`}</article>`;}).join('');
+  }
+  async function loadManagerInventory(){
+    const button=$('loadManagerInventory'),host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
+    if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    button.disabled=true;host.className='empty';host.textContent='Consultando inventario…';
+    try{state.inventoryData=await api(`/inventory?${p}`);renderManagerInventory();}
+    catch(error){host.textContent=error.message;}
+    finally{button.disabled=false;}
   }
   async function loadGroups(){
     try{
@@ -545,6 +590,9 @@
   $('runAnalysis').onclick=()=>loadReportCatalog();
   $('reportGroup').onchange=()=>restoreZoneAnalysis($('reportGroup').value);
   $('runExplorer').onclick=runExplorer;
+  document.querySelectorAll('[data-manager-tab]').forEach(button=>button.addEventListener('click',()=>switchManagerWorkspace(button.dataset.managerTab)));
+  document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>{state.inventoryView=button.dataset.inventoryView;document.querySelectorAll('[data-inventory-view]').forEach(item=>item.classList.toggle('active',item===button));renderManagerInventory();}));
+  $('loadManagerInventory').onclick=loadManagerInventory;
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
