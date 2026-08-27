@@ -1706,7 +1706,7 @@ async function loadHistorial() {
 async function downloadHistZIP() {
   if (!histPeriodo) return;
   if (!_histFacilityId) {
-    setHistCloseInfo('Selecciona una planta antes de descargar el ZIP JSON.', false);
+    setHistCloseInfo('Selecciona una instalación antes de descargar el ZIP JSON.', false);
     return;
   }
   const btn = document.getElementById('btnDlHistZIP');
@@ -1721,7 +1721,16 @@ async function downloadHistZIP() {
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i> Descargando...';
     }
     const res = await fetch(url, { headers: authHeader() });
-    if (!res.ok) { alert('Archivo ZIP no disponible para este periodo.'); return; }
+    if (!res.ok) {
+      let message = 'Archivo ZIP no disponible para este periodo.';
+      try {
+        const errorData = await res.json();
+        const detail = errorData?.detail;
+        message = typeof detail === 'string' ? detail : (detail?.message || message);
+      } catch (_) {}
+      alert(message);
+      return;
+    }
     const blob = await res.blob();
     const objUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');

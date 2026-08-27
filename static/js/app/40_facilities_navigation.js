@@ -435,10 +435,10 @@ document.getElementById('btnSaveFacility').addEventListener('click', async () =>
   const claveInstalacion = document.getElementById('fac_clave').value.trim().toUpperCase();
   if (!claveInstalacion) { st.textContent = 'La clave de instalación es requerida.'; st.style.color='#dc2626'; return; }
   const tipoPermiso = document.getElementById('fac_tipo_permiso')?.value || 'PER40';
-  const clavePrefixes = {PER40:'PDD',PER41:'DIS',PER42:'DIS',PER43:'EDS',PER44:'ESA',PER45:'CMN',PER50:'ALM',PER51:'DIS'};
-  const clavePrefix = clavePrefixes[tipoPermiso];
-  if (clavePrefix && !new RegExp(`^${clavePrefix}-\\d{4}$`).test(claveInstalacion)) {
-    st.textContent = `La clave SAT para ${tipoPermiso} debe tener formato ${clavePrefix}-0000.`; st.style.color='#dc2626'; return;
+  const clavePrefixes = {PER40:['PDD','DIS'],PER41:['DIS'],PER42:['DIS'],PER43:['EDS','EXO'],PER44:['ESA','EXO'],PER45:['CMN'],PER50:['ALM'],PER51:['DIS']};
+  const allowedPrefixes = clavePrefixes[tipoPermiso] || [];
+  if (allowedPrefixes.length && !allowedPrefixes.some(prefix => new RegExp(`^${prefix}-\\d{4}$`).test(claveInstalacion))) {
+    st.textContent = `La clave SAT para ${tipoPermiso} debe tener formato ${allowedPrefixes.map(prefix => `${prefix}-0000`).join(' o ')}.`; st.style.color='#dc2626'; return;
   }
   st.textContent = 'Guardando...'; st.style.color = '#64748b';
   const actividadInfo = PERMISO_ACTIVIDAD[tipoPermiso] || {code:'DIS'};
