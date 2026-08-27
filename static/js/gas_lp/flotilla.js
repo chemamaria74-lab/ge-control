@@ -6,7 +6,7 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 7;
+  const REPORT_CACHE_VERSION = 9;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null, inventoryView:'charts', inventoryData:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -317,7 +317,7 @@
   }
 
   function renderDashboard(analytics){
-    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noGps=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], pendingInspections=analytics.pending_inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
+    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noActivity=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], pendingInspections=analytics.pending_inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
@@ -325,10 +325,10 @@
       return `<div class="driver-risk-item"><button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('safeDrivers').innerHTML=safeDrivers.length?safeDrivers.map((row,index)=>`<div class="safe-driver-item"><button class="simple-row safe-driver-row" type="button" data-driver-search="${esc(row.driver_name)}"><span><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(row.vehicle_number)}${Number(row.inspections||0)?` · ${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}`:''}</small></span><strong>✓ Sin eventos · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`).join(''):'<div class="empty">No se identificaron choferes sin eventos en este periodo.</div>';
-    $('noGpsUnits').innerHTML=noGps.length?noGps.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}</small></span><strong>Revisión manual</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen datos GPS en el periodo.</div>';
+    $('noGpsUnits').innerHTML=noActivity.length?noActivity.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Conductor no identificado en la sincronización')}</small></span><strong>Sin actividad en el periodo</strong></div>`).join(''):'<div class="empty">Todas las unidades tuvieron actividad GPS en el periodo.</div>';
     const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0);
     $('expenseSummary').innerHTML=expenseTotals.expense_available
-      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number||'Sin unidad vinculada')}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:'<div class="empty">El gasto no trae una unidad vinculada desde Motive.</div>'}`
+      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number||'Sin unidad vinculada')}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:'<div class="empty">No se encontraron gastos ni vales con monto dentro del periodo seleccionado.</div>'}`
       : '<div class="empty">No hay gastos documentados para esta zona y periodo.</div>';
     const pendingInspectionHtml=pendingInspections.length?pendingInspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
@@ -516,7 +516,7 @@
       const active=button.dataset.managerTab===name;
       button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));
     });
-    if(inventory&&!state.inventoryData)loadManagerInventory();
+    if(inventory&&!state.inventoryData){const host=$('managerInventoryResults');host.className='empty';host.textContent='Selecciona el mes y presiona “Consultar”.';}
   }
   const inventoryLiters=value=>`${fmt(value)} L`;
   const inventoryPercent=(value,capacity)=>Number(capacity||0)>0?`${fmt(Number(value||0)/Number(capacity)*100)}%`:'—';
@@ -536,7 +536,7 @@
     const rows=(station.days||[]).flatMap(day=>(day.traspasos||[]).map(transfer=>({day,control:transfer.control_fisico}))).filter(row=>row.control&&Object.keys(row.control).length);
     if(!rows.length)return '<div class="empty">No hay controles físicos capturados para esta estación en el mes.</div>';
     const value=(raw,suffix=' L')=>raw===null||raw===undefined||raw===''?'—':`${fmt(raw)}${suffix}`;
-    return `<div class="inventory-table"><table><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros del chofer</th><th>Litros CFDI</th><th>Diferencia</th><th>Capacidad</th><th>Inventario teórico</th><th>Nivel</th></tr></thead><tbody>${rows.map(({day,control})=>{const capacity=Number(control.capacidad_litros||station.capacity||0),difference=Number(control.litros_declarados||0)-Number(control.litros_cfdi||0);return `<tr><td>${esc(day.fecha||'')}</td><td>${value(control.antes_pct,'%')}</td><td>${value(control.despues_pct,'%')}</td><td>${value(control.litros_declarados)}</td><td>${value(control.litros_cfdi)}</td><td><strong>${difference>0?'+':''}${fmt(difference)} L</strong></td><td>${value(capacity)}</td><td>${value(day.inventario_final)}</td><td>${inventoryPercent(day.inventario_final,capacity)}</td></tr>`;}).join('')}</tbody></table></div>`;
+    return `<div class="inventory-table"><table><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros del chofer</th><th>Litros CFDI</th><th>Diferencia</th><th>Capacidad</th><th>Inventario teórico</th><th>Nivel</th></tr></thead><tbody>${rows.map(({day,control})=>{const capacity=Number(control.capacidad_litros||station.capacity||0),difference=Number(control.litros_declarados||0)-Number(control.litros_cfdi||0),differenceTone=Math.abs(difference)>0.01?'#b91c1c':'#15803d';return `<tr><td>${esc(day.fecha||'')}</td><td>${value(control.antes_pct,'%')}</td><td>${value(control.despues_pct,'%')}</td><td>${value(control.litros_declarados)}</td><td>${value(control.litros_cfdi)}</td><td><strong style="color:${differenceTone}">${difference>0?'+':''}${fmt(difference)} L</strong></td><td>${value(capacity)}</td><td>${value(day.inventario_final)}</td><td>${inventoryPercent(day.inventario_final,capacity)}</td></tr>`;}).join('')}</tbody></table></div>`;
   }
   function renderManagerInventory(){
     const stations=state.inventoryData?.stations||[],host=$('managerInventoryResults');
@@ -544,11 +544,12 @@
     host.className='';host.innerHTML=stations.map(station=>{const inventory=Number(station.inventory||0),capacity=Number(station.capacity||0),level=capacity>0?Math.max(0,Math.min(inventory/capacity*100,100)):0,warning=inventory<0||(capacity>0&&inventory>capacity*1.03),tone=warning?'#991b1b':'#166534',soft=warning?'#fef2f2':'#effaf3',status=warning?'Requiere revisión':'Dentro de rango';return `<article class="inventory-station"><div class="inventory-station-head"><h3>${esc(station.name)}</h3><span class="inventory-status-pill" style="background:${soft};color:${tone}">${status}</span></div>${state.inventoryView==='physical'?inventoryPhysicalTable(station):`<div class="inventory-station-body"><div class="inventory-level-card"><small>Inventario teórico</small><strong>${inventoryLiters(inventory)}</strong><span>${inventoryPercent(inventory,capacity)} de capacidad</span><div class="inventory-capacity-track"><i style="width:${level}%;background:${tone}"></i></div><div class="inventory-message" style="color:${tone}">${warning?'Revisa los movimientos o lecturas capturadas.':'Nivel operativo esperado.'}</div><div class="inventory-mini-stats"><div class="inventory-stat"><small>Capacidad</small><strong>${inventoryLiters(capacity)}</strong></div><div class="inventory-stat"><small>Puedes recibir</small><strong>${inventoryLiters(station.available)}</strong></div></div></div><div class="inventory-chart-wrap"><div class="inventory-chart-title"><span>Movimiento diario</span><span>Últimos 14 días con datos</span></div>${inventoryChart(station.days)}</div></div>`}</article>`;}).join('');
   }
   async function loadManagerInventory(){
-    const host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
+    const button=$('loadManagerInventory'),host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    host.className='empty';host.textContent='Actualizando inventario…';
+    button.disabled=true;host.className='empty';host.textContent='Consultando gráficas y control físico…';
     try{state.inventoryData=await api(`/inventory?${p}`);renderManagerInventory();}
     catch(error){host.textContent=error.message;}
+    finally{button.disabled=false;}
   }
   async function loadGroups(){
     try{
@@ -593,7 +594,8 @@
   $('runExplorer').onclick=runExplorer;
   document.querySelectorAll('[data-manager-tab]').forEach(button=>button.addEventListener('click',()=>switchManagerWorkspace(button.dataset.managerTab)));
   document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>{state.inventoryView=button.dataset.inventoryView;document.querySelectorAll('[data-inventory-view]').forEach(item=>item.classList.toggle('active',item===button));renderManagerInventory();}));
-  $('managerInventoryMonth').addEventListener('change',()=>{state.inventoryData=null;loadManagerInventory();});
+  $('managerInventoryMonth').addEventListener('change',()=>{state.inventoryData=null;$('managerInventoryResults').className='empty';$('managerInventoryResults').textContent='Presiona “Consultar” para cargar el mes seleccionado.';});
+  $('loadManagerInventory').onclick=loadManagerInventory;
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
