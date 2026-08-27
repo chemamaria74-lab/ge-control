@@ -49,6 +49,8 @@
       if(!response.ok) throw new Error(data.detail||'No se pudo validar el acceso al portal.');
       state.identity=data;
       $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
+      $('managerCompanyName').textContent=data.company?.name||'Empresa asignada';
+      $('managerCompanyRfc').textContent=data.company?.rfc?`RFC ${data.company.rfc}`:'RFC no registrado';
       const internal=data.identity_type==='internal';
       document.title=internal?'GE CONTROL | Portal de Gerentes':'GE CONTROL | Supervisión de Flotilla';
       document.body.classList.toggle('manager-fixed-zone',internal);
@@ -528,7 +530,7 @@
     const bars=rows.map((row,index)=>{const received=Number(row.traspasos_recibidos||0),sales=Number(row.ventas||0),center=x(index),barWidth=Math.max(5,Math.min(17,(width-left-right)/Math.max(rows.length*3,1)));return `<g><title>${esc(`${row.fecha}: recibidos ${inventoryLiters(received)}, ventas ${inventoryLiters(sales)}`)}</title><rect x="${center-barWidth-2}" y="${Math.min(y(received),baseline)}" width="${barWidth}" height="${Math.abs(baseline-y(received))}" rx="2" fill="#18865b"/><rect x="${center+2}" y="${Math.min(y(-sales),baseline)}" width="${barWidth}" height="${Math.abs(baseline-y(-sales))}" rx="2" fill="#b94c61"/><text x="${center}" y="${height-10}" text-anchor="middle" font-size="10" fill="#756d66">${esc(String(row.fecha||'').slice(8,10))}</text></g>`;}).join('');
     const points=rows.map((row,index)=>`${x(index)},${y(Number(row.inventario_final||0))}`).join(' ');
     const dots=rows.map((row,index)=>`<circle cx="${x(index)}" cy="${y(Number(row.inventario_final||0))}" r="3.5" fill="#7a1e2c"><title>${esc(`${row.fecha}: inventario ${inventoryLiters(row.inventario_final)}`)}</title></circle>`).join('');
-    return `<svg class="inventory-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario"><line x1="${left}" y1="${baseline}" x2="${width-right}" y2="${baseline}" stroke="#aaa19a"/>${bars}<polyline points="${points}" fill="none" stroke="#7a1e2c" stroke-width="3" stroke-linejoin="round"/>${dots}</svg><div class="empty">Línea vino: inventario teórico · Verde: recibido · Rosa: ventas</div>`;
+    return `<svg class="inventory-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfica diaria de inventario"><line x1="${left}" y1="${baseline}" x2="${width-right}" y2="${baseline}" stroke="#aaa19a"/>${bars}<polyline points="${points}" fill="none" stroke="#7a1e2c" stroke-width="3" stroke-linejoin="round"/>${dots}</svg><div class="inventory-legend">Línea vino: inventario teórico · Verde: recibido · Rosa: ventas</div>`;
   }
   function inventoryPhysicalTable(station){
     const rows=(station.days||[]).flatMap(day=>(day.traspasos||[]).map(transfer=>({day,control:transfer.control_fisico}))).filter(row=>row.control&&Object.keys(row.control).length);
@@ -539,15 +541,14 @@
   function renderManagerInventory(){
     const stations=state.inventoryData?.stations||[],host=$('managerInventoryResults');
     if(!stations.length){host.className='empty';host.textContent='No se encontraron estaciones de inventario para la zona asignada.';return;}
-    host.className='';host.innerHTML=stations.map(station=>{const inventory=Number(station.inventory||0),capacity=Number(station.capacity||0),warning=inventory<0||(capacity>0&&inventory>capacity*1.03),tone=warning?'#991b1b':'#166534';return `<article class="inventory-station" style="border-left:5px solid ${tone}"><h3>${esc(station.name)}</h3>${state.inventoryView==='physical'?inventoryPhysicalTable(station):`<div class="inventory-stats"><div class="inventory-stat"><small>Inventario teórico</small><strong>${inventoryLiters(inventory)}</strong></div><div class="inventory-stat"><small>Nivel teórico</small><strong>${inventoryPercent(inventory,capacity)}</strong></div><div class="inventory-stat"><small>Capacidad</small><strong>${inventoryLiters(capacity)}</strong></div><div class="inventory-stat"><small>Puedes recibir</small><strong>${inventoryLiters(station.available)}</strong></div></div><div class="inventory-message" style="color:${tone}">${warning?'Revisa los movimientos o lecturas de esta estación.':'Inventario dentro del rango esperado.'}</div>${inventoryChart(station.days)}`}</article>`;}).join('');
+    host.className='';host.innerHTML=stations.map(station=>{const inventory=Number(station.inventory||0),capacity=Number(station.capacity||0),level=capacity>0?Math.max(0,Math.min(inventory/capacity*100,100)):0,warning=inventory<0||(capacity>0&&inventory>capacity*1.03),tone=warning?'#991b1b':'#166534',soft=warning?'#fef2f2':'#effaf3',status=warning?'Requiere revisión':'Dentro de rango';return `<article class="inventory-station"><div class="inventory-station-head"><h3>${esc(station.name)}</h3><span class="inventory-status-pill" style="background:${soft};color:${tone}">${status}</span></div>${state.inventoryView==='physical'?inventoryPhysicalTable(station):`<div class="inventory-station-body"><div class="inventory-level-card"><small>Inventario teórico</small><strong>${inventoryLiters(inventory)}</strong><span>${inventoryPercent(inventory,capacity)} de capacidad</span><div class="inventory-capacity-track"><i style="width:${level}%;background:${tone}"></i></div><div class="inventory-message" style="color:${tone}">${warning?'Revisa los movimientos o lecturas capturadas.':'Nivel operativo esperado.'}</div><div class="inventory-mini-stats"><div class="inventory-stat"><small>Capacidad</small><strong>${inventoryLiters(capacity)}</strong></div><div class="inventory-stat"><small>Puedes recibir</small><strong>${inventoryLiters(station.available)}</strong></div></div></div><div class="inventory-chart-wrap"><div class="inventory-chart-title"><span>Movimiento diario</span><span>Últimos 14 días con datos</span></div>${inventoryChart(station.days)}</div></div>`}</article>`;}).join('');
   }
   async function loadManagerInventory(){
-    const button=$('loadManagerInventory'),host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
+    const host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    button.disabled=true;host.className='empty';host.textContent='Consultando inventario…';
+    host.className='empty';host.textContent='Actualizando inventario…';
     try{state.inventoryData=await api(`/inventory?${p}`);renderManagerInventory();}
     catch(error){host.textContent=error.message;}
-    finally{button.disabled=false;}
   }
   async function loadGroups(){
     try{
@@ -592,7 +593,7 @@
   $('runExplorer').onclick=runExplorer;
   document.querySelectorAll('[data-manager-tab]').forEach(button=>button.addEventListener('click',()=>switchManagerWorkspace(button.dataset.managerTab)));
   document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>{state.inventoryView=button.dataset.inventoryView;document.querySelectorAll('[data-inventory-view]').forEach(item=>item.classList.toggle('active',item===button));renderManagerInventory();}));
-  $('loadManagerInventory').onclick=loadManagerInventory;
+  $('managerInventoryMonth').addEventListener('change',()=>{state.inventoryData=null;loadManagerInventory();});
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
