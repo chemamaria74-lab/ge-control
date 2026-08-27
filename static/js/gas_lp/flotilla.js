@@ -6,13 +6,17 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 12;
+  const REPORT_CACHE_VERSION = 13;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null, inventoryView:'charts', inventoryData:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
   const dateText = value => value ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'Sin datos';
+  const motiveStateLabel = value => ({
+    in_service:'En servicio',out_of_service:'Fuera de servicio',maintenance:'En mantenimiento',
+    shop:'En taller',inactive:'Inactiva',deactivated:'Desactivada',active:'Activa',
+  }[String(value||'').trim().toLowerCase()]||'Estado no informado');
   const headers = () => ({
     ...(token ? {Authorization:`Bearer ${token}`} : {}),
     'X-Flotilla-Access':portalAccess,
@@ -163,7 +167,7 @@
     $('explorerResults').hidden=true;
     if(!cached){
       $('executiveDashboard').hidden=true;
-      if(announce)notice(groupId?'Esta zona no tiene un análisis guardado en las últimas 12 horas. Presiona “Generar análisis”.':'Selecciona una zona.');
+      if(announce)notice(groupId?'Esta zona todavía no tiene un análisis guardado para hoy. Presiona “Generar análisis”.':'Selecciona una zona.');
       return false;
     }
     $('startDate').value=cached.start;
@@ -171,7 +175,7 @@
     renderReportCatalog(cached.data);
     if(announce){
       const savedAt=dateText(new Date(Number(cached.saved_at)).toISOString());
-      notice(`Mostrando el último análisis guardado, generado ${savedAt}. No se volverá a generar hasta que presiones “Generar análisis”.`);
+      notice(`Mostrando el análisis guardado de hoy, generado ${savedAt}. Se conservará durante el día y mañana podrás generar uno nuevo.`);
     }
     return true;
   }
@@ -325,10 +329,10 @@
       return `<div class="driver-risk-item"><button class="bar-row unit-risk" type="button" data-driver-search="${esc(row.driver_name)}"><span class="bar-label"><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(behavior)} · ${fmt(row.critical_high)} críticos/altos</small></span><span class="bar-track"><i style="width:${events?Math.max(4,events/maxEvents*100):0}%"></i></span><strong>${fmt(events)} · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`;
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('safeDrivers').innerHTML=safeDrivers.length?safeDrivers.map((row,index)=>`<div class="safe-driver-item"><button class="simple-row safe-driver-row" type="button" data-driver-search="${esc(row.driver_name)}"><span><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(row.vehicle_number)}${Number(row.inspections||0)?` · ${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}`:''}</small></span><strong>✓ Sin eventos · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`).join(''):'<div class="empty">No se identificaron choferes sin eventos en este periodo.</div>';
-    $('noGpsUnits').innerHTML=noActivity.length?noActivity.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Conductor no identificado')} · Estado Motive: ${esc(row.availability_status||row.status||'sin estado')}</small></span><strong>Sin actividad en el periodo</strong></div>`).join(''):'<div class="empty">Todas las unidades operativas tuvieron actividad GPS en el periodo.</div>';
-    const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], generalExpenses=analytics.general_expenses||{}, registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0), generalAmount=Number(generalExpenses.expenses_mxn||0);
+    $('noGpsUnits').innerHTML=noActivity.length?noActivity.map((row,index)=>{const stateLabel=motiveStateLabel(row.availability_status||row.status);return `<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Conductor no identificado')} · Sin recorridos ni eventos GPS en el periodo</small></span><strong>${esc(stateLabel)}</strong></div>`;}).join(''):'<div class="empty">Todas las unidades operativas tuvieron actividad GPS en el periodo.</div>';
+    const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], generalExpenses=analytics.general_expenses||{}, registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0), generalAmount=Number(generalExpenses.expenses_mxn||0), directInvoices=Number(generalExpenses.direct_invoices||0);
     $('expenseSummary').innerHTML=expenseTotals.expense_available
-      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:''}${generalAmount?`<div class="inspection-subhead">Gasto general de la zona</div><div class="simple-row"><span><b>Facturas directas y gastos generales</b><small>Estos registros no requieren una unidad en su captura</small></span><strong>${money(generalAmount,'MXN')}</strong></div>`:''}${!expenseUnits.length&&!generalAmount?'<div class="empty">No se encontraron gastos ni vales con monto dentro del periodo seleccionado.</div>':''}`
+      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:''}${generalAmount?`<div class="inspection-subhead">Gasto general de la zona</div><div class="simple-row"><span><b>${directInvoices?`${fmt(directInvoices)} factura${directInvoices===1?'':'s'} directa${directInvoices===1?'':'s'}`:'Facturas directas y gastos generales'}</b><small>Capturadas para la zona; no provienen de vales móviles y no requieren unidad</small></span><strong>${money(generalAmount,'MXN')}</strong></div>`:''}${!expenseUnits.length&&!generalAmount?'<div class="empty">No se encontraron gastos ni vales con monto dentro del periodo seleccionado.</div>':''}`
       : '<div class="empty">No hay gastos documentados para esta zona y periodo.</div>';
     const pendingInspectionHtml=pendingInspections.length?pendingInspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
