@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260827-all-expenses-activity-label-1" in template
+    assert "flotilla.js?v=20260827-expense-zone-operational-gps-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -221,6 +221,8 @@ def test_catalog_recovers_motive_vehicle_links_and_exposes_expenses_by_unit():
     assert '"vehicle_id,motive_vehicle_id,purchased_at' in backend
     assert '"expense_units": analytics["expense_units"]' in backend
     assert "Gasto por unidad" in frontend
+    assert 'row.get("expense_zone_id")' in backend
+    assert 'gas_lp_expense_zones' in backend
 
 
 def test_inspection_dashboard_lists_pending_before_all_completed_inspections():

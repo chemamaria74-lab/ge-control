@@ -176,6 +176,18 @@ def test_inspection_driver_without_events_is_visible_and_explains_missing_assign
     }]
 
 
+def test_out_of_service_unit_is_not_reported_as_missing_gps_activity():
+    analytics = fleet_analytics({
+        "vehicles": [
+            {"vehicle_number": "TALLER", "availability_status": "out_of_service"},
+            {"vehicle_number": "OPERATIVA", "status": "active"},
+        ],
+    })
+
+    assert [row["vehicle_number"] for row in analytics["units_without_gps"]] == ["OPERATIVA"]
+    assert analytics["totals"]["vehicles_without_gps"] == 1
+
+
 def test_inspection_dashboard_separates_open_pending_from_total_completed_work():
     analytics = fleet_analytics({
         "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Ana"}],

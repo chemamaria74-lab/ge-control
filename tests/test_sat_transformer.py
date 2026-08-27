@@ -387,6 +387,21 @@ class TestCoeficienteVCM:
 
 class TestNombreArchivo:
 
+    def test_corrige_rfc_generico_proveedor_con_x_extra(self):
+        nombre = generate_filename(
+            settings={
+                "RfcContribuyente": "ABC010101XXX",
+                "RfcProveedor": "XAXX010101000",
+                "ClaveInstalacion": "EDS-7068",
+                "ModalidadPermiso": "PER43",
+            },
+            periodo="2026-07",
+            fmt="JSON",
+            first_uuid="12345678-1234-1234-1234-123456789012",
+        )
+        assert "_XAX010101000_" in nombre
+        assert "XAXX010101000" not in nombre
+
     def test_prefijo_mensual_M(self):
         """Reporte mensual debe comenzar con 'M_'."""
         nombre = generate_filename(

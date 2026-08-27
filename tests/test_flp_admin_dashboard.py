@@ -180,11 +180,10 @@ def test_history_capacity_falls_back_to_legacy_mirror(monkeypatch):
     assert capacity == 180000
 
 
-def test_admin_inventory_control_reuses_assistant_station_ledger(monkeypatch):
+def test_admin_inventory_control_uses_admin_scope_for_all_installations(monkeypatch):
     import json
-    from fastapi.responses import JSONResponse
     import routes.history as history
-    import routes.internal_users_mod.facturas as internal_facturas
+    import routes.internal_users_mod.core as internal_core
 
     monkeypatch.setattr(history, "_auth", lambda _authorization: ("admin-1", "token-1"))
     monkeypatch.setattr(history, "_deny_assistant_reports", lambda *_args: None)
@@ -197,31 +196,33 @@ def test_admin_inventory_control_reuses_assistant_station_ledger(monkeypatch):
         {"id": 20, "nombre": "Estación Zacatecas", "tipo_instalacion": "estacion"},
     ])
 
-    async def assistant_inventory(**_kwargs):
-        return JSONResponse({"mes": "2026-08", "stations": [{
-            "id": 20,
-            "nombre": "Estación Zacatecas",
-            "inventario": -5222.18,
-            "capacidad": 5000,
-            "disponible": 10372.18,
-            "alertas": [],
-            "dias": [{"fecha": "2026-08-27", "inventario_final": -5222.18}],
-        }]})
-
-    monkeypatch.setattr(internal_facturas, "gas_lp_internal_station_inventory", assistant_inventory)
+    class Query:
+        data = [{"id": 8, "user_id": "owner-1", "tenant_id": "tenant-1", "nombre": "Gas", "rfc": "XAXX010101000", "activo": True}]
+        def select(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+        def execute(self): return self
+    class Admin:
+        def table(self, *_args): return Query()
+    monkeypatch.setattr(history, "get_supabase_admin", lambda: Admin())
+    monkeypatch.setattr(internal_core, "_gas_lp_company_facturas_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(history, "get_reports", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(history, "build_station_ledger", lambda facility, **_kwargs: {
+        "current_inventory": 100 if facility["id"] == 10 else -5222.18,
+        "capacity": 5000, "available_to_transfer": 4900,
+        "alerts": [], "days": [{"fecha": "2026-08-27", "inventario_final": 100}],
+    })
 
     response = asyncio.run(history.inventory_control(
         periodo="2026-08",
-        facility_id=20,
+        facility_id=None,
         authorization="Bearer token",
         x_perfil_id="8",
     ))
     payload = json.loads(response.body)
 
-    assert len(payload["stations"]) == 1
-    assert payload["stations"][0]["facility"]["nombre"] == "Estación Zacatecas"
-    assert payload["stations"][0]["ledger"]["current_inventory"] == -5222.18
-    assert payload["stations"][0]["ledger"]["days"][0]["inventario_final"] == -5222.18
+    assert [row["facility"]["nombre"] for row in payload["stations"]] == ["Planta", "Estación Zacatecas"]
+    assert payload["stations"][0]["ledger"]["current_inventory"] == 100
 
 
 def test_snapshot_does_not_restore_delivery_reassigned_by_uuid(monkeypatch):

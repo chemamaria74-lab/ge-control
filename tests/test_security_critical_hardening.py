@@ -109,15 +109,35 @@ def test_refresh_rotates_access_token_in_httponly_cookie(monkeypatch):
             )
 
     monkeypatch.setattr(auth, "get_supabase", lambda: SimpleNamespace(auth=_Auth()))
+    monkeypatch.setattr(auth, "verify_token", lambda token: "user-a" if token == "access-old" else None)
     request = SimpleNamespace(
         cookies={auth.REFRESH_COOKIE: "refresh-old"},
         url=SimpleNamespace(scheme="https"),
     )
 
-    response = asyncio.run(auth.refresh(request))
+    response = asyncio.run(auth.refresh(request, authorization="Bearer access-old"))
 
     assert b'"token":"access-new"' in response.body
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie
     assert "secure" in cookie
     assert "refresh-new" in cookie
+
+
+def test_refresh_rejects_cookie_that_belongs_to_another_user(monkeypatch):
+    class _Auth:
+        def refresh_session(self, _refresh_token):
+            return SimpleNamespace(
+                session=SimpleNamespace(access_token="admin-access", refresh_token="admin-refresh"),
+                user=SimpleNamespace(id="admin-user"),
+            )
+
+    monkeypatch.setattr(auth, "get_supabase", lambda: SimpleNamespace(auth=_Auth()))
+    monkeypatch.setattr(auth, "verify_token", lambda token: "maria-user" if token == "maria-access" else None)
+    request = SimpleNamespace(cookies={auth.REFRESH_COOKIE: "admin-cookie"}, url=SimpleNamespace(scheme="https"))
+
+    response = asyncio.run(auth.refresh(request, authorization="Bearer maria-access"))
+
+    assert response.status_code == 409
+    assert b"otro usuario" in response.body
+    assert auth.REFRESH_COOKIE in response.headers["set-cookie"]
