@@ -403,6 +403,30 @@ def test_asistente_inventory_labels_theoretical_level_and_explains_estimate():
         assert token in assistant_html
 
 
+def test_asistente_header_omits_redundant_invoice_button_and_cancellation_notice():
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "> Facturar consumo</button>" not in shell
+    assert "Las facturas timbradas no se cancelan desde el portal de asistente" not in shell
+
+
+def test_asistente_physical_control_only_shows_captured_and_theoretical_values():
+    assistant_html = _assistant_frontend_source()
+
+    for token in (
+        "Litros reportados por el chofer",
+        "Litros facturados (CFDI)",
+        "Diferencia chofer vs. CFDI",
+        "Capacidad del tanque",
+        "driverLiters - cfdiLiters",
+        "assistantStationPercent(theoretical,capacity)",
+    ):
+        assert token in assistant_html
+    physical_table = assistant_html.split("function assistantStationPhysicalTable(station)", 1)[1].split("function setAssistantStationView", 1)[0]
+    for removed in ("Inventario real", "Dif. %", "Resultado", "inventoryDifferencePct"):
+        assert removed not in physical_table
+
+
 def test_conciliacion_exposes_theoretical_station_inventory_percentage():
     html = _conciliacion_frontend_source()
     route_source = inspect.getsource(internal_users.gas_lp_internal_station_inventory)
