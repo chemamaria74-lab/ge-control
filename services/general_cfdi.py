@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal, Optional, Union
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -15,6 +16,11 @@ def _money(value: Decimal | int | float | str) -> str:
 def _sat_rate(value: Decimal | int | float | str) -> str:
     """SAT c_TasaOCuota values are serialized with exactly six decimals."""
     return format(Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f")
+
+
+def _cfdi_issue_time() -> str:
+    """CFDI Fecha is local wall time at the Mexican place of expedition."""
+    return datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 class CfdiParty(BaseModel):
@@ -134,7 +140,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "Version": "4.0",
         "Serie": payload.serie or "",
         "Folio": payload.folio or "",
-        "Fecha": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "Fecha": _cfdi_issue_time(),
         "FormaPago": payload.forma_pago or "",
         "MetodoPago": payload.metodo_pago or "",
         "SubTotal": _money(subtotal),

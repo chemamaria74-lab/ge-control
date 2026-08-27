@@ -893,7 +893,29 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
             }
             record_pac_response(request_id=audit_request_id, response_payload=data, status="error", error_message=public_error)
             return result
-        result = {"ok": True, "data": data.get("data") or {}, "raw": data}
+        stamp_data = data.get("data") or {}
+        stamp_error = _validate_pac_stamp_data(stamp_data)
+        if stamp_error:
+            result = {
+                "ok": False,
+                "error": stamp_error,
+                "raw": data,
+                "pac_response": {
+                    "endpoint_sw": SW_JSON_ISSUE_URL,
+                    "status_code_sw": resp.status_code,
+                    "message": data.get("message") or "",
+                    "messageDetail": data.get("messageDetail") or "",
+                    "parsed_response_sw": data,
+                },
+            }
+            record_pac_response(
+                request_id=audit_request_id,
+                response_payload=data,
+                status="error",
+                error_message=stamp_error,
+            )
+            return result
+        result = {"ok": True, "data": stamp_data, "raw": data}
         result_data = result["data"]
         record_pac_response(
             request_id=audit_request_id,
@@ -919,6 +941,20 @@ def emitir_timbrar_json(cfdi_dict: dict) -> dict:
         public_error = _public_pac_error(e)
         record_pac_response(request_id=audit_request_id, response_payload={"error": str(e)}, status="error", error_message=public_error)
         return {"ok": False, "error": public_error}
+
+
+def _validate_pac_stamp_data(data: dict) -> str:
+    """Reject nominal PAC successes that do not contain a real SAT stamp."""
+    uuid_sat = str((data or {}).get("uuid") or "").strip().upper()
+    xml_timbrado = str((data or {}).get("cfdi") or "").strip()
+    if not re.fullmatch(r"[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}", uuid_sat):
+        return "El PAC no devolvió un UUID fiscal válido; la factura no fue timbrada."
+    if "TimbreFiscalDigital" not in xml_timbrado:
+        return "El PAC no devolvió un XML timbrado; la factura no fue timbrada."
+    xml_uuid = re.search(r'\bUUID\s*=\s*["\']([^"\']+)["\']', xml_timbrado, re.IGNORECASE)
+    if not xml_uuid or xml_uuid.group(1).strip().upper() != uuid_sat:
+        return "El UUID del XML no coincide con la respuesta del PAC; la factura no fue timbrada."
+    return ""
 
 
 def _xml_needs_issue(xml_str: str) -> bool:
