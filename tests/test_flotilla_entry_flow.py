@@ -119,7 +119,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "No se volverá a generar hasta que presiones" in script
-    assert "flotilla.js?v=20260827-auto-inventory-redesign-1" in template
+    assert "flotilla.js?v=20260827-all-expenses-activity-label-1" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -176,7 +176,7 @@ def test_manager_dashboard_orders_operational_cards_by_priority():
     assert template.index('id="inspectionPanel"') < template.index('id="behaviorRanking"')
     assert template.index('id="behaviorRanking"') < template.index('id="safeDriversPanel"')
     assert template.index('id="safeDriversPanel"') < template.index('id="noGpsPanel"')
-    assert "Unidades sin GPS o por revisar" in template
+    assert "Unidades sin actividad GPS en el periodo" in template
 
 
 def test_manager_dashboard_includes_zone_expense_card():

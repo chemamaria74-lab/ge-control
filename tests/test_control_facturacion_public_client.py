@@ -40,5 +40,17 @@ def test_invoice_screen_uses_one_step_automatic_validation_and_stamp():
 def test_today_table_only_shows_invoices_with_a_sat_uuid():
     render = SOURCE.split("function renderInvoices()", 1)[1].split("function invoiceBalance", 1)[0]
 
-    assert "row.status==='timbrada'&&Boolean(String(row.uuid_sat||'').trim())" in render
+    assert "ready=row.status==='timbrada'&&Boolean(String(row.uuid_sat||'').trim())" in render
+    assert "return ready&&" in render
+    assert "statusPill('timbrada')" in render
     assert "Aún no hay facturas timbradas hoy." in render
+
+
+def test_stamp_button_is_reenabled_for_the_next_invoice():
+    invalidate = SOURCE.split("function invalidate()", 1)[1].split("function buildPayload()", 1)[0]
+    reset = SOURCE.split("function resetInvoice()", 1)[1].split("function field(", 1)[0]
+
+    assert "button.disabled=false" in invalidate
+    assert "button.textContent!=='Timbrando…'" in invalidate
+    assert "$('stampInvoice').disabled=false" in reset
+    assert "$('stampInvoice').textContent='Timbrar CFDI'" in reset
