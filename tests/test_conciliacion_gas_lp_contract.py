@@ -403,6 +403,22 @@ def test_asistente_inventory_labels_theoretical_level_and_explains_estimate():
         assert token in assistant_html
 
 
+def test_conciliacion_exposes_theoretical_station_inventory_percentage():
+    html = _conciliacion_frontend_source()
+    route_source = inspect.getsource(internal_users.gas_lp_internal_station_inventory)
+
+    for token in (
+        'data-tab="inventario"',
+        'data-section="inventario"',
+        "loadConciliationInventory",
+        "concInventoryPercent",
+        "Nivel teórico",
+        "no es una medición física del tanque",
+    ):
+        assert token in html
+    assert "_gas_lp_factura_access_context(token, perfil_id=perfil_id)" in route_source
+
+
 def test_asistente_carta_porte_instalaciones_fallback_to_admin_facilities():
     assistant_html = _assistant_frontend_source()
 
