@@ -6,7 +6,7 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 19;
+  const REPORT_CACHE_VERSION = 20;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -353,11 +353,10 @@
     }).join(''):'<div class="empty">No hay choferes que requieran capacitación en este periodo.</div>';
     $('safeDrivers').innerHTML=safeDrivers.length?safeDrivers.map((row,index)=>`<div class="safe-driver-item"><button class="simple-row safe-driver-row" type="button" data-driver-search="${esc(row.driver_name)}"><span><b>${index+1}. ${esc(row.driver_name)}</b><small>${esc(row.vehicle_number)}${Number(row.inspections||0)?` · ${fmt(row.inspections)} inspección${Number(row.inspections)===1?'':'es'}`:''}</small></span><strong>✓ Sin eventos · Ver detalle</strong></button><div class="driver-inline-detail" hidden></div></div>`).join(''):'<div class="empty">No se identificaron choferes sin eventos en este periodo.</div>';
     $('noGpsUnits').innerHTML=noActivity.length?noActivity.map((row,index)=>{const stateLabel=motiveStateLabel(row.availability_status||row.status);return `<div class="simple-row"><span><b>${index+1}. ${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Conductor no identificado')} · Sin recorridos ni eventos GPS en el periodo</small></span><strong>${esc(stateLabel)}</strong></div>`;}).join(''):'<div class="empty">Todas las unidades operativas tuvieron actividad GPS en el periodo.</div>';
-    const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], generalExpenses=analytics.general_expenses||{}, generalDetails=generalExpenses.details||[], registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0), generalAmount=Number(generalExpenses.expenses_mxn||0), directInvoices=Number(generalExpenses.direct_invoices||0);
-    const generalDetailHtml=generalDetails.length?`<details class="expense-detail-list"><summary>Ver desglose de ${fmt(generalDetails.length)} factura${generalDetails.length===1?'':'s'}</summary>${generalDetails.map(row=>`<div class="simple-row"><span><b>${esc(row.supplier)}</b><small>${esc(row.date||'Sin fecha')} · Factura ${esc(row.invoice_number)} · ${esc(row.concept)}${row.description?` · ${esc(row.description)}`:''}</small></span><strong>${money(row.amount_mxn,'MXN')}</strong></div>`).join('')}</details>`:'';
+    const expenseTotals=analytics.totals||{}, expenseUnits=analytics.expense_units||[], registeredExpenses=Number(expenseTotals.expenses_mxn||0), purchasedLiters=Number(expenseTotals.purchased_liters||0);
     $('expenseSummary').innerHTML=expenseTotals.expense_available
-      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L cargados desde Motive`:'Sin litros documentados en el periodo'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Gasto por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:''}${generalAmount?`<div class="inspection-subhead">Gasto general de la zona</div><div class="simple-row"><span><b>${directInvoices?`${fmt(directInvoices)} factura${directInvoices===1?'':'s'} directa${directInvoices===1?'':'s'}`:'Facturas directas y gastos generales'}</b><small>Capturadas para la zona; no provienen de vales móviles y no requieren unidad</small></span><strong>${money(generalAmount,'MXN')}</strong></div>${generalDetailHtml}`:''}${!expenseUnits.length&&!generalAmount?'<div class="empty">No se encontraron gastos ni vales con monto dentro del periodo seleccionado.</div>':''}`
-      : '<div class="empty">No hay gastos documentados para esta zona y periodo.</div>';
+      ? `<div class="expense-summary"><strong>${money(registeredExpenses,'MXN')}</strong><span>Gasto móvil registrado en el periodo</span><small>${purchasedLiters?`${fmt(purchasedLiters)} L documentados desde Motive`:'Sin litros documentados en Motive'}</small></div>${expenseUnits.length?`<div class="inspection-subhead">Desglose por unidad</div>${expenseUnits.map(row=>`<div class="simple-row"><span><b>${esc(row.vehicle_number)}</b><small>${esc(row.driver_name||'Sin conductor asignado')}${Number(row.purchased_liters||0)?` · ${fmt(row.purchased_liters)} L`:''}</small></span><strong>${money(row.expenses_mxn,'MXN')}</strong></div>`).join('')}`:'<div class="empty">Motive no entregó gastos móviles vinculados a unidades en este periodo.</div>'}`
+      : '<div class="empty">Motive no entregó gastos móviles vinculados a unidades en este periodo.</div>';
     const pendingInspectionHtml=pendingInspections.length?pendingInspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
       const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(inspectionTypeLabel(item.type))}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span>${defect.category?` <b>${esc(defect.category)}</b><br>`:''}${esc(defect.title||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
@@ -551,17 +550,32 @@
     $('endDate').value=localDate(today);
     $('startDate').value=localDate(start);
     $('managerInventoryMonth').value=localDate(today).slice(0,7);
+    $('officeExpenseStart').value=localDate(start);
+    $('officeExpenseEnd').value=localDate(today);
   }
 
   function switchManagerWorkspace(name){
-    const inventory=name==='inventory';
-    $('managerGpsPanel').hidden=inventory;
+    const inventory=name==='inventory',expenses=name==='expenses';
+    $('managerGpsPanel').hidden=name!=='gps';
     $('managerInventoryPanel').hidden=!inventory;
+    $('managerExpensesPanel').hidden=!expenses;
     document.querySelectorAll('[data-manager-tab]').forEach(button=>{
       const active=button.dataset.managerTab===name;
       button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));
     });
     if(inventory&&!state.inventoryData){const host=$('managerInventoryResults');host.className='empty';host.textContent='Selecciona el mes y presiona “Consultar”.';}
+  }
+
+  async function loadOfficeExpenses(){
+    const button=$('loadOfficeExpenses'),host=$('officeExpenseResults'),p=new URLSearchParams({start_date:$('officeExpenseStart').value,end_date:$('officeExpenseEnd').value});
+    if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
+    button.disabled=true;host.className='empty';host.textContent='Consultando gastos capturados en GE Control…';
+    try{
+      const data=await api(`/office-expenses?${p}`),items=data.items||[];
+      host.className='office-expense-content';
+      host.innerHTML=`<div class="expense-summary"><strong>${money(data.total_mxn,'MXN')}</strong><span>${fmt(data.count)} registro${Number(data.count)===1?'':'s'} administrativo${Number(data.count)===1?'':'s'}</span><small>Capturados en GE Control; no provienen de Motive.</small></div>${items.length?`<div class="office-expense-list">${items.map(row=>`<div class="simple-row"><span><b>${esc(row.supplier||row.vehicle_number||row.concept||'Gasto administrativo')}</b><small>${esc(String(row.date||'').slice(0,10)||'Sin fecha')}${row.invoice_number?` · Factura ${esc(row.invoice_number)}`:''}${row.concept?` · ${esc(row.concept)}`:''}${row.description?` · ${esc(row.description)}`:''}${row.captured_by?` · Capturó: ${esc(row.captured_by)}`:''}</small></span><strong>${money(row.amount_mxn,'MXN')}</strong></div>`).join('')}</div>`:'<div class="empty">No hay gastos administrativos de esta zona en el periodo.</div>'}`;
+    }catch(error){host.className='empty';host.textContent=error.message;}
+    finally{button.disabled=false;}
   }
   const inventoryLiters=value=>`${fmt(value)} L`;
   const inventoryPercent=(value,capacity)=>Number(capacity||0)>0?`${fmt(Number(value||0)/Number(capacity)*100)}%`:'—';
@@ -641,6 +655,7 @@
   document.querySelectorAll('[data-inventory-view]').forEach(button=>button.addEventListener('click',()=>{state.inventoryView=button.dataset.inventoryView;document.querySelectorAll('[data-inventory-view]').forEach(item=>item.classList.toggle('active',item===button));renderManagerInventory();}));
   $('managerInventoryMonth').addEventListener('change',()=>{state.inventoryData=null;$('managerInventoryResults').className='empty';$('managerInventoryResults').textContent='Presiona “Consultar” para cargar el mes seleccionado.';});
   $('loadManagerInventory').onclick=loadManagerInventory;
+  $('loadOfficeExpenses').onclick=loadOfficeExpenses;
   document.querySelectorAll('.report-download').forEach(button=>button.addEventListener('click',()=>downloadReport(button.dataset.reportType,button.dataset.format,button)));
   validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
 })();
