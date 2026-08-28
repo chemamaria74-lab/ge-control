@@ -111,13 +111,17 @@
   function syncProgressText(sync){
     const progress=sync?.datasets?.sync_progress||{}, phase=progress.phase||'Preparando actualización';
     const done=Number(progress.pages_done||0), total=Number(progress.total_pages||0), records=Number(progress.records_seen||sync?.records_processed||0);
-    let remaining='Calculando tiempo restante…';
+    let remaining='Procesando…';
     if(done>0&&total>=done&&sync?.started_at){
       const elapsed=Math.max((Date.now()-new Date(sync.started_at).getTime())/1000,1);
       const estimated=Math.max(Math.round((elapsed/done)*(total-done)),0);
       if(state.syncLastDone!==done||state.syncEtaDeadline==null){state.syncLastDone=done;state.syncEtaSeconds=estimated;state.syncEtaDeadline=Date.now()+estimated*1000;}
       const seconds=Math.max(0,Math.ceil((state.syncEtaDeadline-Date.now())/1000));
       remaining=seconds>60?`aprox. ${Math.ceil(seconds/60)} min restantes`:seconds>0?`${seconds} s restantes`:'Terminando…';
+    }
+    else if(sync?.started_at){
+      const elapsed=Math.max(0,Math.floor((Date.now()-new Date(sync.started_at).getTime())/1000));
+      remaining=elapsed>=60?`${Math.floor(elapsed/60)} min ${elapsed%60} s transcurridos`:`${elapsed} s transcurridos`;
     }
     const pages=total?` · página ${done} de ${total}`:(done?` · página ${done}`:'');
     return `${phase}${pages} · ${fmt(records)} registros · ${remaining}`;
