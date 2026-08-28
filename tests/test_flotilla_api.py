@@ -148,6 +148,12 @@ def test_recent_sync_without_heartbeat_is_still_active():
     assert flotilla._sync_is_stale(row, now=now) is False
 
 
+def test_sync_without_heartbeat_is_released_after_five_minutes():
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
+    row = {"status": "running", "started_at": (now - timedelta(minutes=6)).isoformat(), "heartbeat_at": None}
+    assert flotilla._sync_is_stale(row, now=now) is True
+
+
 def test_incremental_button_dispatches_full_dataset_incremental_sync(monkeypatch):
     sb = FakeSupabase({
         "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],

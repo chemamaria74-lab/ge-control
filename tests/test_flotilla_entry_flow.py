@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-expense-separation-10" in template
+    assert "flotilla.js?v=20260828-sync-phases-11" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -272,7 +272,7 @@ def test_motive_sync_refreshes_events_by_updated_after():
 def test_fleet_sync_ui_shows_phase_pages_and_remaining_time():
     frontend = Path("static/js/gas_lp/flotilla.js").read_text()
     assert "function syncProgressText(sync)" in frontend
-    assert "Calculando tiempo restante" in frontend
+    assert "s transcurridos" in frontend
     assert "min restantes" in frontend
     assert "s restantes" in frontend
     assert "startSyncCountdown(sync)" in frontend

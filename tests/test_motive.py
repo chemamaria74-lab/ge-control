@@ -86,3 +86,29 @@ def test_pagination_collects_every_page(monkeypatch):
     rows = motive.motive_get_all_pages("/v1/vehicles", collection_key="vehicles", per_page=2)
     assert [row["id"] for row in rows] == [1, 2, 3]
     assert calls == [1, 2]
+
+
+def test_pagination_stops_when_reported_total_is_exact_multiple(monkeypatch):
+    calls = []
+
+    def fake_page(path, *, params):
+        calls.append(params["page_no"])
+        return {"vehicles": [{"id": 1}, {"id": 2}], "pagination": {"total": 2}}
+
+    monkeypatch.setattr(motive, "motive_get", fake_page)
+    rows = motive.motive_get_all_pages("/v1/vehicles", collection_key="vehicles", per_page=2)
+    assert [row["id"] for row in rows] == [1, 2]
+    assert calls == [1]
+
+
+def test_pagination_stops_before_adding_a_repeated_page(monkeypatch):
+    calls = []
+
+    def fake_page(path, *, params):
+        calls.append(params["page_no"])
+        return {"vehicles": [{"id": 1}, {"id": 2}]}
+
+    monkeypatch.setattr(motive, "motive_get", fake_page)
+    rows = motive.motive_get_all_pages("/v1/vehicles", collection_key="vehicles", per_page=2)
+    assert [row["id"] for row in rows] == [1, 2]
+    assert calls == [1, 2]
