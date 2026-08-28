@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260827-expense-breakdown-5" in template
+    assert "flotilla.js?v=20260828-activity-exceptions-7" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -226,14 +226,15 @@ def test_catalog_recovers_motive_vehicle_links_and_exposes_expenses_by_unit():
     assert 'gas_lp_expense_zones' in backend
 
 
-def test_inspection_dashboard_lists_pending_before_all_completed_inspections():
+def test_inspection_dashboard_switches_between_all_pending_and_missing():
     template = (ROOT / "templates/flotilla_gas_lp.html").read_text(encoding="utf-8")
     frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
     backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
 
-    assert "Pendientes arriba · total realizado abajo" in template
+    assert "Realizadas, pendientes y faltantes" in template
     assert "pending_inspection_credits" in frontend
-    assert "Total de inspecciones realizadas" in frontend
+    assert "inspectionViews={all:" in frontend
+    assert "missingInspections" in frontend
     assert '"pending_inspection_credits": analytics["pending_inspection_credits"]' in backend
 
 
@@ -259,9 +260,26 @@ def test_fleet_sync_ui_shows_phase_pages_and_remaining_time():
     assert "function syncProgressText(sync)" in frontend
     assert "Calculando tiempo restante" in frontend
     assert "min restantes" in frontend
-    assert "Math.min(state.syncEtaSeconds,estimated)" in frontend
+    assert "s restantes" in frontend
+    assert "startSyncCountdown(sync)" in frontend
+    assert "Actualización iniciada. Puedes seguir usando el portal." not in frontend
     assert "Actualización completada" in frontend
     assert "'success'" in frontend
+
+
+def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
+    frontend = Path("static/js/gas_lp/flotilla.js").read_text()
+    template = Path("templates/flotilla_gas_lp.html").read_text()
+    backend = Path("routes/flotilla.py").read_text()
+
+    assert "Antes del viaje" in frontend and "Después del viaje" in frontend
+    assert "data-inspection-view" in frontend
+    assert "Sin inspección" in frontend
+    assert 'id="activityCalendar"' in template
+    assert '"activity_calendar": activity_calendar' in backend
+    assert "Requieren revisión" in frontend
+    assert "Unidades con actividad completa" in frontend
+    assert "Desglose de traspasos" in template
 
 
 def test_legacy_flotilla_login_redirects_to_dedicated_access():
