@@ -6,9 +6,9 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 14;
+  const REPORT_CACHE_VERSION = 16;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncEtaSeconds:null, identity:null, inventoryView:'charts', inventoryData:null};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -17,6 +17,7 @@
     in_service:'En servicio',out_of_service:'Fuera de servicio',maintenance:'En mantenimiento',
     shop:'En taller',inactive:'Inactiva',deactivated:'Desactivada',active:'Activa',
   }[String(value||'').trim().toLowerCase()]||'Estado no informado');
+  const inspectionTypeLabel = value => ({pre_trip:'Antes del viaje',post_trip:'Después del viaje',pretrip:'Antes del viaje',posttrip:'Después del viaje'}[String(value||'').trim().toLowerCase()]||String(value||'Inspección').replaceAll('_',' '));
   const headers = () => ({
     ...(token ? {Authorization:`Bearer ${token}`} : {}),
     'X-Flotilla-Access':portalAccess,
@@ -114,12 +115,18 @@
     if(done>0&&total>=done&&sync?.started_at){
       const elapsed=Math.max((Date.now()-new Date(sync.started_at).getTime())/1000,1);
       const estimated=Math.max(Math.round((elapsed/done)*(total-done)),0);
-      state.syncEtaSeconds=state.syncEtaSeconds==null?estimated:Math.min(state.syncEtaSeconds,estimated);
-      remaining=state.syncEtaSeconds<45?'Finalizando…':state.syncEtaSeconds<60?'menos de 1 min restante':`aprox. ${Math.ceil(state.syncEtaSeconds/60)} min restantes`;
+      if(state.syncLastDone!==done||state.syncEtaDeadline==null){state.syncLastDone=done;state.syncEtaSeconds=estimated;state.syncEtaDeadline=Date.now()+estimated*1000;}
+      const seconds=Math.max(0,Math.ceil((state.syncEtaDeadline-Date.now())/1000));
+      remaining=seconds>60?`aprox. ${Math.ceil(seconds/60)} min restantes`:seconds>0?`${seconds} s restantes`:'Terminando…';
     }
     const pages=total?` · página ${done} de ${total}`:(done?` · página ${done}`:'');
     return `${phase}${pages} · ${fmt(records)} registros · ${remaining}`;
   }
+  function startSyncCountdown(sync){
+    state.syncSnapshot=sync;clearInterval(state.syncTick);
+    state.syncTick=setInterval(()=>{if(state.syncSnapshot)setSync('warn','Actualizando desde Motive…',syncProgressText(state.syncSnapshot));},1000);
+  }
+  function stopSyncCountdown(){clearInterval(state.syncTick);state.syncTick=null;state.syncSnapshot=null;state.syncEtaDeadline=null;state.syncLastDone=null;}
   function reportCacheBaseKey(){
     const identity=state.identity||{};
     const parts=[
@@ -214,14 +221,14 @@
     try{
       const data=await api(`/vehicles/${id}?${params()}`), v=data.vehicle||{}, fuel=data.fuel||[], inspections=data.inspections||[], defects=data.defects||[];
       const liters=fuel.reduce((n,r)=>n+Number(r.quantity_liters||0),0), cost=fuel.reduce((n,r)=>n+Number(r.total_cost||0),0), currency=fuel.find(r=>r.currency)?.currency||'MXN';
-      $('detailContent').innerHTML=`<div class="detail-head"><span class="eyebrow">Expediente de unidad</span><h2>${esc(v.vehicle_number||'Sin número')}</h2><p>${esc([v.model_year,v.make,v.model].filter(Boolean).join(' ')||'Vehículo Motive')}</p></div><div class="detail-grid"><div class="detail-stat"><small>Combustible</small><strong>${fmt(liters)} L</strong></div><div class="detail-stat"><small>Gasto</small><strong>${money(cost,currency)}</strong></div><div class="detail-stat"><small>Inspecciones</small><strong>${inspections.length}</strong></div></div><section class="detail-section"><h3>Combustible</h3>${fuel.slice(0,20).map(r=>`<div class="detail-item"><strong>${fmt(r.quantity_liters)} L · ${money(r.total_cost,r.currency||currency)}</strong><br><small>${esc(r.vendor||'Proveedor no indicado')} · ${esc(dateText(r.purchased_at))}</small></div>`).join('')||'<div class="empty">Sin cargas en el periodo.</div>'}</section><section class="detail-section"><h3>Inspecciones y defectos</h3>${inspections.slice(0,20).map(r=>{const ds=defects.filter(d=>d.inspection_id===r.id);return `<div class="detail-item"><strong>${esc(r.inspection_type||'Inspección')} · ${esc(r.status||'Sin estado')}</strong><br><small>${esc(dateText(r.inspected_at))}${ds.length?' · '+ds.length+' defectos':''}</small>${ds.map(d=>`<div><span class="pill ${String(d.severity).toLowerCase()==='major'?'error':'warn'}">${esc(d.severity||d.status||'Defecto')}</span> ${esc(d.title||d.category)}</div>`).join('')}</div>`;}).join('')||'<div class="empty">Sin inspecciones en el periodo.</div>'}</section>`;
+      $('detailContent').innerHTML=`<div class="detail-head"><span class="eyebrow">Expediente de unidad</span><h2>${esc(v.vehicle_number||'Sin número')}</h2><p>${esc([v.model_year,v.make,v.model].filter(Boolean).join(' ')||'Vehículo Motive')}</p></div><div class="detail-grid"><div class="detail-stat"><small>Combustible</small><strong>${fmt(liters)} L</strong></div><div class="detail-stat"><small>Gasto</small><strong>${money(cost,currency)}</strong></div><div class="detail-stat"><small>Inspecciones</small><strong>${inspections.length}</strong></div></div><section class="detail-section"><h3>Combustible</h3>${fuel.slice(0,20).map(r=>`<div class="detail-item"><strong>${fmt(r.quantity_liters)} L · ${money(r.total_cost,r.currency||currency)}</strong><br><small>${esc(r.vendor||'Proveedor no indicado')} · ${esc(dateText(r.purchased_at))}</small></div>`).join('')||'<div class="empty">Sin cargas en el periodo.</div>'}</section><section class="detail-section"><h3>Inspecciones y defectos</h3>${inspections.slice(0,20).map(r=>{const ds=defects.filter(d=>d.inspection_id===r.id);return `<div class="detail-item"><strong>${esc(inspectionTypeLabel(r.inspection_type))} · ${esc(r.status||'Sin estado')}</strong><br><small>${esc(dateText(r.inspected_at))}${ds.length?' · '+ds.length+' defectos':''}</small>${ds.map(d=>`<div><span class="pill ${String(d.severity).toLowerCase()==='major'?'error':'warn'}">${esc(d.severity||d.status||'Defecto')}</span> ${esc(d.title||d.category)}</div>`).join('')}</div>`;}).join('')||'<div class="empty">Sin inspecciones en el periodo.</div>'}</section>`;
     }catch(error){ $('detailContent').innerHTML=`<div class="empty">${esc(error.message)}</div>`; }
   }
   function openDrawer(){ $('detailDrawer').classList.add('open'); $('drawerBackdrop').classList.add('open'); $('detailDrawer').setAttribute('aria-hidden','false'); }
   function closeDrawer(){ $('detailDrawer').classList.remove('open'); $('drawerBackdrop').classList.remove('open'); $('detailDrawer').setAttribute('aria-hidden','true'); }
 
   async function requestSync(){
-    state.syncEtaSeconds=null;
+    state.syncEtaSeconds=null;state.syncEtaDeadline=null;state.syncLastDone=null;
     $('syncButton').disabled=true; notice('Solicitando actualización a Motive…');
     try{
       const data=await api('/sync',{method:'POST'});
@@ -231,7 +238,7 @@
         $('syncButton').disabled=false;
         return;
       }
-      notice(data.reused?'Ya existe una actualización en curso.':'Actualización iniciada. Puedes seguir usando el portal.');
+      notice(data.reused?'Ya existe una actualización en curso.':'');
       setSync('warn','Actualizando desde Motive…','El último dato válido seguirá disponible.');
       if(!$('executiveDashboard').hidden){
         $('dataStatus').className='data-status warn';
@@ -244,12 +251,15 @@
           const sync=runId?await api(`/sync/${runId}`):null;
           if(!sync){await loadOverview();state.syncPoll=setTimeout(poll,5000);return;}
           if(sync.status==='queued'||sync.status==='running'){
+            state.syncSnapshot=sync;
             setSync('warn','Actualizando desde Motive…',syncProgressText(sync));
+            startSyncCountdown(sync);
             state.syncPoll=setTimeout(poll,5000);
             return;
           }
           await loadOverview();
           $('syncButton').disabled=false;
+          stopSyncCountdown();
           state.syncEtaSeconds=null;
           if(sync.status==='failed'){
             notice(`Motive no pudo actualizarse: ${sync.error_message||'la integración devolvió un error.'} Tu sesión y el análisis guardado se conservaron.`,'error');
@@ -258,12 +268,13 @@
           setSync('ok','Actualización completada',`Datos actualizados: ${dateText(sync.finished_at)}`);
           notice('Motive se actualizó correctamente. El análisis guardado se conserva; presiona “Generar análisis” cuando quieras recalcularlo.','success');
         }catch(error){
+          stopSyncCountdown();
           $('syncButton').disabled=false;
           notice(`No pudimos comprobar la actualización: ${error.message} Tu sesión sigue activa.`,'error');
         }
       };
       state.syncPoll=setTimeout(poll,2000);
-    }catch(error){ notice(error.message,'error'); $('syncButton').disabled=false; }
+    }catch(error){ stopSyncCountdown();notice(error.message,'error'); $('syncButton').disabled=false; }
   }
 
   async function loadReportCatalog({prepare=true,scroll=true}={}){
@@ -321,7 +332,7 @@
   }
 
   function renderDashboard(analytics){
-    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noActivity=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], pendingInspections=analytics.pending_inspection_credits||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
+    const drivers=analytics.training_drivers||analytics.drivers||[], safeDrivers=analytics.drivers_without_events||[], noActivity=analytics.units_without_gps||[], inspections=analytics.inspection_credits||[], pendingInspections=analytics.pending_inspection_credits||[], missingInspections=analytics.units_without_inspections||[], inspectionDetails=(analytics.inspection_details||[]).map(item=>({...item,defects:(item.defects||[]).filter(defect=>defect.open)})).filter(item=>item.defects.length), behaviors=analytics.behaviors||[];
     const maxEvents=Math.max(...drivers.map(row=>Number(row.security||0)+Number(row.speeding||0)),1);
     $('riskRanking').innerHTML=drivers.length?drivers.map((row,index)=>{
       const events=Number(row.security||0)+Number(row.speeding||0);
@@ -337,11 +348,15 @@
       : '<div class="empty">No hay gastos documentados para esta zona y periodo.</div>';
     const pendingInspectionHtml=pendingInspections.length?pendingInspections.map((row,index)=>{
       const details=inspectionDetails.filter(item=>String(item.driver_name||'').trim().toLocaleLowerCase('es-MX')===String(row.driver_name||'').trim().toLocaleLowerCase('es-MX')&&String(item.vehicle_number||'').trim().toLocaleLowerCase('es-MX')===String(row.vehicle_number||'').trim().toLocaleLowerCase('es-MX'));
-      const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(item.type)}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span>${defect.category?` <b>${esc(defect.category)}</b><br>`:''}${esc(defect.title||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
+      const detailHtml=details.map(item=>`<div class="inspection-detail"><b>${esc(dateText(item.date))} · ${esc(inspectionTypeLabel(item.type))}</b>${(item.defects||[]).map(defect=>`<p><span class="pill error">Abierto</span>${defect.category?` <b>${esc(defect.category)}</b><br>`:''}${esc(defect.title||'Detalle reportado')}${defect.notes?`<br><small>${esc(defect.notes)}</small>`:''}</p>`).join('')}</div>`).join('');
       return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} pendiente${Number(row.inspections)===1?'':'s'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle pendiente.</div>'}</div></details>`;
     }).join(''):'<div class="empty">No hay inspecciones pendientes de atención.</div>';
     const totalInspectionHtml=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} realizada${Number(row.inspections)===1?'':'s'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en este periodo.</div>';
-    $('inspectionCredits').innerHTML=`<div class="inspection-subhead">Inspecciones pendientes</div>${pendingInspectionHtml}<div class="inspection-subhead">Total de inspecciones realizadas</div>${totalInspectionHtml}`;
+    const missingInspectionHtml=missingInspections.length?missingInspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>Sin inspecciones</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen al menos una inspección en el periodo.</div>';
+    const inspectionViews={all:totalInspectionHtml,pending:pendingInspectionHtml,missing:missingInspectionHtml};
+    const renderInspectionView=()=>{$('inspectionCredits').innerHTML=`<div class="inspection-view-tabs"><button class="inspection-view-tab ${state.inspectionView==='all'?'active':''}" data-inspection-view="all">Todas (${fmt(inspections.reduce((sum,row)=>sum+Number(row.inspections||0),0))})</button><button class="inspection-view-tab ${state.inspectionView==='pending'?'active':''}" data-inspection-view="pending">Pendientes (${fmt(pendingInspections.reduce((sum,row)=>sum+Number(row.inspections||0),0))})</button><button class="inspection-view-tab ${state.inspectionView==='missing'?'active':''}" data-inspection-view="missing">Sin inspección (${fmt(missingInspections.length)})</button></div>${inspectionViews[state.inspectionView]||inspectionViews.all}`;document.querySelectorAll('[data-inspection-view]').forEach(button=>button.addEventListener('click',()=>{state.inspectionView=button.dataset.inspectionView;renderInspectionView();}));};
+    renderInspectionView();
+    renderActivityCalendar(analytics.activity_calendar||{});
     $('behaviorRanking').innerHTML=behaviorDonutHtml(behaviors);
     document.querySelectorAll('[data-driver-search]').forEach(button=>button.addEventListener('click',()=>{
       const target=button.closest('.driver-risk-item,.safe-driver-item')?.querySelector('.driver-inline-detail');
@@ -349,6 +364,17 @@
       if(target&&!target.hidden){target.hidden=true;target.innerHTML='';return;}
       runExplorer(button.dataset.driverSearch||'',target);
     }));
+  }
+
+  function renderActivityCalendar(calendar){
+    const days=calendar.days||[],units=calendar.units||[],host=$('activityCalendar');
+    if(!days.length||!units.length){host.innerHTML='<div class="empty">No hay datos diarios suficientes para construir la semana.</div>';return;}
+    const dayLabel=day=>new Intl.DateTimeFormat('es-MX',{weekday:'short',day:'numeric',timeZone:'UTC'}).format(new Date(`${day}T12:00:00Z`));
+    const missingDays=unit=>days.filter(day=>{const record=unit.days?.[day]||{};return !(Number(record.distance_km||0)>0||Number(record.trips||0)>0);}).length;
+    const reviewUnits=units.filter(unit=>missingDays(unit)>0).sort((a,b)=>missingDays(b)-missingDays(a)||String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
+    const completeUnits=units.filter(unit=>missingDays(unit)===0).sort((a,b)=>String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
+    const matrix=rows=>`<div class="activity-matrix-wrap"><table class="activity-matrix"><thead><tr><th>Unidad y chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(unit=>`<tr><td><span class="activity-unit"><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')} · ${fmt(missingDays(unit))} día${missingDays(unit)===1?'':'s'} sin recorrido</small></span></td>${days.map(day=>{const record=unit.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),worked=distance>0||trips>0;return `<td><span class="activity-day ${worked?'worked':'idle'}" title="${esc(`${day}: ${fmt(distance)} km · ${fmt(trips)} recorridos`)}">${worked?'✓':'—'}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table></div>`;
+    host.innerHTML=`<div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewUnits.length)} unidades</span></div>${reviewUnits.length?matrix(reviewUnits):'<div class="empty">No hay unidades con días sin recorrido GPS.</div>'}${completeUnits.length?`<details class="activity-complete"><summary>Unidades con actividad completa (${fmt(completeUnits.length)})</summary>${matrix(completeUnits)}</details>`:''}<div class="activity-legend"><span><b>✓ Con recorrido GPS</b></span><span>— Sin recorrido registrado</span><span>“Sin recorrido” no confirma una falta; valida descansos, taller e incidencias antes de afectar nómina.</span></div>`;
   }
 
   function behaviorDonutHtml(rows){
@@ -539,7 +565,7 @@
   }
   function inventoryPhysicalTable(station){
     const rows=(station.days||[]).flatMap(day=>(day.traspasos||[]).map(transfer=>({day,control:transfer.control_fisico}))).filter(row=>row.control&&Object.keys(row.control).length);
-    if(!rows.length)return '<div class="empty">No hay controles físicos capturados para esta estación en el mes.</div>';
+    if(!rows.length)return '<div class="empty">No hay traspasos con desglose físico capturado para esta instalación en el mes.</div>';
     const value=(raw,suffix=' L')=>raw===null||raw===undefined||raw===''?'—':`${fmt(raw)}${suffix}`;
     return `<div class="inventory-table"><table><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros del chofer</th><th>Litros CFDI</th><th>Diferencia</th><th>Capacidad</th><th>Inventario teórico</th><th>Nivel</th></tr></thead><tbody>${rows.map(({day,control})=>{const capacity=Number(control.capacidad_litros||station.capacity||0),difference=Number(control.litros_declarados||0)-Number(control.litros_cfdi||0),differenceTone=Math.abs(difference)>0.01?'#b91c1c':'#15803d';return `<tr><td>${esc(day.fecha||'')}</td><td>${value(control.antes_pct,'%')}</td><td>${value(control.despues_pct,'%')}</td><td>${value(control.litros_declarados)}</td><td>${value(control.litros_cfdi)}</td><td><strong style="color:${differenceTone}">${difference>0?'+':''}${fmt(difference)} L</strong></td><td>${value(capacity)}</td><td>${value(day.inventario_final)}</td><td>${inventoryPercent(day.inventario_final,capacity)}</td></tr>`;}).join('')}</tbody></table></div>`;
   }
@@ -551,7 +577,7 @@
   async function loadManagerInventory(){
     const button=$('loadManagerInventory'),host=$('managerInventoryResults'),p=new URLSearchParams({month:$('managerInventoryMonth').value});
     if($('reportGroup').value)p.set('group_id',$('reportGroup').value);
-    button.disabled=true;host.className='empty';host.textContent='Consultando gráficas y control físico…';
+    button.disabled=true;host.className='empty';host.textContent='Consultando gráficas y desglose de traspasos…';
     try{state.inventoryData=await api(`/inventory?${p}`);renderManagerInventory();}
     catch(error){host.textContent=error.message;}
     finally{button.disabled=false;}
