@@ -309,6 +309,37 @@ def manager_inventory(
     return {"month": month, "group": group, "stations": stations}
 
 
+@router.get("/flotilla/office-expenses")
+def manager_office_expenses(
+    start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+    group_id: int | None = Query(default=None), authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    """Gastos administrativos capturados en GE Control, separados de Motive."""
+    ctx = _context(authorization, x_flotilla_access)
+    _require_group_access(ctx, group_id)
+    start, end = _dates(start_date, end_date)
+    data = _report_rows(ctx, start, end, group_id)
+    rows = [
+        row for row in data.get("expenses", [])
+        if str(row.get("source") or "").strip().casefold().startswith("ge_control_")
+    ]
+    rows.sort(key=lambda row: str(row.get("occurred_at") or ""), reverse=True)
+    return {
+        "period": {"start": start, "end": end},
+        "total_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in rows), 2),
+        "count": len(rows),
+        "items": [{
+            "date": row.get("occurred_at"), "source": row.get("source"),
+            "expense_type": row.get("expense_type"), "vehicle_number": row.get("vehicle_number"),
+            "supplier": row.get("supplier_name"), "invoice_number": row.get("invoice_number"),
+            "concept": row.get("category"), "description": row.get("description"),
+            "captured_by": row.get("submitted_by"),
+            "amount_mxn": round(float(row.get("amount_mxn") or 0), 2),
+        } for row in rows],
+    }
+
+
 def _integration(sb: Any, tenant_id: str) -> dict[str, Any] | None:
     rows = (
         sb.table("fleet_integrations")
@@ -1019,8 +1050,21 @@ def report_catalog(
     previous_start = previous_end - (end - start)
     previous = _report_rows(ctx, previous_start, previous_end, group_id)
     latest_runs = ctx["sb"].table("fleet_sync_runs").select("status,datasets,error_code,error_message,finished_at").eq("tenant_id", ctx["tenant_id"]).order("created_at", desc=True).limit(1).execute().data or []
-    analytics = fleet_analytics(data)
-    previous_analytics = fleet_analytics(previous)
+    # El panel GPS sólo presenta gastos móviles vinculados a una unidad. Los
+    # registros administrativos de GE Control viven en su propia pestaña.
+    def motive_mobile_data(report_data: dict[str, Any]) -> dict[str, Any]:
+        scoped = dict(report_data)
+        scoped["expenses"] = [
+            row for row in report_data.get("expenses", [])
+            if str(row.get("source") or "").strip().casefold() == "motive_card"
+            and row.get("vehicle_id") is not None
+        ]
+        return scoped
+
+    motive_data = motive_mobile_data(data)
+    previous_motive_data = motive_mobile_data(previous)
+    analytics = fleet_analytics(motive_data)
+    previous_analytics = fleet_analytics(previous_motive_data)
     comparison = comparison_row("", analytics, previous_analytics)
     expense_source_labels = {
         "motive_card": "Motive Card",
@@ -1029,12 +1073,12 @@ def report_catalog(
         "cred_es": "Archivo de gastos",
     }
     expense_sources: dict[str, float] = {}
-    for expense_row in data["expenses"]:
+    for expense_row in motive_data["expenses"]:
         source = str(expense_row.get("source") or "otro").strip().casefold()
         expense_sources[source] = expense_sources.get(source, 0.0) + float(expense_row.get("amount_mxn") or 0)
     has_card_expenses = any(
         str(expense_row.get("source") or "").strip().casefold() == "motive_card"
-        for expense_row in data["expenses"]
+        for expense_row in motive_data["expenses"]
     )
     non_mxn_fuel: dict[str, float] = {}
     if not has_card_expenses:
@@ -1143,11 +1187,11 @@ def report_catalog(
         .eq("tenant_id", ctx["tenant_id"]).in_("status", ["open", "acknowledged"]).execute()
     )
     return {"period": {"start": start, "end": end}, "groups": groups,
-            "counts": {key: len(value) for key, value in data.items() if isinstance(value, list)},
-            "totals": {"expenses_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in data["expenses"]), 2),
+            "counts": {key: len(value) for key, value in motive_data.items() if isinstance(value, list)},
+            "totals": {"expenses_mxn": round(sum(float(row.get("amount_mxn") or 0) for row in motive_data["expenses"]), 2),
                        "fuel_liters": round(analytics["totals"]["liters"], 2),
                        **analytics["totals"]},
-            "submitters": _submitter_summary(data["expenses"]),
+            "submitters": _submitter_summary(motive_data["expenses"]),
             "expense_sources": [
                 {
                     "source": source,
