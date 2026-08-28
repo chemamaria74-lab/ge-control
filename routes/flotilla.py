@@ -44,7 +44,7 @@ from supabase_config import get_supabase_admin
 
 router = APIRouter()
 SYNC_COOLDOWN_MINUTES = 10
-SYNC_STALE_MINUTES = 15
+SYNC_STALE_MINUTES = 5
 
 
 def _sync_is_stale(row: dict[str, Any], *, now: datetime | None = None) -> bool:
