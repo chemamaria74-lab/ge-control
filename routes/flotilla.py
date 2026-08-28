@@ -1086,6 +1086,34 @@ def report_catalog(
                 "open": not defect.get("resolved_at") and str(defect.get("status") or "").casefold() in {"open", "pending", "unresolved", "with_defects"},
             } for defect in open_defects],
         })
+    activity_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)][-7:]
+    activity_by_unit: dict[str, dict[str, dict[str, float | int]]] = {}
+    for vehicle in data["vehicles"]:
+        number = str(vehicle.get("vehicle_number") or "Sin número")
+        activity_by_unit[number] = {
+            day.isoformat(): {"distance_km": 0.0, "trips": 0} for day in activity_days
+        }
+    for metric in data.get("metrics", []):
+        number, day = str(metric.get("vehicle_number") or ""), str(metric.get("metric_date") or "")[:10]
+        if number in activity_by_unit and day in activity_by_unit[number]:
+            activity_by_unit[number][day]["distance_km"] = max(
+                float(activity_by_unit[number][day]["distance_km"]), float(metric.get("distance_km") or 0)
+            )
+    for trip in data.get("activity", []):
+        number, day = str(trip.get("vehicle_number") or ""), str(trip.get("started_at") or "")[:10]
+        if number in activity_by_unit and day in activity_by_unit[number]:
+            activity_by_unit[number][day]["trips"] = int(activity_by_unit[number][day]["trips"]) + 1
+            if not activity_by_unit[number][day]["distance_km"]:
+                activity_by_unit[number][day]["distance_km"] = float(trip.get("distance_km") or 0)
+    activity_calendar = {
+        "days": [day.isoformat() for day in activity_days],
+        "units": [{
+            "vehicle_number": str(vehicle.get("vehicle_number") or "Sin número"),
+            "driver_name": str(vehicle.get("current_driver_name") or ""),
+            "status": str(vehicle.get("availability_status") or vehicle.get("status") or ""),
+            "days": activity_by_unit[str(vehicle.get("vehicle_number") or "Sin número")],
+        } for vehicle in data["vehicles"]],
+    }
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
         .eq("tenant_id", ctx["tenant_id"]).in_("status", ["open", "acknowledged"]).execute()
@@ -1115,11 +1143,13 @@ def report_catalog(
                 "drivers_without_events": analytics["drivers_without_events"],
                 "units_without_gps": analytics["units_without_gps"],
                 "units_without_driver": analytics["units_without_driver"],
+                "units_without_inspections": analytics["units_without_inspections"],
                 "inspection_credits": analytics["inspection_credits"],
                 "pending_inspection_credits": analytics["pending_inspection_credits"],
                 "expense_units": analytics["expense_units"],
                 "general_expenses": analytics["general_expenses"],
                 "inspection_details": inspection_details,
+                "activity_calendar": activity_calendar,
                 "drivers": analytics["drivers"][:10],
                 "behaviors": analytics["behaviors"][:10],
                 "severity": analytics["severity"],
