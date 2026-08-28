@@ -5,7 +5,7 @@ from pathlib import Path
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
-    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates,
+    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _lookback_dates,
     _merge_motive_events, _official_requester_uuid, normalize_currency,
 )
 from services.motive import motive_get_all_pages_flexible
@@ -14,13 +14,19 @@ from services.motive import motive_get_all_pages_flexible
 def test_incremental_event_window_rechecks_late_motive_changes(monkeypatch):
     monkeypatch.delenv("MOTIVE_EVENT_LOOKBACK_DAYS", raising=False)
     start, end = _event_lookback_dates(False)
-    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 14
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 30
 
 
 def test_event_window_can_be_configured(monkeypatch):
     monkeypatch.setenv("MOTIVE_EVENT_LOOKBACK_DAYS", "21")
     start, end = _event_lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 21
+
+
+def test_incremental_operational_window_covers_manager_report(monkeypatch):
+    monkeypatch.delenv("MOTIVE_INCREMENTAL_LOOKBACK_DAYS", raising=False)
+    start, end = _lookback_dates(False)
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 30
 
 
 def test_sync_requester_rejects_internal_ids_and_keeps_auth_uuid():

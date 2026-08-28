@@ -238,6 +238,23 @@ def test_general_expenses_are_not_reported_as_a_unit_without_gps():
     assert analytics["totals"]["vehicles_without_gps"] == 1
 
 
+def test_missing_inspections_uses_last_seen_driver_without_claiming_current_assignment():
+    analytics = fleet_analytics({
+        "vehicles": [{
+            "vehicle_number": "C 75", "current_driver_name": "",
+            "last_known_driver_name": "RUBEN MORENO",
+            "last_known_driver_at": "2026-08-11T19:44:03Z",
+        }],
+        "inspections": [],
+    })
+
+    assert analytics["units_without_inspections"] == [{
+        "vehicle_number": "C 75", "driver_name": "RUBEN MORENO",
+        "driver_context": "Último chofer visto",
+        "driver_last_seen_at": "2026-08-11T19:44:03Z",
+    }]
+
+
 def test_analytics_attributes_training_to_event_driver_not_only_assigned_unit_driver():
     analytics = fleet_analytics({
         "vehicles": [{"vehicle_number": "U-1", "current_driver_name": "Chofer asignado"}],

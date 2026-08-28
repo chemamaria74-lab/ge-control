@@ -101,7 +101,7 @@ def test_fleet_supervision_waits_for_explicit_zone_analysis_and_hides_manager_ex
     assert 'id="managerExpensesLink"' in template
     assert "Selecciona una zona antes de generar el análisis." in script
     assert "$('managerExpensesLink').hidden=true" in script
-    assert "await loadReportCatalog({prepare:false,scroll:false})" not in script
+    assert "await loadReportCatalog({prepare:false,scroll:false})" in script
     assert "$('executiveDashboard').hidden=true" in script
     assert "$('syncButton').hidden=false" in script
     assert "GE CONTROL | Portal de Gerentes" in script
@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-activity-exceptions-7" in template
+    assert "flotilla.js?v=20260828-driver-provenance-9" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -279,6 +279,10 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
     assert "Unidades con actividad completa" in frontend
+    assert "Datos incompletos de Motive" in frontend
+    assert "record.observed===true" in frontend
+    assert "activity-mobile-unit" in frontend
+    assert '"observed": False' in backend
     assert "Desglose de traspasos" in template
 
 

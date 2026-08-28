@@ -148,7 +148,7 @@ def test_recent_sync_without_heartbeat_is_still_active():
     assert flotilla._sync_is_stale(row, now=now) is False
 
 
-def test_incremental_button_dispatches_fast_safety_sync(monkeypatch):
+def test_incremental_button_dispatches_full_dataset_incremental_sync(monkeypatch):
     sb = FakeSupabase({
         "fleet_integrations": [{"id": 5, "status": "active", "last_success_at": None}],
         "fleet_sync_runs": [],
@@ -162,7 +162,8 @@ def test_incremental_button_dispatches_fast_safety_sync(monkeypatch):
     result = flotilla.request_sync(tasks, full=False, authorization="Bearer x", x_flotilla_access="grant")
     assert result["run_id"] == 123
     assert len(tasks.tasks) == 1
-    assert tasks.tasks[0].func is flotilla.sync_motive_safety
+    assert tasks.tasks[0].func is flotilla.sync_motive_tenant
+    assert tasks.tasks[0].kwargs["full"] is False
 
 
 def test_internal_manager_sync_does_not_write_non_uuid_requester(monkeypatch):
