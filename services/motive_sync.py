@@ -909,19 +909,50 @@ def sync_motive_tenant(
     def pulse() -> None:
         now = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
+        progress = datasets.get("sync_progress")
+        if isinstance(progress, dict):
+            progress["records_seen"] = total
         sb.table("fleet_sync_runs").update({
             "heartbeat_at": now, "records_processed": total, "datasets": datasets,
         }).eq("id", run_id).execute()
 
+    def phase(label: str) -> None:
+        datasets["sync_progress"] = {
+            "phase": label, "pages_done": 0, "total_pages": 0,
+            "records_seen": sum(int(value) for value in datasets.values() if isinstance(value, int)),
+        }
+        pulse()
+
+    def page_progress(label: str, *, per_page: int = 100):
+        def update(page: int, records: int, total: int | None) -> None:
+            completed = sum(int(value) for value in datasets.values() if isinstance(value, int))
+            total_pages = ((total + per_page - 1) // per_page) if total is not None else None
+            now = datetime.now(timezone.utc).isoformat()
+            datasets["sync_progress"] = {
+                "phase": label, "pages_done": page, "total_pages": total_pages,
+                "records_seen": completed + records,
+            }
+            sb.table("fleet_sync_runs").update({
+                "heartbeat_at": now, "pages_processed": page,
+                "records_processed": completed + records, "datasets": datasets,
+            }).eq("id", run_id).execute()
+        return update
+
     try:
-        vehicle_items = motive_get_all_pages("/v1/vehicles", collection_key="vehicles")
+        phase("Unidades y choferes")
+        vehicle_items = motive_get_all_pages(
+            "/v1/vehicles", collection_key="vehicles", progress=page_progress("Unidades y choferes")
+        )
         vehicles = [normalize_vehicle(item, integration_id=integration_id, tenant_id=tenant_id) for item in vehicle_items]
         datasets["vehicles"] = _upsert(sb, "fleet_vehicles", vehicles, "integration_id,motive_id")
         pulse()
         stored = sb.table("fleet_vehicles").select("id,motive_id").eq("integration_id", integration_id).execute().data or []
         vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
 
-        group_items = _optional_pages(datasets, "groups", "/v1/groups", "groups")
+        phase("Zonas y asignaciones")
+        group_items = _optional_pages(
+            datasets, "groups", "/v1/groups", "groups", progress=page_progress("Zonas y asignaciones")
+        )
         groups = []
         raw_group_by_id = {}
         for item in group_items:
@@ -943,9 +974,18 @@ def sync_motive_tenant(
             group_ids = {int(row["motive_id"]): int(row["id"]) for row in stored_groups}
             memberships = []
             membership_complete = True
-            for group in groups:
+            for group_index, group in enumerate(groups, start=1):
+                datasets["sync_progress"] = {
+                    "phase": f"Asignaciones de zona {group_index} de {len(groups)}",
+                    "pages_done": group_index - 1, "total_pages": len(groups),
+                    "records_seen": sum(int(value) for value in datasets.values() if isinstance(value, int)),
+                }
+                pulse()
                 dataset_name = f"group_{group['motive_id']}_vehicles"
-                members = _optional_pages(datasets, dataset_name, f"/v1/groups/{group['motive_id']}/vehicles", "vehicles")
+                members = _optional_pages(
+                    datasets, dataset_name, f"/v1/groups/{group['motive_id']}/vehicles", "vehicles",
+                    progress=page_progress(f"Asignaciones de zona {group_index} de {len(groups)}"),
+                )
                 if isinstance(datasets.get(dataset_name), dict):
                     membership_complete = False
                 for item in members:
@@ -959,14 +999,24 @@ def sync_motive_tenant(
         pulse()
 
         start_date, end_date = _lookback_dates(full)
-        fuel_items = motive_get_all_pages("/v1/fuel_purchases", collection_key="fuel_purchases", params={"start_date": start_date, "end_date": end_date})
+        phase("Cargas de combustible")
+        fuel_items = motive_get_all_pages(
+            "/v1/fuel_purchases", collection_key="fuel_purchases",
+            params={"start_date": start_date, "end_date": end_date},
+            progress=page_progress("Cargas de combustible"),
+        )
         fuels = [normalize_fuel_purchase(item, integration_id=integration_id, tenant_id=tenant_id) for item in fuel_items]
         for row in fuels:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
         datasets["fuel_purchases"] = _upsert(sb, "fleet_fuel_purchases", fuels, "integration_id,motive_id")
         pulse()
 
-        inspection_items = motive_get_all_pages("/v2/inspection_reports", collection_key="inspection_reports", params={"start_date": start_date, "end_date": end_date})
+        phase("Inspecciones y defectos")
+        inspection_items = motive_get_all_pages(
+            "/v2/inspection_reports", collection_key="inspection_reports",
+            params={"start_date": start_date, "end_date": end_date},
+            progress=page_progress("Inspecciones y defectos"),
+        )
         normalized = [normalize_inspection(item, integration_id=integration_id, tenant_id=tenant_id) for item in inspection_items]
         inspections = [row for row, _ in normalized]
         for row in inspections:
@@ -983,7 +1033,12 @@ def sync_motive_tenant(
         pulse()
 
         event_start_date, event_end_date = _event_lookback_dates(full)
-        event_items = _optional_pages(datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events", params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"})
+        phase("Eventos de seguridad")
+        event_items = _optional_pages(
+            datasets, "driver_events", "/v2/driver_performance_events", "driver_performance_events",
+            params={"start_date": event_start_date, "end_date": event_end_date, "media_required": "false"},
+            progress=page_progress("Eventos de seguridad"),
+        )
         driver_events = [normalize_driver_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in event_items]
         for row in driver_events:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
@@ -993,7 +1048,12 @@ def sync_motive_tenant(
             datasets["driver_events"] = 0
         pulse()
 
-        speeding_items = _optional_pages(datasets, "speeding_events", "/v1/speeding_events", "speeding_events", params={"start_date": event_start_date, "end_date": event_end_date})
+        phase("Excesos de velocidad")
+        speeding_items = _optional_pages(
+            datasets, "speeding_events", "/v1/speeding_events", "speeding_events",
+            params={"start_date": event_start_date, "end_date": event_end_date},
+            progress=page_progress("Excesos de velocidad"),
+        )
         speeding = [normalize_speeding_event(item, integration_id=integration_id, tenant_id=tenant_id) for item in speeding_items]
         for row in speeding:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
@@ -1003,7 +1063,12 @@ def sync_motive_tenant(
             datasets["speeding_events"] = 0
         pulse()
 
-        period_items = _optional_pages(datasets, "driving_periods", "/v1/driving_periods", "driving_periods", params={"start_date": start_date, "end_date": end_date})
+        phase("Recorridos y actividad diaria")
+        period_items = _optional_pages(
+            datasets, "driving_periods", "/v1/driving_periods", "driving_periods",
+            params={"start_date": start_date, "end_date": end_date},
+            progress=page_progress("Recorridos y actividad diaria"),
+        )
         periods = [normalize_driving_period(item, integration_id=integration_id, tenant_id=tenant_id) for item in period_items]
         for row in periods:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
@@ -1013,10 +1078,12 @@ def sync_motive_tenant(
             datasets["driving_periods"] = 0
         pulse()
 
+        phase("Utilización de unidades")
         utilization_start = date.today().replace(day=1).isoformat()
         utilization_items = _optional_pages(
             datasets, "vehicle_utilization", "/v1/vehicle_utilization", "vehicle_idle_rollups",
             params={"start_date": utilization_start, "end_date": end_date},
+            progress=page_progress("Utilización de unidades"),
         )
         utilization = [
             normalize_vehicle_utilization(
@@ -1039,7 +1106,11 @@ def sync_motive_tenant(
 
         # Los códigos abiertos se reportan por estado actual, no por la fecha de
         # su primera detección: un PID viejo que sigue activo requiere atención.
-        fault_items = _optional_pages(datasets, "fault_codes", "/v1/fault_codes", "fault_codes")
+        phase("Diagnósticos de unidades")
+        fault_items = _optional_pages(
+            datasets, "fault_codes", "/v1/fault_codes", "fault_codes",
+            progress=page_progress("Diagnósticos de unidades"),
+        )
         faults = [normalize_fault(item, integration_id=integration_id, tenant_id=tenant_id) for item in fault_items]
         for row in faults:
             row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
@@ -1049,9 +1120,11 @@ def sync_motive_tenant(
             datasets["fault_codes"] = 0
         pulse()
 
+        phase("Gastos móviles por unidad")
         card_items = _optional_pages(datasets, "card_expenses", "/motive_card/v1/transactions", "transactions",
                                      params={"start_date": start_date, "end_date": end_date, "date_range_filter_type": "transaction_time"},
-                                     per_page=1000, page_param="page_no", timezone_header="UTC")
+                                     per_page=1000, page_param="page_no", timezone_header="UTC",
+                                     progress=page_progress("Gastos móviles por unidad", per_page=1000))
         card_expenses = [normalize_card_expense(item, integration_id=integration_id, tenant_id=tenant_id) for item in card_items]
         for row in card_expenses:
             raw_vehicle_id = row["raw_metadata"].get("motive_vehicle_id")
@@ -1062,6 +1135,7 @@ def sync_motive_tenant(
             datasets["card_expenses"] = 0
         pulse()
 
+        phase("Métricas diarias y cierre")
         metric_rows = _daily_metrics(
             integration_id=integration_id, tenant_id=tenant_id,
             periods=periods, fuels=fuels, inspections=inspections, defects=defects,

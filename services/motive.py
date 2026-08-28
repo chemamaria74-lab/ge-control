@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import random
 import time
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -110,6 +112,7 @@ def motive_get_all_pages(
     records: list[Any] = []
     base_params = dict(params or {})
     page_no = 1
+    seen_pages: set[str] = set()
     while page_no <= max_pages:
         request_kwargs: dict[str, Any] = {
             "params": {**base_params, "per_page": per_page, page_param: page_no},
@@ -120,6 +123,15 @@ def motive_get_all_pages(
         batch = page.get(collection_key) or []
         if not isinstance(batch, list):
             raise MotiveAPIError(502, f"Motive devolvió {collection_key} en un formato inesperado.")
+        # Algunos endpoints han repetido la última página aun cuando page_no
+        # cambia. Cortar aquí evita una sincronización infinita y duplicados.
+        signature = hashlib.sha256(
+            json.dumps(batch, sort_keys=True, ensure_ascii=False, default=str).encode()
+        ).hexdigest()
+        if batch and signature in seen_pages:
+            return records
+        if batch:
+            seen_pages.add(signature)
         records.extend(batch)
         pagination = page.get("pagination") if isinstance(page.get("pagination"), dict) else {}
         total_raw = page.get("total") or pagination.get("total") or pagination.get("total_count")
@@ -129,6 +141,8 @@ def motive_get_all_pages(
             total = None
         if progress:
             progress(page_no, len(records), total)
+        if total is not None and len(records) >= total:
+            return records[:total]
         if len(batch) < per_page:
             return records
         page_no += 1
