@@ -6,7 +6,7 @@
   const SUPERVISION_LOGIN_URL = '/gas-lp/conciliacion?area=flotilla';
   const loginUrl = () => localStorage.getItem('ge_gaslp_conciliacion_token') ? SUPERVISION_LOGIN_URL : MANAGER_LOGIN_URL;
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  const REPORT_CACHE_VERSION = 16;
+  const REPORT_CACHE_VERSION = 19;
   const $ = id => document.getElementById(id);
   const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -265,8 +265,20 @@
             notice(`Motive no pudo actualizarse: ${sync.error_message||'la integración devolvió un error.'} Tu sesión y el análisis guardado se conservaron.`,'error');
             return;
           }
-          setSync('ok','Actualización completada',`Datos actualizados: ${dateText(sync.finished_at)}`);
-          notice('Motive se actualizó correctamente. El análisis guardado se conserva; presiona “Generar análisis” cuando quieras recalcularlo.','success');
+          setSync('ok','Actualización completada',`Unidades, zonas, recorridos, inspecciones, seguridad y gastos Motive: ${dateText(sync.finished_at)}`);
+          const selectedGroup=$('reportGroup').value;
+          if(selectedGroup){
+            try{
+              localStorage.removeItem(reportCacheKey(selectedGroup));
+              notice('Motive terminó. Actualizando el análisis de la zona con los datos nuevos…');
+              await loadReportCatalog({prepare:false,scroll:false});
+              notice('Motive y el análisis de la zona quedaron actualizados.','success');
+            }catch(_error){
+              notice('Motive quedó actualizado. Presiona “Generar análisis” para volver a calcular la zona.','success');
+            }
+          }else{
+            notice('Motive quedó actualizado. Selecciona una zona para generar su análisis.','success');
+          }
         }catch(error){
           stopSyncCountdown();
           $('syncButton').disabled=false;
@@ -352,7 +364,7 @@
       return `<details class="inspection-row"><summary class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} pendiente${Number(row.inspections)===1?'':'s'} · Ver detalle</strong></summary><div class="inspection-details">${detailHtml||'<div class="empty">Sin detalle pendiente.</div>'}</div></details>`;
     }).join(''):'<div class="empty">No hay inspecciones pendientes de atención.</div>';
     const totalInspectionHtml=inspections.length?inspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>${fmt(row.inspections)} realizada${Number(row.inspections)===1?'':'s'}</strong></div>`).join(''):'<div class="empty">No hay inspecciones registradas en este periodo.</div>';
-    const missingInspectionHtml=missingInspections.length?missingInspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Chofer no identificado')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')}</small></span><strong>Sin inspecciones</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen al menos una inspección en el periodo.</div>';
+    const missingInspectionHtml=missingInspections.length?missingInspections.map((row,index)=>`<div class="simple-row"><span><b>${index+1}. ${esc(row.driver_name||'Sin nombre disponible')}</b><small>${esc(row.vehicle_number||'Unidad no identificada')} · ${esc(row.driver_context||'Sin chofer identificado en Motive')}${row.driver_last_seen_at?` · ${esc(dateText(row.driver_last_seen_at))}`:''}</small></span><strong>Sin inspecciones</strong></div>`).join(''):'<div class="empty">Todas las unidades tienen al menos una inspección en el periodo.</div>';
     const inspectionViews={all:totalInspectionHtml,pending:pendingInspectionHtml,missing:missingInspectionHtml};
     const renderInspectionView=()=>{$('inspectionCredits').innerHTML=`<div class="inspection-view-tabs"><button class="inspection-view-tab ${state.inspectionView==='all'?'active':''}" data-inspection-view="all">Todas (${fmt(inspections.reduce((sum,row)=>sum+Number(row.inspections||0),0))})</button><button class="inspection-view-tab ${state.inspectionView==='pending'?'active':''}" data-inspection-view="pending">Pendientes (${fmt(pendingInspections.reduce((sum,row)=>sum+Number(row.inspections||0),0))})</button><button class="inspection-view-tab ${state.inspectionView==='missing'?'active':''}" data-inspection-view="missing">Sin inspección (${fmt(missingInspections.length)})</button></div>${inspectionViews[state.inspectionView]||inspectionViews.all}`;document.querySelectorAll('[data-inspection-view]').forEach(button=>button.addEventListener('click',()=>{state.inspectionView=button.dataset.inspectionView;renderInspectionView();}));};
     renderInspectionView();
@@ -370,11 +382,13 @@
     const days=calendar.days||[],units=calendar.units||[],host=$('activityCalendar');
     if(!days.length||!units.length){host.innerHTML='<div class="empty">No hay datos diarios suficientes para construir la semana.</div>';return;}
     const dayLabel=day=>new Intl.DateTimeFormat('es-MX',{weekday:'short',day:'numeric',timeZone:'UTC'}).format(new Date(`${day}T12:00:00Z`));
-    const missingDays=unit=>days.filter(day=>{const record=unit.days?.[day]||{};return !(Number(record.distance_km||0)>0||Number(record.trips||0)>0);}).length;
+    const missingDays=unit=>days.filter(day=>{const record=unit.days?.[day]||{};return record.observed===true&&!(Number(record.distance_km||0)>0||Number(record.trips||0)>0);}).length;
+    const unknownDays=unit=>days.filter(day=>unit.days?.[day]?.observed!==true).length;
     const reviewUnits=units.filter(unit=>missingDays(unit)>0).sort((a,b)=>missingDays(b)-missingDays(a)||String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
-    const completeUnits=units.filter(unit=>missingDays(unit)===0).sort((a,b)=>String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
-    const matrix=rows=>`<div class="activity-matrix-wrap"><table class="activity-matrix"><thead><tr><th>Unidad y chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(unit=>`<tr><td><span class="activity-unit"><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')} · ${fmt(missingDays(unit))} día${missingDays(unit)===1?'':'s'} sin recorrido</small></span></td>${days.map(day=>{const record=unit.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),worked=distance>0||trips>0;return `<td><span class="activity-day ${worked?'worked':'idle'}" title="${esc(`${day}: ${fmt(distance)} km · ${fmt(trips)} recorridos`)}">${worked?'✓':'—'}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table></div>`;
-    host.innerHTML=`<div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewUnits.length)} unidades</span></div>${reviewUnits.length?matrix(reviewUnits):'<div class="empty">No hay unidades con días sin recorrido GPS.</div>'}${completeUnits.length?`<details class="activity-complete"><summary>Unidades con actividad completa (${fmt(completeUnits.length)})</summary>${matrix(completeUnits)}</details>`:''}<div class="activity-legend"><span><b>✓ Con recorrido GPS</b></span><span>— Sin recorrido registrado</span><span>“Sin recorrido” no confirma una falta; valida descansos, taller e incidencias antes de afectar nómina.</span></div>`;
+    const incompleteUnits=units.filter(unit=>missingDays(unit)===0&&unknownDays(unit)>0).sort((a,b)=>unknownDays(b)-unknownDays(a)||String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
+    const completeUnits=units.filter(unit=>missingDays(unit)===0&&unknownDays(unit)===0).sort((a,b)=>String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
+    const matrix=rows=>`<div class="activity-matrix-wrap activity-desktop"><table class="activity-matrix"><thead><tr><th>Unidad y chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(unit=>`<tr><td><span class="activity-unit"><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}${missingDays(unit)?` · ${fmt(missingDays(unit))} día${missingDays(unit)===1?'':'s'} sin recorrido`:unknownDays(unit)?` · ${fmt(unknownDays(unit))} día${unknownDays(unit)===1?'':'s'} sin datos`:''}</small></span></td>${days.map(day=>{const record=unit.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),observed=record.observed===true,worked=observed&&(distance>0||trips>0),tone=!observed?'unknown':worked?'worked':'idle',symbol=!observed?'?':worked?'✓':'—',detail=!observed?'Motive no entregó datos para este día':`${fmt(distance)} km · ${fmt(trips)} recorridos`;return `<td><span class="activity-day ${tone}" title="${esc(`${day}: ${detail}`)}">${symbol}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table></div><div class="activity-mobile">${rows.map(unit=>`<article class="activity-mobile-unit"><div><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}</small></div><div class="activity-mobile-days">${days.map(day=>{const record=unit.days?.[day]||{},observed=record.observed===true,distance=Number(record.distance_km||0),trips=Number(record.trips||0),worked=observed&&(distance>0||trips>0),tone=!observed?'unknown':worked?'worked':'idle';return `<span><small>${esc(dayLabel(day))}</small><i class="activity-day ${tone}">${!observed?'?':worked?'✓':'—'}</i></span>`;}).join('')}</div></article>`).join('')}</div>`;
+    host.innerHTML=`<div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewUnits.length)} unidades</span></div>${reviewUnits.length?matrix(reviewUnits):'<div class="empty">No hay unidades con días confirmados sin recorrido GPS.</div>'}${incompleteUnits.length?`<details class="activity-complete"><summary>Datos incompletos de Motive (${fmt(incompleteUnits.length)})</summary>${matrix(incompleteUnits)}</details>`:''}${completeUnits.length?`<details class="activity-complete"><summary>Unidades con actividad completa (${fmt(completeUnits.length)})</summary>${matrix(completeUnits)}</details>`:''}<div class="activity-legend"><span><b>✓ Con recorrido GPS</b></span><span>— Sin recorrido confirmado</span><span>? Motive no entregó datos</span><span>“Sin recorrido” no confirma una falta; valida descansos, taller e incidencias antes de afectar nómina.</span></div>`;
   }
 
   function behaviorDonutHtml(rows){
