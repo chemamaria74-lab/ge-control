@@ -69,6 +69,7 @@
     <nav class="manager-workspace-tabs" id="managerWorkspaceTabs" aria-label="Secciones del Portal de Gerentes">
       <button class="manager-workspace-tab active" type="button" data-manager-tab="gps" aria-selected="true"><i class="fa-solid fa-satellite-dish"></i> GPS</button>
       <button class="manager-workspace-tab" type="button" data-manager-tab="inventory" aria-selected="false"><i class="fa-solid fa-chart-line"></i> Inventario</button>
+      <button class="manager-workspace-tab" type="button" data-manager-tab="expenses" aria-selected="false"><i class="fa-solid fa-receipt"></i> Gastos de oficina</button>
     </nav>
     <div class="manager-workspace-panel" id="managerGpsPanel">
     <section class="fleet-hero">
@@ -137,7 +138,7 @@
         <article class="dashboard-panel"><div class="panel-title"><h4>Conductas más frecuentes</h4><span>Eventos de seguridad</span></div><div id="behaviorRanking" class="bar-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel" id="safeDriversPanel"><div class="panel-title"><h4>Choferes sin eventos registrados</h4><span>Sin eventos en el periodo</span></div><div id="safeDrivers" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel" id="noGpsPanel"><div class="panel-title"><h4>Unidades sin actividad GPS en el periodo</h4><span>No significa que no tengan dispositivo</span></div><div id="noGpsUnits" class="simple-list"><div class="empty">Cargando…</div></div></article>
-        <article class="dashboard-panel" id="expensesPanel"><div class="panel-title"><h4>Gastos registrados</h4><span>Cargas y gastos de la zona</span></div><div id="expenseSummary" class="simple-list"><div class="empty">Cargando…</div></div></article>
+        <article class="dashboard-panel" id="expensesPanel"><div class="panel-title"><h4>Gastos móviles por unidad</h4><span>Movimientos recibidos desde Motive</span></div><div id="expenseSummary" class="simple-list"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel compact-panel" id="activityCalendarPanel"><div class="panel-title"><h4>Actividad semanal de unidades</h4><span>Evidencia de recorridos GPS para revisión de nómina</span></div><div id="activityCalendar"><div class="empty">Cargando…</div></div></article>
         <article class="dashboard-panel compact-panel" id="operationalPanel"><div class="panel-title"><h4>Seguimiento operativo</h4><span>Datos documentados en Motive</span></div><div id="submitterList">Sin movimientos documentados.</div></article>
       </div>
@@ -173,6 +174,16 @@
         <div id="managerInventoryResults" class="empty">Selecciona un mes para consultar el inventario.</div>
       </section>
     </section>
+
+    <section class="manager-workspace-panel inventory-shell" id="managerExpensesPanel" hidden>
+      <section class="fleet-card inventory-toolbar">
+        <div><span class="eyebrow"><i class="fa-solid fa-receipt"></i> Gastos de oficina</span><h2>Gastos capturados en GE Control</h2><p>Facturas, caja chica, materiales, vales, refacciones y demás registros administrativos de tu zona.</p></div>
+        <div class="inventory-controls office-expense-controls"><label>Desde<input id="officeExpenseStart" type="date"></label><label>Hasta<input id="officeExpenseEnd" type="date"></label><button class="btn-primary" id="loadOfficeExpenses" type="button"><i class="fa-solid fa-magnifying-glass"></i> Consultar</button></div>
+      </section>
+      <section class="fleet-card inventory-content-card">
+        <div id="officeExpenseResults" class="empty">Selecciona las fechas y presiona “Consultar”.</div>
+      </section>
+    </section>
   </main>
 
   <aside class="detail-drawer" id="detailDrawer" aria-hidden="true">
@@ -182,6 +193,6 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
 
   <script src="/static/js/session_timeout.js?v=identity-bound-20260827"></script>
-  <script src="/static/js/gas_lp/flotilla.js?v=20260828-driver-provenance-9"></script>
+  <script src="/static/js/gas_lp/flotilla.js?v=20260828-expense-separation-10"></script>
 </body>
 </html>
