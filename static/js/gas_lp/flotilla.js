@@ -8,7 +8,7 @@
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 20;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncEtaPhase:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -115,7 +115,15 @@
     if(done>0&&total>=done&&sync?.started_at){
       const elapsed=Math.max((Date.now()-new Date(sync.started_at).getTime())/1000,1);
       const estimated=Math.max(Math.round((elapsed/done)*(total-done)),0);
-      if(state.syncLastDone!==done||state.syncEtaDeadline==null){state.syncLastDone=done;state.syncEtaSeconds=estimated;state.syncEtaDeadline=Date.now()+estimated*1000;}
+      const candidateDeadline=Date.now()+estimated*1000;
+      if(state.syncEtaPhase!==phase||state.syncEtaDeadline==null){
+        state.syncEtaPhase=phase;state.syncLastDone=done;state.syncEtaSeconds=estimated;state.syncEtaDeadline=candidateDeadline;
+      }else if(state.syncLastDone!==done){
+        // La cuenta regresiva de una etapa nunca debe aumentar. Si una página
+        // fue más lenta, conservamos la estimación anterior; si fue más rápida,
+        // sí adelantamos la hora prevista de término.
+        state.syncLastDone=done;state.syncEtaSeconds=Math.min(Number(state.syncEtaSeconds??estimated),estimated);state.syncEtaDeadline=Math.min(state.syncEtaDeadline,candidateDeadline);
+      }
       const seconds=Math.max(0,Math.ceil((state.syncEtaDeadline-Date.now())/1000));
       remaining=seconds>60?`aprox. ${Math.ceil(seconds/60)} min restantes`:seconds>0?`${seconds} s restantes`:'Terminando…';
     }
@@ -130,7 +138,7 @@
     state.syncSnapshot=sync;clearInterval(state.syncTick);
     state.syncTick=setInterval(()=>{if(state.syncSnapshot)setSync('warn','Actualizando desde Motive…',syncProgressText(state.syncSnapshot));},1000);
   }
-  function stopSyncCountdown(){clearInterval(state.syncTick);state.syncTick=null;state.syncSnapshot=null;state.syncEtaDeadline=null;state.syncLastDone=null;}
+  function stopSyncCountdown(){clearInterval(state.syncTick);state.syncTick=null;state.syncSnapshot=null;state.syncEtaDeadline=null;state.syncLastDone=null;state.syncEtaPhase=null;}
   function reportCacheBaseKey(){
     const identity=state.identity||{};
     const parts=[
@@ -232,7 +240,7 @@
   function closeDrawer(){ $('detailDrawer').classList.remove('open'); $('drawerBackdrop').classList.remove('open'); $('detailDrawer').setAttribute('aria-hidden','true'); }
 
   async function requestSync(){
-    state.syncEtaSeconds=null;state.syncEtaDeadline=null;state.syncLastDone=null;
+    state.syncEtaSeconds=null;state.syncEtaDeadline=null;state.syncLastDone=null;state.syncEtaPhase=null;
     $('syncButton').disabled=true; notice('Solicitando actualización a Motive…');
     try{
       const data=await api('/sync',{method:'POST'});
@@ -385,13 +393,15 @@
     const days=calendar.days||[],units=calendar.units||[],host=$('activityCalendar');
     if(!days.length||!units.length){host.innerHTML='<div class="empty">No hay datos diarios suficientes para construir la semana.</div>';return;}
     const dayLabel=day=>new Intl.DateTimeFormat('es-MX',{weekday:'short',day:'numeric',timeZone:'UTC'}).format(new Date(`${day}T12:00:00Z`));
-    const missingDays=unit=>days.filter(day=>{const record=unit.days?.[day]||{};return record.observed===true&&!(Number(record.distance_km||0)>0||Number(record.trips||0)>0);}).length;
-    const unknownDays=unit=>days.filter(day=>unit.days?.[day]?.observed!==true).length;
+    const isSunday=day=>new Date(`${day}T12:00:00Z`).getUTCDay()===0;
+    const countedDays=days.filter(day=>!isSunday(day));
+    const missingDays=unit=>countedDays.filter(day=>{const record=unit.days?.[day]||{};return record.observed===true&&!(Number(record.distance_km||0)>0||Number(record.trips||0)>0);}).length;
+    const unknownDays=unit=>countedDays.filter(day=>unit.days?.[day]?.observed!==true).length;
     const reviewUnits=units.filter(unit=>missingDays(unit)>0).sort((a,b)=>missingDays(b)-missingDays(a)||String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
     const incompleteUnits=units.filter(unit=>missingDays(unit)===0&&unknownDays(unit)>0).sort((a,b)=>unknownDays(b)-unknownDays(a)||String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
     const completeUnits=units.filter(unit=>missingDays(unit)===0&&unknownDays(unit)===0).sort((a,b)=>String(a.vehicle_number).localeCompare(String(b.vehicle_number),'es'));
-    const matrix=rows=>`<div class="activity-matrix-wrap activity-desktop"><table class="activity-matrix"><thead><tr><th>Unidad y chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(unit=>`<tr><td><span class="activity-unit"><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}${missingDays(unit)?` · ${fmt(missingDays(unit))} día${missingDays(unit)===1?'':'s'} sin recorrido`:unknownDays(unit)?` · ${fmt(unknownDays(unit))} día${unknownDays(unit)===1?'':'s'} sin datos`:''}</small></span></td>${days.map(day=>{const record=unit.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),observed=record.observed===true,worked=observed&&(distance>0||trips>0),tone=!observed?'unknown':worked?'worked':'idle',symbol=!observed?'?':worked?'✓':'—',detail=!observed?'Motive no entregó datos para este día':`${fmt(distance)} km · ${fmt(trips)} recorridos`;return `<td><span class="activity-day ${tone}" title="${esc(`${day}: ${detail}`)}">${symbol}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table></div><div class="activity-mobile">${rows.map(unit=>`<article class="activity-mobile-unit"><div><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}</small></div><div class="activity-mobile-days">${days.map(day=>{const record=unit.days?.[day]||{},observed=record.observed===true,distance=Number(record.distance_km||0),trips=Number(record.trips||0),worked=observed&&(distance>0||trips>0),tone=!observed?'unknown':worked?'worked':'idle';return `<span><small>${esc(dayLabel(day))}</small><i class="activity-day ${tone}">${!observed?'?':worked?'✓':'—'}</i></span>`;}).join('')}</div></article>`).join('')}</div>`;
-    host.innerHTML=`<div class="activity-period-note">La tabla muestra los últimos siete días del periodo consultado.</div><div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewUnits.length)} unidades</span></div>${reviewUnits.length?matrix(reviewUnits):'<div class="empty">No hay unidades con días confirmados sin recorrido GPS.</div>'}${incompleteUnits.length?`<details class="activity-complete" open><summary>Datos diarios pendientes de confirmar (${fmt(incompleteUnits.length)})</summary>${matrix(incompleteUnits)}</details>`:''}${completeUnits.length?`<details class="activity-complete" open><summary>Con recorrido registrado los 7 días (${fmt(completeUnits.length)})</summary>${matrix(completeUnits)}</details>`:''}<div class="activity-legend"><span><b>✓ Con recorrido GPS</b></span><span>— Sin recorrido confirmado</span><span>? Motive no entregó datos</span><span>“Sin recorrido” no confirma una falta; valida descansos, taller e incidencias antes de afectar nómina.</span></div>`;
+    const matrix=rows=>`<div class="activity-matrix-wrap activity-desktop"><table class="activity-matrix"><thead><tr><th>Unidad y chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(unit=>`<tr><td><span class="activity-unit"><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}${missingDays(unit)?` · ${fmt(missingDays(unit))} día${missingDays(unit)===1?'':'s'} sin recorrido`:unknownDays(unit)?` · ${fmt(unknownDays(unit))} día${unknownDays(unit)===1?'':'s'} sin datos`:''}</small></span></td>${days.map(day=>{const rest=isSunday(day),record=unit.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),observed=record.observed===true,worked=observed&&(distance>0||trips>0),tone=rest?'rest':!observed?'unknown':worked?'worked':'idle',symbol=rest?'D':!observed?'?':worked?'✓':'—',detail=rest?'Domingo: descanso, no cuenta para revisión':!observed?'Motive no entregó datos para este día':`${fmt(distance)} km · ${fmt(trips)} recorridos`;return `<td><span class="activity-day ${tone}" title="${esc(`${day}: ${detail}`)}">${symbol}</span></td>`;}).join('')}</tr>`).join('')}</tbody></table></div><div class="activity-mobile">${rows.map(unit=>`<article class="activity-mobile-unit"><div><b>${esc(unit.vehicle_number)}</b><small>${esc(unit.driver_name||'Sin chofer identificado')}</small></div><div class="activity-mobile-days">${days.map(day=>{const rest=isSunday(day),record=unit.days?.[day]||{},observed=record.observed===true,distance=Number(record.distance_km||0),trips=Number(record.trips||0),worked=observed&&(distance>0||trips>0),tone=rest?'rest':!observed?'unknown':worked?'worked':'idle';return `<span><small>${esc(dayLabel(day))}</small><i class="activity-day ${tone}">${rest?'D':!observed?'?':worked?'✓':'—'}</i></span>`;}).join('')}</div></article>`).join('')}</div>`;
+    host.innerHTML=`<div class="activity-period-note">La tabla muestra los últimos siete días del periodo consultado. Los domingos son descanso y no cuentan para revisión.</div><div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewUnits.length)} unidades</span></div>${reviewUnits.length?matrix(reviewUnits):'<div class="empty">No hay unidades con días confirmados sin recorrido GPS.</div>'}${incompleteUnits.length?`<details class="activity-complete" open><summary>Datos diarios pendientes de confirmar (${fmt(incompleteUnits.length)})</summary>${matrix(incompleteUnits)}</details>`:''}${completeUnits.length?`<details class="activity-complete" open><summary>Con recorrido todos los días laborables (${fmt(completeUnits.length)})</summary>${matrix(completeUnits)}</details>`:''}<div class="activity-legend"><span><b>✓ Con recorrido GPS</b></span><span>— Sin recorrido confirmado</span><span>D Domingo: descanso, no cuenta</span><span>? Motive no entregó datos</span><span>“Sin recorrido” no confirma una falta; valida descansos, taller e incidencias antes de afectar nómina.</span></div>`;
   }
 
   function behaviorDonutHtml(rows){
