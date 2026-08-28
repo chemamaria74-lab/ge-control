@@ -491,6 +491,11 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         and row["availability_status"].casefold() not in out_statuses
     ]
     units_without_driver = [row for row in units if not _text(row.get("driver_name"))]
+    units_without_inspections = [
+        {"vehicle_number": row["vehicle_number"], "driver_name": row["driver_name"]}
+        for row in units
+        if row["vehicle_number"] != "Sin unidad vinculada" and not row["inspections"]
+    ]
     inspection_credit_rows = sorted(
         inspection_credits.values(), key=lambda row: (-row["inspections"], row["driver_name"], row["vehicle_number"])
     )
@@ -538,6 +543,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         "attention_units": attention_units,
         "units_without_gps": units_without_gps,
         "units_without_driver": units_without_driver,
+        "units_without_inspections": units_without_inspections,
         "inspection_credits": inspection_credit_rows,
         "pending_inspection_credits": pending_inspection_credit_rows,
         "expense_units": expense_units,
