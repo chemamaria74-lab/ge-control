@@ -65,7 +65,8 @@ def _iso(value: Any) -> str | None:
 def _daily_metrics(
     *, integration_id: int, tenant_id: str, periods: list[dict[str, Any]],
     fuels: list[dict[str, Any]], inspections: list[dict[str, Any]],
-    defects: list[dict[str, Any]],
+    defects: list[dict[str, Any]], coverage_vehicle_ids: list[int] | None = None,
+    coverage_start: str | None = None, coverage_end: str | None = None,
 ) -> list[dict[str, Any]]:
     rows: dict[tuple[int, str], dict[str, Any]] = {}
 
@@ -81,6 +82,17 @@ def _daily_metrics(
             "fuel_liters": 0, "fuel_cost": 0, "inspection_count": 0,
             "open_defect_count": 0,
         })
+
+    # Cuando Motive terminó correctamente la consulta de recorridos, la
+    # ausencia de viajes significa cero confirmado, no falta de información.
+    # Sembrar cada unidad/día permite que el portal distinga ambos casos.
+    if coverage_vehicle_ids and coverage_start and coverage_end:
+        first_day, last_day = date.fromisoformat(coverage_start), date.fromisoformat(coverage_end)
+        for vehicle_id in coverage_vehicle_ids:
+            current_day = first_day
+            while current_day <= last_day:
+                metric(vehicle_id, current_day.isoformat())
+                current_day += timedelta(days=1)
 
     for period in periods:
         row = metric(period.get("vehicle_id"), period.get("started_at"))
@@ -1139,6 +1151,8 @@ def sync_motive_tenant(
         metric_rows = _daily_metrics(
             integration_id=integration_id, tenant_id=tenant_id,
             periods=periods, fuels=fuels, inspections=inspections, defects=defects,
+            coverage_vehicle_ids=(list(vehicle_ids.values()) if not isinstance(datasets.get("driving_periods"), dict) else []),
+            coverage_start=start_date, coverage_end=end_date,
         )
         datasets["daily_metrics"] = _upsert(
             sb, "fleet_vehicle_metrics_daily", metric_rows,
