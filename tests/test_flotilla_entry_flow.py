@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-coverage-concepts-13" in template
+    assert "flotilla.js?v=20260828-sunday-rest-15" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -277,6 +277,7 @@ def test_fleet_sync_ui_shows_phase_pages_and_remaining_time():
     assert "s transcurridos" in frontend
     assert "min restantes" in frontend
     assert "s restantes" in frontend
+    assert "Math.min(state.syncEtaDeadline,candidateDeadline)" in frontend
     assert "startSyncCountdown(sync)" in frontend
     assert "Actualización iniciada. Puedes seguir usando el portal." not in frontend
     assert "Actualización completada" in frontend
@@ -294,7 +295,9 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert 'id="activityCalendar"' in template
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
-    assert "Con recorrido registrado los 7 días" in frontend
+    assert "Con recorrido todos los días laborables" in frontend
+    assert "Los domingos son descanso y no cuentan para revisión" in frontend
+    assert "const countedDays=days.filter(day=>!isSunday(day))" in frontend
     assert "Datos diarios pendientes de confirmar" in frontend
     assert 'class="activity-complete" open' in frontend
     assert "La tabla muestra los últimos siete días" in frontend
