@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-sync-phases-11" in template
+    assert "flotilla.js?v=20260828-coverage-concepts-13" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -219,6 +219,8 @@ def test_manager_gps_keeps_motive_mobile_expenses_separate_from_office_expenses(
     assert 'startswith("ge_control_")' in backend
     assert "Motive no entregó gastos móviles vinculados a unidades" in frontend
     assert "Capturados en GE Control; no provienen de Motive" in frontend
+    assert "Gasto por concepto" in frontend
+    assert "office-expense-details" in frontend
 
 
 def test_catalog_exposes_zero_event_drivers_and_expense_totals_to_dashboard():
@@ -292,8 +294,10 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert 'id="activityCalendar"' in template
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
-    assert "Unidades con actividad completa" in frontend
-    assert "Datos incompletos de Motive" in frontend
+    assert "Con recorrido registrado los 7 días" in frontend
+    assert "Datos diarios pendientes de confirmar" in frontend
+    assert 'class="activity-complete" open' in frontend
+    assert "La tabla muestra los últimos siete días" in frontend
     assert "record.observed===true" in frontend
     assert "activity-mobile-unit" in frontend
     assert '"observed": False' in backend

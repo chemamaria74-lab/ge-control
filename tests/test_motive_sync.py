@@ -6,7 +6,7 @@ from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _lookback_dates,
-    _merge_motive_events, _official_requester_uuid, normalize_currency,
+    _daily_metrics, _merge_motive_events, _official_requester_uuid, normalize_currency,
 )
 from services.motive import motive_get_all_pages_flexible
 
@@ -27,6 +27,18 @@ def test_incremental_operational_window_covers_manager_report(monkeypatch):
     monkeypatch.delenv("MOTIVE_INCREMENTAL_LOOKBACK_DAYS", raising=False)
     start, end = _lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 30
+
+
+def test_daily_metrics_seed_confirmed_zero_days_after_complete_trip_sync():
+    rows = _daily_metrics(
+        integration_id=1, tenant_id="tenant", periods=[], fuels=[], inspections=[], defects=[],
+        coverage_vehicle_ids=[10, 11], coverage_start="2026-08-27", coverage_end="2026-08-28",
+    )
+    assert {(row["vehicle_id"], row["metric_date"]) for row in rows} == {
+        (10, "2026-08-27"), (10, "2026-08-28"),
+        (11, "2026-08-27"), (11, "2026-08-28"),
+    }
+    assert all(row["distance_km"] == 0 for row in rows)
 
 
 def test_sync_requester_rejects_internal_ids_and_keeps_auth_uuid():
