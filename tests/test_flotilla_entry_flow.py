@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-driver-provenance-9" in template
+    assert "flotilla.js?v=20260828-expense-separation-10" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -186,7 +186,7 @@ def test_manager_dashboard_includes_zone_expense_card():
     backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
 
     assert 'id="expensesPanel"' in template
-    assert "Gastos registrados" in template
+    assert "Gastos móviles por unidad" in template
     assert 'id="expenseSummary"' in template
     assert "registeredExpenses" in frontend
     assert '["pending_review", "observed", "accepted", "sent_to_accountant", "paid"]' in backend
@@ -199,12 +199,26 @@ def test_manager_portal_has_compact_gps_and_inventory_tabs():
 
     assert 'data-manager-tab="gps"' in template
     assert 'data-manager-tab="inventory"' in template
+    assert 'data-manager-tab="expenses"' in template
+    assert 'id="managerExpensesPanel"' in template
+    assert 'id="loadOfficeExpenses"' in template
     assert 'id="managerCompanyName"' in template
     assert 'id="managerCompanyRfc"' in template
     assert 'data-inventory-view="charts"' in template
     assert 'data-inventory-view="physical"' in template
     assert "loadManagerInventory" in frontend
     assert '@router.get("/flotilla/inventory")' in backend
+    assert '@router.get("/flotilla/office-expenses")' in backend
+
+
+def test_manager_gps_keeps_motive_mobile_expenses_separate_from_office_expenses():
+    backend = (ROOT / "routes/flotilla.py").read_text(encoding="utf-8")
+    frontend = (ROOT / "static/js/gas_lp/flotilla.js").read_text(encoding="utf-8")
+
+    assert '== "motive_card"' in backend
+    assert 'startswith("ge_control_")' in backend
+    assert "Motive no entregó gastos móviles vinculados a unidades" in frontend
+    assert "Capturados en GE Control; no provienen de Motive" in frontend
 
 
 def test_catalog_exposes_zero_event_drivers_and_expense_totals_to_dashboard():
@@ -221,7 +235,7 @@ def test_catalog_recovers_motive_vehicle_links_and_exposes_expenses_by_unit():
     assert 'raw_metadata.get("motive_vehicle_id")' in backend
     assert '"vehicle_id,motive_vehicle_id,purchased_at' in backend
     assert '"expense_units": analytics["expense_units"]' in backend
-    assert "Gasto por unidad" in frontend
+    assert "Desglose por unidad" in frontend
     assert 'row.get("expense_zone_id")' in backend
     assert 'gas_lp_expense_zones' in backend
 
