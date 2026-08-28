@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from routes.auth import obtener_acceso_modulo, verify_token
 from services.motive import MotiveAPIError, motive_is_configured
 from services.motive_sync import (
-    queue_motive_sync, sync_motive_safety, sync_motive_tenant,
+    queue_motive_sync, sync_motive_tenant,
     sync_vehicle_mileage_range, sync_vehicle_utilization_range,
 )
 from services.fleet_reports import (
@@ -606,9 +606,9 @@ def request_sync(
     except Exception as exc:
         raise HTTPException(503, f"No fue posible programar la actualización: {str(exc)[:160]}") from exc
     background_tasks.add_task(
-        sync_motive_tenant if full else sync_motive_safety,
+        sync_motive_tenant,
         ctx["tenant_id"],
-        **({"requested_by": requested_by, "full": True, "queued_run_id": run_id} if full else {"queued_run_id": run_id}),
+        **({"requested_by": requested_by, "full": full, "queued_run_id": run_id}),
     )
     return {"accepted": True, "reused": False, "status": "queued", "run_id": run_id}
 
@@ -713,6 +713,25 @@ def _report_rows(ctx: dict[str, Any], start: date, end: date, group_id: int | No
         dict(row) for row in vehicles
         if allowed_vehicle_ids is None or int(row["id"]) in allowed_vehicle_ids
     ]
+    selected_vehicle_ids = [int(row["id"]) for row in selected_vehicles]
+    # Motive puede no tener una asignación vigente aunque sí haya identificado
+    # al último chofer que condujo la unidad. Se conserva como antecedente, no
+    # como asignación actual.
+    last_driver_periods = (
+        sb.table("fleet_driving_periods")
+        .select("vehicle_id,driver_name,started_at")
+        .eq("tenant_id", tenant_id).in_("vehicle_id", selected_vehicle_ids)
+        .order("started_at", desc=True).limit(5000).execute().data or []
+    ) if selected_vehicle_ids else []
+    last_driver_by_vehicle: dict[int, dict[str, Any]] = {}
+    for period in last_driver_periods:
+        vehicle_id = int(period["vehicle_id"])
+        if vehicle_id not in last_driver_by_vehicle and str(period.get("driver_name") or "").strip():
+            last_driver_by_vehicle[vehicle_id] = period
+    for vehicle in selected_vehicles:
+        last_driver = last_driver_by_vehicle.get(int(vehicle["id"])) or {}
+        vehicle["last_known_driver_name"] = str(last_driver.get("driver_name") or "").strip()
+        vehicle["last_known_driver_at"] = last_driver.get("started_at")
     expenses = _collect(_between(sb.table("fleet_expenses").select("vehicle_id,occurred_at,vehicle_number,group_name,zone_name,expense_type,category,description,fuel_type,quantity_liters,unit_cost,amount_mxn,submitted_by,source,raw_metadata"), "occurred_at", start, end).eq("tenant_id", tenant_id).order("occurred_at", desc=True))
     # Gastos propios de GE Control son independientes de Motive Card y de CFDI.
     # Se consultan con service role, siempre acotados por tenant/empresa.
@@ -1091,17 +1110,19 @@ def report_catalog(
     for vehicle in data["vehicles"]:
         number = str(vehicle.get("vehicle_number") or "Sin número")
         activity_by_unit[number] = {
-            day.isoformat(): {"distance_km": 0.0, "trips": 0} for day in activity_days
+            day.isoformat(): {"distance_km": 0.0, "trips": 0, "observed": False} for day in activity_days
         }
     for metric in data.get("metrics", []):
         number, day = str(metric.get("vehicle_number") or ""), str(metric.get("metric_date") or "")[:10]
         if number in activity_by_unit and day in activity_by_unit[number]:
+            activity_by_unit[number][day]["observed"] = True
             activity_by_unit[number][day]["distance_km"] = max(
                 float(activity_by_unit[number][day]["distance_km"]), float(metric.get("distance_km") or 0)
             )
     for trip in data.get("activity", []):
         number, day = str(trip.get("vehicle_number") or ""), str(trip.get("started_at") or "")[:10]
         if number in activity_by_unit and day in activity_by_unit[number]:
+            activity_by_unit[number][day]["observed"] = True
             activity_by_unit[number][day]["trips"] = int(activity_by_unit[number][day]["trips"]) + 1
             if not activity_by_unit[number][day]["distance_km"]:
                 activity_by_unit[number][day]["distance_km"] = float(trip.get("distance_km") or 0)
@@ -1109,7 +1130,10 @@ def report_catalog(
         "days": [day.isoformat() for day in activity_days],
         "units": [{
             "vehicle_number": str(vehicle.get("vehicle_number") or "Sin número"),
-            "driver_name": str(vehicle.get("current_driver_name") or ""),
+            "driver_name": str(vehicle.get("current_driver_name") or vehicle.get("last_known_driver_name") or ""),
+            "driver_context": "Chofer asignado" if vehicle.get("current_driver_name") else (
+                "Último chofer visto" if vehicle.get("last_known_driver_name") else "Sin chofer identificado en Motive"
+            ),
             "status": str(vehicle.get("availability_status") or vehicle.get("status") or ""),
             "days": activity_by_unit[str(vehicle.get("vehicle_number") or "Sin número")],
         } for vehicle in data["vehicles"]],
