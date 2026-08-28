@@ -454,10 +454,10 @@ def _optional_pages(datasets: dict[str, Any], name: str, path: str, collection_k
 
 
 def _lookback_dates(full: bool) -> tuple[str, str]:
-    # La primera carga conserva un año. Las actualizaciones posteriores vuelven
-    # a revisar tres días para captar correcciones tardías sin descargar dos
-    # semanas completas en cada clic.
-    default_days = 365 if full else 3
+    # La primera carga conserva un año. Cada actualización manual vuelve a
+    # consultar 30 días: además de cubrir el informe gerencial, recompone huecos
+    # causados por varios días sin sincronizar y recoge correcciones tardías.
+    default_days = 365 if full else 30
     env_name = "MOTIVE_INITIAL_LOOKBACK_DAYS" if full else "MOTIVE_INCREMENTAL_LOOKBACK_DAYS"
     try:
         days = min(max(int(os.getenv(env_name, default_days)), 1), 730)
@@ -472,9 +472,9 @@ def _event_lookback_dates(full: bool) -> tuple[str, str]:
     if full:
         return _lookback_dates(True)
     try:
-        days = min(max(int(os.getenv("MOTIVE_EVENT_LOOKBACK_DAYS", 14)), 1), 730)
+        days = min(max(int(os.getenv("MOTIVE_EVENT_LOOKBACK_DAYS", 30)), 1), 730)
     except ValueError:
-        days = 14
+        days = 30
     today = date.today()
     return (today - timedelta(days=days)).isoformat(), today.isoformat()
 

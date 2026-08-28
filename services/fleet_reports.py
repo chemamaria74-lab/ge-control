@@ -219,6 +219,7 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             "telemetry_observed": False,
             "telemetry_available": False, "coverage_status": "Sin datos GPS / revisión manual",
             "status": "", "availability_status": "",
+            "last_known_driver_name": "", "last_known_driver_at": None,
         })
 
     def driver(value: Any, vehicle_number: Any) -> dict[str, Any]:
@@ -238,6 +239,8 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         item["driver_name"] = _text(row.get("current_driver_name"))
         item["status"] = _text(row.get("status"))
         item["availability_status"] = _text(row.get("availability_status"))
+        item["last_known_driver_name"] = _text(row.get("last_known_driver_name"))
+        item["last_known_driver_at"] = row.get("last_known_driver_at")
         if item["driver_name"]:
             # Mantener visible el conductor asignado aun cuando durante el
             # periodo tenga cero eventos. No se incluye en capacitación.
@@ -492,7 +495,14 @@ def fleet_analytics(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     ]
     units_without_driver = [row for row in units if not _text(row.get("driver_name"))]
     units_without_inspections = [
-        {"vehicle_number": row["vehicle_number"], "driver_name": row["driver_name"]}
+        {
+            "vehicle_number": row["vehicle_number"],
+            "driver_name": row["driver_name"] or row["last_known_driver_name"],
+            "driver_context": "Chofer identificado en el periodo" if row["driver_name"] else (
+                "Último chofer visto" if row["last_known_driver_name"] else "Sin chofer identificado en Motive"
+            ),
+            "driver_last_seen_at": row["last_known_driver_at"],
+        }
         for row in units
         if row["vehicle_number"] != "Sin unidad vinculada" and not row["inspections"]
     ]
