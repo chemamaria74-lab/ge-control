@@ -90,7 +90,7 @@
     </section>
 
     <section class="panel" data-content="review">
-      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div>
+      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><div class="toolbar-inline"><label>Mes de pago<input id="paymentExportMonth" type="month"></label><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div></div>
       <article class="card"><div class="card-heading"><div><h3 id="paymentsHeading">Pendientes por destinatario</h3><p id="paymentsHelp">Selecciona un proveedor o persona para revisar las facturas y preparar su transferencia.</p></div><div class="toolbar-inline"><button class="btn primary" id="searchReview" type="button">Cargar pendientes</button></div></div><label class="review-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Buscar en pagos</span><input id="paymentSearch" type="search" autocomplete="off" placeholder="Buscar proveedor, persona, folio o referencia"></label><div class="status" id="reviewLoadStatus">Presiona Cargar pendientes para consultar.</div><div class="payment-summary compact"><span id="paymentSummaryLabel">Total pendiente</span><strong id="payableGrandTotal">$0.00</strong><small id="payableInvoiceCount">0 gastos</small></div><div id="reviewRows" class="payment-groups"><div class="empty">Presiona Cargar pendientes.</div></div></article>
     </section>
 
@@ -136,6 +136,6 @@
       <div id="advanceApplyOptions" class="advance-apply-options"></div><div class="advance-apply-balance"><span>Anticipos aplicados: <strong id="advanceApplyTotal">$0.00</strong></span><span>Restante por pagar: <strong id="advanceRemainingTotal">$0.00</strong></span></div><div class="actions"><button class="btn primary" type="submit">Relacionar factura</button></div>
     </form>
   </div>
-  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
+  <script src="/static/js/session_timeout.js?v=identity-bound-20260827"></script>
   <script src="/static/js/gas_lp/gastos_admin.js?v=paid-left-aligned-20260824-clear-capture-after-save-20260826"></script>
 </body></html>
