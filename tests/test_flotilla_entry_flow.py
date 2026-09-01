@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260831-weekly-rhythm-19" in template
+    assert "flotilla.js?v=20260831-stop-trend-20" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -299,6 +299,8 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert "Desglose del día" in frontend
     assert "Recorridos" in frontend and "Paradas" in frontend
     assert "dayCellContent" in frontend and "activity-load" in frontend
+    assert "unitStopBaseline" in frontend and "previousStops" in frontend
+    assert "Ritmo habitual" in frontend
     assert '"trip_details": []' in backend
     assert 'daily["stops"]' in backend
     assert "Los domingos son descanso y no cuentan para revisión" in frontend
