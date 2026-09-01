@@ -385,7 +385,9 @@ async def actualizar_pago_factura(
             (payload.fecha_pago or datetime.now(timezone.utc)).isoformat()
             if payload.estado_pago == "pagada" else None
         ),
-        "saldo_pendiente": Decimal("0") if payload.estado_pago == "pagada" else total,
+        # supabase-py serializa el cuerpo como JSON; Decimal no es serializable.
+        # Enviar un número JSON evita que una factura encontrada falle al guardar.
+        "saldo_pendiente": 0.0 if payload.estado_pago == "pagada" else float(total),
     }
     try:
         update = (
