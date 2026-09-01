@@ -443,6 +443,9 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert 'id="directPaymentTarget"' in html and 'id="directRecipient"' in html
     assert 'data-subcontent="recipients"' in html
     assert 'id="batchPaymentForm"' in html and "Excel para contabilidad" in html
+    assert 'id="paymentExportMonth" type="month"' in html
+    assert "const month=$('paymentExportMonth').value" in script
+    assert "No hay pagos registrados en {period}" in route
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
