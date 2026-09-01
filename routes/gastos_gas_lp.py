@@ -1791,20 +1791,29 @@ def create_expense_payment(payload: ExpensePaymentCreate, token: str = Query(def
 
 
 @router.get("/gastos/payments")
-def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), token: str = Query(default=""),
+def list_expense_payments(limit: int = Query(default=200, ge=1, le=500), month: str = Query(default=""),
+                          token: str = Query(default=""),
                           authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
                   x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     if not ctx["is_admin"]:
         raise HTTPException(403, "Solo Gastos y pagos puede consultar pagos.")
-    payments = (_base_query(ctx, "gas_lp_expense_payments")
-                .order("paid_on", desc=True).order("created_at", desc=True)
+    if month and not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(400, "El mes debe tener formato AAAA-MM.")
+    payment_query = _base_query(ctx, "gas_lp_expense_payments")
+    advance_query = _base_query(ctx, "gas_lp_expense_advances")
+    if month:
+        year, month_number = (int(value) for value in month.split("-"))
+        start = date(year, month_number, 1)
+        end = date(year + (month_number == 12), 1 if month_number == 12 else month_number + 1, 1)
+        payment_query = payment_query.gte("paid_on", start.isoformat()).lt("paid_on", end.isoformat())
+        advance_query = advance_query.gte("paid_on", start.isoformat()).lt("paid_on", end.isoformat())
+    payments = (payment_query.order("paid_on", desc=True).order("created_at", desc=True)
                 .limit(limit).execute().data or [])
     # Un anticipo ya es una salida de dinero. Se integra al historial de pagos
     # como movimiento de consulta, sin crear un segundo pago ni duplicar el egreso.
-    advances = (_base_query(ctx, "gas_lp_expense_advances")
-                .in_("status", ["pending", "partial", "applied"])
+    advances = (advance_query.in_("status", ["pending", "partial", "applied"])
                 .order("paid_on", desc=True).order("created_at", desc=True)
                 .limit(limit).execute().data or [])
     advance_ids = [int(row["id"]) for row in advances]
