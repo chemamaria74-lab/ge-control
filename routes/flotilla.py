@@ -1154,7 +1154,11 @@ def report_catalog(
     for vehicle in data["vehicles"]:
         number = str(vehicle.get("vehicle_number") or "Sin número")
         activity_by_unit[number] = {
-            day.isoformat(): {"distance_km": 0.0, "trips": 0, "observed": False} for day in activity_days
+            day.isoformat(): {
+                "distance_km": 0.0, "trips": 0, "stops": 0,
+                "drive_minutes": 0, "trip_distance_km": 0.0,
+                "observed": False, "trip_details": [],
+            } for day in activity_days
         }
     for metric in data.get("metrics", []):
         number, day = str(metric.get("vehicle_number") or ""), str(metric.get("metric_date") or "")[:10]
@@ -1166,10 +1170,31 @@ def report_catalog(
     for trip in data.get("activity", []):
         number, day = str(trip.get("vehicle_number") or ""), str(trip.get("started_at") or "")[:10]
         if number in activity_by_unit and day in activity_by_unit[number]:
-            activity_by_unit[number][day]["observed"] = True
-            activity_by_unit[number][day]["trips"] = int(activity_by_unit[number][day]["trips"]) + 1
-            if not activity_by_unit[number][day]["distance_km"]:
-                activity_by_unit[number][day]["distance_km"] = float(trip.get("distance_km") or 0)
+            daily = activity_by_unit[number][day]
+            daily["observed"] = True
+            daily["trips"] = int(daily["trips"]) + 1
+            if trip.get("ended_at"):
+                daily["stops"] = int(daily["stops"]) + 1
+            duration_minutes = 0
+            try:
+                started_at = datetime.fromisoformat(str(trip.get("started_at") or "").replace("Z", "+00:00"))
+                ended_at = datetime.fromisoformat(str(trip.get("ended_at") or "").replace("Z", "+00:00"))
+                duration_minutes = max(0, round((ended_at - started_at).total_seconds() / 60))
+            except (TypeError, ValueError):
+                pass
+            daily["drive_minutes"] = int(daily["drive_minutes"]) + duration_minutes
+            trip_distance = float(trip.get("distance_km") or 0)
+            daily["trip_distance_km"] = float(daily["trip_distance_km"]) + trip_distance
+            daily["trip_details"].append({
+                "started_at": trip.get("started_at"), "ended_at": trip.get("ended_at"),
+                "origin": trip.get("origin") or "", "destination": trip.get("destination") or "",
+                "distance_km": trip_distance, "duration_minutes": duration_minutes,
+            })
+    for unit_days in activity_by_unit.values():
+        for daily in unit_days.values():
+            if not daily["distance_km"]:
+                daily["distance_km"] = round(float(daily["trip_distance_km"]), 3)
+            daily.pop("trip_distance_km", None)
     activity_calendar = {
         "days": [day.isoformat() for day in activity_days],
         "units": [{
