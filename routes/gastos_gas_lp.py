@@ -1987,6 +1987,11 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
     advances = (_base_query(ctx, "gas_lp_expense_advances").gte("paid_on", start.isoformat())
                 .lt("paid_on", end.isoformat()).in_("status", ["pending", "partial", "applied"])
                 .order("paid_on").order("id").execute().data or [])
+    if not payments and not advances:
+        raise HTTPException(
+            404,
+            f"No hay pagos registrados en {period}. Selecciona otro mes de pago para generar el Excel.",
+        )
     advance_ids = [int(row["id"]) for row in advances]
     advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications")
                      .select("advance_id,amount_mxn").in_("advance_id", advance_ids)
