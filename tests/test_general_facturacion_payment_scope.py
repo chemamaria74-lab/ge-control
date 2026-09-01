@@ -20,3 +20,10 @@ def test_invoice_list_uses_the_same_company_scope_as_payment_updates():
     endpoint = SOURCE.split("async def listar_facturas_generales", 1)[1].split("@router.patch", 1)[0]
 
     assert "_profile_invoice_query(" in endpoint
+
+
+def test_invoice_payment_sends_json_serializable_balance_to_supabase():
+    endpoint = SOURCE.split("async def actualizar_pago_factura", 1)[1].split("@router.patch", 1)[0]
+
+    assert '"saldo_pendiente": 0.0 if payload.estado_pago == "pagada" else float(total)' in endpoint
+    assert '"saldo_pendiente": Decimal(' not in endpoint
