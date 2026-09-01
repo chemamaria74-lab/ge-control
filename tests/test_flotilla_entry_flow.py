@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260828-sunday-rest-15" in template
+    assert "flotilla.js?v=20260831-activity-detail-18" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -295,7 +295,11 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert 'id="activityCalendar"' in template
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
-    assert "Con recorrido todos los días laborables" in frontend
+    assert "Con jornada GPS todos los días laborables" in frontend
+    assert "Desglose del día" in frontend
+    assert "Recorridos" in frontend and "Paradas" in frontend
+    assert '"trip_details": []' in backend
+    assert 'daily["stops"]' in backend
     assert "Los domingos son descanso y no cuentan para revisión" in frontend
     assert "const countedDays=days.filter(day=>!isSunday(day))" in frontend
     assert "Datos diarios pendientes de confirmar" in frontend
