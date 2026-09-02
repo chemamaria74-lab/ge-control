@@ -767,7 +767,7 @@ def test_asistente_realizadas_hoy_uses_stamp_date_and_cache_busted_scripts():
     assert "facturaRealizadaTimeLabel(f)" in html
     assert "mexicoDateKey(value)" in html
     assert "mexicoTimeLabel(value)" in html
-    assert "realizadas-hoy-hora-mx-20260720c" in shell
+    assert "50_facturas_pagos.js?v=facturas-mes-completo-20260825" in shell
     assert "loadFacturas('', {surfaceError:true, cartaPorte:true, force:true})" in html
 
 
@@ -1713,7 +1713,7 @@ def test_transfer_email_default_contract_keeps_transfer_email_explicit():
     assert data["transfer_email_provided"] is True
     assert "payload.transfer_email_provided" in create_source
     assert "transfer-email-default" in html
-    assert "Guardar como correo predeterminado para traspasos" in html
+    assert "transfer_email_provided: isTraspaso" in html
 
 
 def test_assistant_facturas_table_shows_fiscal_status_column():
@@ -1871,7 +1871,8 @@ def test_assistant_invoice_preview_rounds_half_up_like_backend():
 
     assert "const INVOICE_ROUND_EPSILON = 1e-9" in html
     assert "Math.round((n + INVOICE_ROUND_EPSILON) * factor)" in html
-    assert "40_facturacion.js?v=invoice-round-half-up-20260611" in html
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+    assert "40_facturacion.js?v=transfer-layout-stable-20260810" in shell
 
     _, totals = internal_users._build_gas_lp_consumo_xml(
         issuer={"rfc": "AAA010101AAA", "nombre": "EMISOR PRUEBA", "cp": "98600", "regimen": "601"},

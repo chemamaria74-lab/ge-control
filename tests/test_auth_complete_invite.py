@@ -9,7 +9,12 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
 from main import app
 
 
-def test_invite_completion_page_uses_public_auth_api_and_clears_fragment():
+def test_invite_completion_page_uses_public_auth_api_and_clears_fragment(monkeypatch):
+    # Other test modules configure their own Supabase fixtures during import.
+    # Pin the public values here so this security contract is order-independent.
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-publishable-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
     response = TestClient(app).get("/auth/complete-invite")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
