@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import re
 import unicodedata
 from typing import Optional
+from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException, Response
@@ -11,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 from services.general_cfdi_preview import general_cfdi_preview_xml
-from services.sw_sapien import emitir_timbrar_json, timbrar_cfdi
+from services.sw_sapien import consultar_estatus_cfdi, emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import send_gas_lp_invoice_email
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
@@ -142,11 +143,11 @@ def _scope_required(authorization: str, x_perfil_id: str) -> dict:
     return scope
 
 
-def _profile_invoice_query(scope: dict, select: str = "*"):
-    """Invoices belong to the verified company profile, including legacy creators."""
+def _profile_table_query(table: str, scope: dict, select: str = "*"):
+    """Company records belong to the verified profile, including legacy creators."""
     query = (
         get_supabase_admin()
-        .table(FACTURAS)
+        .table(table)
         .select(select)
         .eq("perfil_id", scope["perfil_id"])
     )
@@ -155,14 +156,18 @@ def _profile_invoice_query(scope: dict, select: str = "*"):
     return query
 
 
+def _profile_invoice_query(scope: dict, select: str = "*"):
+    return _profile_table_query(FACTURAS, scope, select)
+
+
 def _recover_profile_pac_invoices(scope: dict) -> dict:
     """Recupera CFDI timbrados auditados que no alcanzaron a guardarse localmente."""
     sb = get_supabase_admin()
-    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    config = (_profile_table_query(CONFIG, scope).eq("activo", True).order("updated_at", desc=True).limit(1).execute().data or [{}])[0]
     issuer_rfc = str(config.get("rfc") or "").strip().upper()
     if not issuer_rfc:
         raise HTTPException(409, "Configura el RFC emisor antes de sincronizar con el PAC.")
-    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    schedules = _profile_table_query(PROGRAMACIONES, scope).order("created_at", desc=True).execute().data or []
     scheduled_signatures = {
         (
             str((((item.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
@@ -230,6 +235,11 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
             "fecha_pago": created_at if method == "PUE" else None,
             "fecha_vencimiento": None if method == "PUE" else str(created_at)[:10],
             "saldo_pendiente": 0.0 if method == "PUE" else total,
+            "email_delivery": {
+                "status": "no_enviado", "ok": False, "skipped": True,
+                "recipient": "", "message_id": "",
+                "error": "Factura recuperada del PAC; no existe evidencia de envío previo.",
+            },
             "created_at": created_at,
         }))
         if row:
@@ -237,7 +247,7 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
             recovered_rows.append(row)
 
     all_invoices = current + recovered_rows
-    executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
+    executions = _profile_table_query(EJECUCIONES, scope).order("created_at", desc=True).execute().data or []
     execution_updates = 0
     for execution in executions:
         if execution.get("status") not in {"error", "rechazada", "pac_timbrada", "procesando"}:
@@ -264,6 +274,52 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         update.execute()
         execution_updates += 1
     return {"recovered": len(recovered_rows), "existing": already_existing, "execution_updates": execution_updates}
+
+
+def _sync_profile_cancellation_states(scope: dict) -> dict:
+    """Actualiza estados fiscales sin emitir ni cancelar CFDI."""
+    rows = _profile_invoice_query(
+        scope, "id,uuid_sat,xml_content,cfdi_json,cancelacion_status"
+    ).execute().data or []
+    checked = updated = errors = 0
+    for row in rows:
+        uuid_sat = str(row.get("uuid_sat") or "").strip()
+        if not uuid_sat:
+            continue
+        cfdi = row.get("cfdi_json") or {}
+        sello = str(cfdi.get("Sello") or "")
+        if not sello and row.get("xml_content"):
+            try:
+                root = ET.fromstring(row["xml_content"])
+                sello = root.attrib.get("Sello", "")
+            except Exception:
+                sello = ""
+        result = consultar_estatus_cfdi(
+            uuid_sat=uuid_sat,
+            rfc_emisor=(cfdi.get("Emisor") or {}).get("Rfc") or "",
+            rfc_receptor=(cfdi.get("Receptor") or {}).get("Rfc") or "",
+            total=cfdi.get("Total") or 0,
+            sello_cfdi=sello,
+        )
+        checked += 1
+        if not result.get("ok"):
+            errors += 1
+            continue
+        estado = str(result.get("estado") or "").lower()
+        cancel_detail = str(result.get("estatus_cancelacion") or "").lower()
+        if "cancelado" in estado:
+            status = "cancelada"
+        elif any(token in cancel_detail for token in ("proceso", "solicitud", "pendiente")):
+            status = "en_proceso"
+        else:
+            status = ""
+        if status != str(row.get("cancelacion_status") or ""):
+            _sb_update(FACTURAS, row["id"], scope, {
+                "cancelacion_status": status,
+                "cancelacion_resultado": {"consulta_sat": result},
+            })
+            updated += 1
+    return {"cancellation_checked": checked, "cancellation_updated": updated, "cancellation_errors": errors}
 
 
 @router.get("/configuracion-fiscal")
@@ -453,8 +509,14 @@ async def listar_facturas_generales(authorization: str = Header(default=""), x_p
     scope = _scope_required(authorization, x_perfil_id)
     rows = (_profile_invoice_query(
         scope,
-        "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status"
+        "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status,email_delivery"
     ).order("created_at", desc=True).execute().data or [])
+    if not rows:
+        _recover_profile_pac_invoices(scope)
+        rows = (_profile_invoice_query(
+            scope,
+            "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status,email_delivery"
+        ).order("created_at", desc=True).execute().data or [])
     for row in rows:
         if row.get("status") == "timbrada" and not str(row.get("uuid_sat") or "").strip():
             _sb_update(FACTURAS, row["id"], scope, {"status": "rechazada"})
@@ -464,9 +526,11 @@ async def listar_facturas_generales(authorization: str = Header(default=""), x_p
 
 @router.post("/facturas/sincronizar-pac")
 async def sincronizar_facturas_pac(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    """Importa desde la auditoría fiscal sin emitir ni timbrar documentos nuevos."""
-    result = _recover_profile_pac_invoices(_scope_required(authorization, x_perfil_id))
-    return {"ok": True, **result}
+    """Importa timbres y consulta cancelaciones sin emitir documentos nuevos."""
+    scope = _scope_required(authorization, x_perfil_id)
+    result = _recover_profile_pac_invoices(scope)
+    cancellation = _sync_profile_cancellation_states(scope)
+    return {"ok": True, **result, **cancellation}
 
 
 @router.patch("/facturas/{factura_id}/pago")
@@ -534,7 +598,8 @@ async def actualizar_vencimiento(factura_id: int, payload: DueDateUpdate, author
 @router.get("/facturas/{factura_id}/pdf")
 async def descargar_pdf_factura_general(factura_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    factura = _sb_get(FACTURAS, factura_id, scope)
+    invoices = _profile_invoice_query(scope).eq("id", factura_id).limit(1).execute().data or []
+    factura = invoices[0] if invoices else None
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
     pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
@@ -545,7 +610,9 @@ async def descargar_pdf_factura_general(factura_id: int, authorization: str = He
 
 @router.get("/facturas/{factura_id}/xml")
 async def descargar_xml_factura_general(factura_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    factura = _sb_get(FACTURAS, factura_id, _scope_required(authorization, x_perfil_id))
+    scope = _scope_required(authorization, x_perfil_id)
+    invoices = _profile_invoice_query(scope).eq("id", factura_id).limit(1).execute().data or []
+    factura = invoices[0] if invoices else None
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "El XML timbrado no está disponible.")
     filename = _document_filename(factura, "xml")
@@ -561,7 +628,8 @@ async def enviar_factura_general_por_correo(
 ):
     """Envía nuevamente el XML y la representación PDF; no vuelve a timbrar."""
     scope = _scope_required(authorization, x_perfil_id)
-    factura = _sb_get(FACTURAS, factura_id, scope)
+    invoices = _profile_invoice_query(scope).eq("id", factura_id).limit(1).execute().data or []
+    factura = invoices[0] if invoices else None
     if not factura or factura.get("status") != "timbrada" or not factura.get("xml_content"):
         raise HTTPException(404, "La factura timbrada o sus archivos no están disponibles.")
     cfdi = factura.get("cfdi_json") or {}
@@ -593,21 +661,70 @@ async def enviar_factura_general_por_correo(
         quantity=quantity,
         unit_label=unit_label,
     )
+    delivery = {
+        **result.as_metadata(),
+        "status": "enviado" if result.ok else "error",
+        "recipient": str(payload.email),
+        "attempted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    update = get_supabase_admin().table(FACTURAS).update({
+        "email_delivery": delivery, "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
+    if scope.get("tenant_id"):
+        update = update.eq("tenant_id", scope["tenant_id"])
+    update.execute()
     if not result.ok:
         raise HTTPException(502, result.error or "No se pudo enviar el correo.")
-    return {"ok": True, "email": str(payload.email), "message_id": result.message_id}
+    return {"ok": True, "email": str(payload.email), "message_id": result.message_id, "email_delivery": delivery}
 
 
 @router.post("/facturas/{factura_id}/cancelar")
 async def cancelar_factura_general(factura_id: int, payload: CancelGeneralRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    factura = _sb_get(FACTURAS, factura_id, scope)
+    invoices = _profile_invoice_query(scope).eq("id", factura_id).limit(1).execute().data or []
+    factura = invoices[0] if invoices else None
     if not factura:
         raise HTTPException(404, "Factura no encontrada.")
-    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
-    result = cancel_cfdi_universal(sb=get_supabase_admin(), module="general_facturacion", invoice_table=FACTURAS, invoice_id=factura_id, uuid_sat=factura.get("uuid_sat") or "", rfc_emisor=config.get("rfc") or "", motivo=payload.motivo, uuid_sustitucion=payload.uuid_sustitucion, user_id=scope["user_id"], perfil_id=scope.get("perfil_id"), tenant_id=scope.get("tenant_id"), requested_by=scope["user_id"])
-    values = {"status": "cancelada", "cancelacion_status": result.get("status") or "Cancelada", "cancelacion_resultado": result}
-    _sb_update(FACTURAS, factura_id, scope, values)
+    if str(factura.get("cancelacion_status") or "").lower() in {"en_proceso", "cancelada"}:
+        raise HTTPException(409, "Esta factura ya tiene una solicitud de cancelación registrada.")
+    runtime = sw_runtime_config()
+    if runtime.get("sw_env") != "production":
+        raise HTTPException(400, "Cancelación fiscal bloqueada: SW no está en producción.")
+    if not runtime.get("real_cancelacion_flag"):
+        raise HTTPException(400, "Cancelación real bloqueada: falta SW_ALLOW_REAL_CANCELACION=true.")
+    config = (_profile_table_query(CONFIG, scope).eq("activo", True).order("updated_at", desc=True).limit(1).execute().data or [{}])[0]
+    cfdi = factura.get("cfdi_json") or {}
+    invoice_issuer_rfc = str(((cfdi.get("Emisor") or {}).get("Rfc") or "")).strip().upper()
+    configured_issuer_rfc = str(config.get("rfc") or "").strip().upper()
+    issuer_rfc = invoice_issuer_rfc or configured_issuer_rfc
+    if not issuer_rfc:
+        raise HTTPException(400, "No se puede cancelar: la factura no tiene RFC emisor guardado.")
+    update = get_supabase_admin().table(FACTURAS).update({
+        "cancelacion_status": "en_proceso", "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
+    if scope.get("tenant_id"):
+        update = update.eq("tenant_id", scope["tenant_id"])
+    update.execute()
+    try:
+        result = cancel_cfdi_universal(sb=get_supabase_admin(), module="general_facturacion", invoice_table=FACTURAS, invoice_id=factura_id, uuid_sat=factura.get("uuid_sat") or "", rfc_emisor=issuer_rfc, motivo=payload.motivo, uuid_sustitucion=payload.uuid_sustitucion, user_id=scope["user_id"], perfil_id=scope.get("perfil_id"), tenant_id=scope.get("tenant_id"), requested_by=scope["user_id"])
+    except HTTPException as exc:
+        failed_update = get_supabase_admin().table(FACTURAS).update({
+            "cancelacion_status": "error", "cancelacion_resultado": {"detail": exc.detail},
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
+        if scope.get("tenant_id"):
+            failed_update = failed_update.eq("tenant_id", scope["tenant_id"])
+        failed_update.execute()
+        raise
+    raw_text = str(result.get("raw") or "").lower()
+    pending = any(token in raw_text for token in ("pending", "pendiente", "proceso", "solicitud")) and not any(token in raw_text for token in ("cancelado", "cancelada"))
+    values = {"status": "timbrada", "cancelacion_status": "en_proceso" if pending else "cancelada", "cancelacion_resultado": result}
+    final_update = get_supabase_admin().table(FACTURAS).update({
+        **values, "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
+    if scope.get("tenant_id"):
+        final_update = final_update.eq("tenant_id", scope["tenant_id"])
+    final_update.execute()
     return {"ok": True, **values}
 
 
@@ -725,10 +842,10 @@ def _validate_schedule_spacing(schedules: list[dict], *, day: int, local_time: s
 @router.get("/programaciones")
 async def listar_programaciones(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    schedules = _profile_table_query(PROGRAMACIONES, scope).order("created_at", desc=True).execute().data or []
     clients = _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
     clients_by_rfc = {str(client.get("rfc") or "").strip().upper(): client for client in clients}
-    executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
+    executions = _profile_table_query(EJECUCIONES, scope).order("created_at", desc=True).execute().data or []
     latest_by_schedule = {}
     for execution in executions:
         latest_by_schedule.setdefault(str(execution.get("programacion_id")), execution)
