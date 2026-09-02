@@ -10,6 +10,7 @@
   const REFRESH_LOCK_NAME = 'ge-session-refresh';
   const REFRESH_CHANNEL_NAME = 'ge-session-refresh-events';
   const REFRESH_TIMEOUT_MS = 10 * 1000;
+  const TAB_IDENTITY_KEY = 'ge_tab_session_user_id';
   const AUTH_KEYS = [
     'sat_token', 'zc_token', 'sat_user_id', 'sat_email', 'sat_role',
     'sat_assigned_perfil_id', 'sat_modulo', 'trv2_user', 'zc_perfil',
@@ -104,6 +105,7 @@
     sessionStorage.removeItem('ge_flotilla_expires_at');
     sessionStorage.removeItem('ge_flotilla_identity');
     sessionStorage.removeItem('ge_flotilla_auth_mode');
+    sessionStorage.removeItem(TAB_IDENTITY_KEY);
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith(LAST_ACTIVITY_PREFIX)) localStorage.removeItem(key);
     });
@@ -115,6 +117,21 @@
       const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       return Number(payload.exp || 0) > 0 && now >= Number(payload.exp) * 1000;
     } catch (_err) { return false; }
+  }
+
+  function jwtSubject(token) {
+    if (!token || token.split('.').length !== 3) return '';
+    try {
+      return String(JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub || '');
+    } catch (_err) { return ''; }
+  }
+
+  function expectedUserId() {
+    const pinned = sessionStorage.getItem(TAB_IDENTITY_KEY) || '';
+    if (pinned) return pinned;
+    const subject = jwtSubject(activeToken());
+    if (subject && !location.pathname.startsWith('/login')) sessionStorage.setItem(TAB_IDENTITY_KEY, subject);
+    return subject;
   }
 
   function jwtExpiresSoon(token, windowMs = 5 * 60 * 1000, now = Date.now()) {
@@ -188,13 +205,17 @@
   function applyRefreshedToken(token, broadcast = false) {
     token = String(token || '');
     if (!token) return '';
+    const expected = expectedUserId();
+    const refreshedUser = jwtSubject(token);
+    if (!expected || !refreshedUser || refreshedUser !== expected) return '';
     const currentPortal = portal();
     currentPortal.tokenKeys.forEach(key => {
       if (localStorage.getItem(key)) localStorage.setItem(key, token);
     });
     if (currentPortal.tokenKeys.includes('sat_token')) localStorage.setItem('sat_token', token);
     window.dispatchEvent(new CustomEvent('ge:token-refreshed', {detail: {token}}));
-    markActivity(true);
+    // Renovar credenciales es trabajo automático del sistema, no actividad
+    // humana. No reiniciar aquí el reloj de inactividad.
     if (broadcast && refreshChannel) refreshChannel.postMessage({type: 'token', token});
     return token;
   }
@@ -212,6 +233,7 @@
       method: 'POST',
       credentials: 'same-origin',
       cache: 'no-store',
+      headers: {Authorization: `Bearer ${activeToken()}`},
       ...(controller ? {signal: controller.signal} : {}),
     }).then(async response => {
       if (!response.ok) return '';
