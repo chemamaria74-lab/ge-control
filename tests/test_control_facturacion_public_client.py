@@ -43,7 +43,7 @@ def test_today_table_only_shows_invoices_with_a_sat_uuid():
     assert "ready=Boolean(String(row.uuid_sat||'').trim())" in render
     assert "return ready&&" in render
     assert "${fiscalPill(row)}" in render
-    assert "No hay CFDI sincronizados hoy." in render
+    assert "No hay facturas vigentes hoy." in render
 
 
 def test_cancelled_and_pending_cancellations_do_not_inflate_summary_totals():

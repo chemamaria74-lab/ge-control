@@ -72,11 +72,20 @@ def test_cancelled_and_pending_cancellation_invoices_remain_visible():
     renderer = FRONTEND.split("function renderInvoices", 1)[1].split("async function downloadXml", 1)[0]
     cancel_endpoint = SOURCE.split("async def cancelar_factura_general", 1)[1].split("@router.get", 1)[0]
 
-    assert "row.status==='timbrada'" not in renderer
+    assert "const rows=state.invoices.filter" in renderer
+    assert "row.status==='cancelada'" in renderer
     assert "fiscalPill(row)" in renderer
     assert "Cancelación en proceso" in FRONTEND
     assert '"status": "cancelacion_en_proceso" if pending else "cancelada"' in cancel_endpoint
     assert '"cancelacion_status": "en_proceso"' in cancel_endpoint
+
+
+def test_invoice_filters_and_formal_cancellation_flow_are_present():
+    assert "invoiceMonth" in FRONTEND
+    assert "invoiceFiscalFilter" in FRONTEND
+    assert "openCancelInvoice" in FRONTEND
+    assert "submitCancelInvoice" in FRONTEND
+    assert "Escribe CANCELAR" in (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
 
 
 def test_sat_sync_persists_one_canonical_invoice_status():

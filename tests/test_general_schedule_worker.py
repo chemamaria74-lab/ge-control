@@ -145,10 +145,28 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
-    previous_guard = executor.index("if previous:")
-    execution_insert = executor.index("sb.table(EJECUCIONES)\n        .insert")
+    previous_guard = executor.index("elif previous:")
+    execution_insert = executor.index("sb.table(EJECUCIONES)\n            .insert")
     pac_call = executor.index("result = emitir_timbrar_json(cfdi)")
     assert previous_guard < execution_insert < pac_call
     assert "retry_after_edit" not in executor
     assert '"status": "omitida"' in executor
     assert "No habrá reintento automático" in executor
+
+
+def test_manual_retry_is_limited_to_omitted_attempt_without_pac_contact():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
+
+    assert "allow_retry_omitted: bool = False" in executor
+    assert 'previous[0].get("status") == "omitida"' in executor
+    assert 'execution = previous[0]' in executor
+    assert '"status": "procesando"' in executor
+
+
+def test_scheduled_cfdi_is_json_safe_before_pac_call():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+
+    assert "def _json_safe(value):" in source
+    assert 'if isinstance(value, Decimal):' in source
+    assert 'return _json_safe(cfdi)' in source
