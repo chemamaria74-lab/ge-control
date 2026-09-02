@@ -360,7 +360,7 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showExpiredNotice);
   else showExpiredNotice();
   enforce();
-  ['click', 'keydown', 'pointerdown', 'scroll', 'touchstart'].forEach(eventName => {
+  ['click', 'keydown', 'input', 'change', 'pointerdown', 'scroll', 'touchstart'].forEach(eventName => {
     window.addEventListener(eventName, () => { if (!enforce()) markActivity(); }, {passive: true});
   });
   async function resumeSession() {
