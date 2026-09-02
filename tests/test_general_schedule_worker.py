@@ -141,11 +141,14 @@ def test_post_stamp_persistence_failure_is_not_made_retryable():
     assert "not isinstance(exc, PacStampPersistenceError)" in runner
 
 
-def test_ambiguous_errors_require_human_edit_before_retrying_the_period():
+def test_every_schedule_has_exactly_one_attempt_per_period():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
-    assert 'previous_status == "error"\n            or' not in executor
-    assert 'previous_status in {"error", "rechazada"}' in executor
-    assert 'previous_status == "diferida"' in executor
-    assert '"status": "diferida"' in executor
+    previous_guard = executor.index("if previous:")
+    execution_insert = executor.index("sb.table(EJECUCIONES)\n        .insert")
+    pac_call = executor.index("result = emitir_timbrar_json(cfdi)")
+    assert previous_guard < execution_insert < pac_call
+    assert "retry_after_edit" not in executor
+    assert '"status": "omitida"' in executor
+    assert "No habrá reintento automático" in executor

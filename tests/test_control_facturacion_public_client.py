@@ -40,10 +40,10 @@ def test_invoice_screen_uses_one_step_automatic_validation_and_stamp():
 def test_today_table_only_shows_invoices_with_a_sat_uuid():
     render = SOURCE.split("function renderInvoices()", 1)[1].split("function invoiceBalance", 1)[0]
 
-    assert "ready=row.status==='timbrada'&&Boolean(String(row.uuid_sat||'').trim())" in render
+    assert "ready=Boolean(String(row.uuid_sat||'').trim())" in render
     assert "return ready&&" in render
-    assert "statusPill('timbrada')" in render
-    assert "Aún no hay facturas timbradas hoy." in render
+    assert "${fiscalPill(row)}" in render
+    assert "No hay CFDI sincronizados hoy." in render
 
 
 def test_stamp_button_is_reenabled_for_the_next_invoice():
