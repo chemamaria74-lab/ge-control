@@ -21,6 +21,7 @@ EJECUCIONES = "general_facturacion_ejecuciones"
 FACTURAS = "general_facturas"
 CONFIG = "general_fiscal_config"
 CLIENTES = "general_facturacion_clientes"
+PRODUCTOS = "general_facturacion_productos"
 
 
 class PacStampPersistenceError(RuntimeError):
@@ -138,6 +139,40 @@ def selected_general_logo(config: dict, slot: int) -> tuple[str, str]:
     return name, data
 
 
+def catalog_cfdi_for_execution(sb, schedule: dict, *, now: datetime) -> dict:
+    """Reconstruye el CFDI con los valores vigentes de cliente, producto y emisor."""
+    cliente_id, producto_id = schedule.get("cliente_id"), schedule.get("producto_id")
+    if not cliente_id or not producto_id:
+        return cfdi_for_execution(schedule, now=now)
+    from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
+
+    def current_row(table: str, row_id: int) -> dict:
+        rows = (sb.table(table).select("*").eq("id", row_id)
+                .eq("tenant_id", schedule.get("tenant_id")).eq("perfil_id", schedule["perfil_id"])
+                .eq("activo", True).limit(1).execute().data or [])
+        return rows[0] if rows else {}
+
+    client = current_row(CLIENTES, int(cliente_id))
+    product = current_row(PRODUCTOS, int(producto_id))
+    config_rows = (sb.table(CONFIG).select("*").eq("tenant_id", schedule.get("tenant_id"))
+                   .eq("perfil_id", schedule["perfil_id"]).eq("activo", True)
+                   .order("updated_at", desc=True).limit(1).execute().data or [])
+    config = config_rows[0] if config_rows else {}
+    if not client or not product or not config:
+        raise RuntimeError("La programación ya no tiene disponible su cliente, producto o configuración fiscal.")
+    request = GeneralCfdiRequest.model_validate({
+        "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
+        "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
+        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
+        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": config.get("forma_pago_default") or "99", "metodo_pago": config.get("metodo_pago_default") or "PPD", "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
+        "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
+        "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
+    })
+    refreshed = copy.deepcopy(schedule)
+    refreshed["payload_json"] = build_general_cfdi(request)
+    return cfdi_for_execution(refreshed, now=now)
+
+
 def _scope_row(schedule: dict, values: dict) -> dict:
     return {
         "user_id": schedule["user_id"],
@@ -222,7 +257,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         sb,
         tenant_id=schedule.get("tenant_id"),
         perfil_id=schedule["perfil_id"],
-        cfdi=cfdi_for_execution(schedule, now=now),
+        cfdi=catalog_cfdi_for_execution(sb, schedule, now=now),
     )
     config = (
         sb.table(CONFIG).select("*")
