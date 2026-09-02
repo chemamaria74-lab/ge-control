@@ -124,3 +124,10 @@ def test_recovered_invoice_pdf_uses_current_company_logo_without_duplicating_it(
     assert '"Cache-Control": "no-store"' in SOURCE
     recovery = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
     assert '"logo_data_url": "",' in recovery
+
+
+def test_regenerated_invoice_pdf_prefers_current_company_branding():
+    helper = SOURCE.split("def _invoice_pdf_branding", 1)[1].split("def ", 1)[0]
+
+    assert "current_logo or factura.get" in helper
+    assert "config.get(key) or factura.get(key)" in helper

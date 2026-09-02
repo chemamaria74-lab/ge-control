@@ -62,3 +62,33 @@ def test_stamp_button_is_reenabled_for_the_next_invoice():
     assert "button.textContent!=='Timbrando…'" in invalidate
     assert "$('stampInvoice').disabled=false" in reset
     assert "$('stampInvoice').textContent='Timbrar CFDI'" in reset
+
+
+def test_schedule_editor_is_catalog_driven_and_keeps_only_calendar_fields_editable():
+    simplified = SOURCE.rsplit("function scheduleCatalogPayload", 1)[1]
+
+    assert "selectField('dia_mes'" in simplified
+    assert "selectField('cliente_id','Cliente'" in simplified
+    assert "selectField('producto_id','Producto o servicio'" in simplified
+    assert "Correo y datos fiscales: del cliente" in simplified
+    assert "Descripción, precio, IVA y cuenta predial: del producto" in simplified
+    assert "cliente_id:Number(values.cliente_id)" in simplified
+    assert "producto_id:Number(values.producto_id)" in simplified
+
+    edit = simplified.split("function openScheduleEditor", 1)[1].split("init();", 1)[0]
+    assert "email_destino','Correo de destino'" not in edit
+    assert "descripcion_concepto','Descripción dinámica" not in edit
+    assert "logo_slot','Logo del PDF'" not in edit
+
+
+def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
+    disclosure = SOURCE.split("function syncConfigDisclosure()", 1)[1].split("init();", 1)[0]
+
+    assert "Editar configuración" in disclosure
+    assert "Serie para próximas facturas" in disclosure
+    assert "form.hidden=!editing" in disclosure
+    assert "Cerrar sin guardar" in disclosure
+    assert "state.config&&state.config!==previous" in disclosure
+    assert "syncConfigDisclosure()" in disclosure
+    assert "syncConfig任选Disclosure" not in SOURCE
+    assert "control_facturacion.js?v=config-disclosure-20260902" in TEMPLATE

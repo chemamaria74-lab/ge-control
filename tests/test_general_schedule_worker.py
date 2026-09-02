@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, next_execution,
+from services.general_schedule_worker import (acquire_general_stamp_slot, catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
                                                 reserve_general_folio, selected_general_logo)
 
 
@@ -48,6 +48,18 @@ def test_expands_month_and_year_tokens_in_scheduled_descriptions():
     assert result["Conceptos"][0]["Descripcion"] == "Suscripción GE Control — agosto 2026"
     assert result["Conceptos"][1]["Descripcion"] == "Servicio del periodo agosto 2026"
     assert original["payload_json"]["Conceptos"][0]["Descripcion"].endswith("{mes} {año}")
+
+
+def test_catalog_linked_schedules_refresh_predial_and_all_catalog_values_at_execution():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    helper = source.split("def catalog_cfdi_for_execution", 1)[1].split("def _scope_row", 1)[0]
+
+    assert 'schedule.get("cliente_id")' in helper
+    assert 'schedule.get("producto_id")' in helper
+    assert 'product.get("cuenta_predial") or None' in helper
+    assert 'product.get("valor_unitario")' in helper
+    assert 'product.get("iva_tasa") or 0' in helper
+    assert 'client.get("email")' not in helper
 
 
 def test_repairs_global_vat_group_from_scheduled_concepts():
