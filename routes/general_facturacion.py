@@ -155,6 +155,117 @@ def _profile_invoice_query(scope: dict, select: str = "*"):
     return query
 
 
+def _recover_profile_pac_invoices(scope: dict) -> dict:
+    """Recupera CFDI timbrados auditados que no alcanzaron a guardarse localmente."""
+    sb = get_supabase_admin()
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    issuer_rfc = str(config.get("rfc") or "").strip().upper()
+    if not issuer_rfc:
+        raise HTTPException(409, "Configura el RFC emisor antes de sincronizar con el PAC.")
+    schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+    scheduled_signatures = {
+        (
+            str((((item.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
+            Decimal(str((item.get("payload_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")),
+        )
+        for item in schedules
+    }
+
+    requests_rows = (
+        sb.table("pac_requests")
+        .select("id,request_payload,created_at")
+        .eq("operation", "stamp_json")
+        .order("created_at", desc=True)
+        .limit(1000)
+        .execute().data or []
+    )
+    matching_requests = {}
+    for row in requests_rows:
+        cfdi = row.get("request_payload") or {}
+        emitter = str(((cfdi.get("Emisor") or {}).get("Rfc") or "")).strip().upper()
+        signature = (
+            str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
+            Decimal(str(cfdi.get("Total") or 0)).quantize(Decimal("0.01")),
+        )
+        if emitter == issuer_rfc and signature in scheduled_signatures:
+            matching_requests[int(row["id"])] = row
+    if not matching_requests:
+        return {"recovered": 0, "existing": 0, "execution_updates": 0}
+
+    responses = (
+        sb.table("pac_responses")
+        .select("request_id,uuid_sat,xml_timbrado,pdf_url,response_payload,created_at,status")
+        .in_("request_id", list(matching_requests))
+        .eq("status", "ok")
+        .order("created_at", desc=False)
+        .execute().data or []
+    )
+    current = _profile_invoice_query(scope, "id,uuid_sat,cfdi_json,created_at").execute().data or []
+    known_uuids = {str(row.get("uuid_sat") or "").strip().upper() for row in current}
+    recovered_rows = []
+    already_existing = 0
+    for response in responses:
+        uuid_sat = str(response.get("uuid_sat") or "").strip().upper()
+        xml_content = str(response.get("xml_timbrado") or "").strip()
+        request_row = matching_requests.get(int(response.get("request_id") or 0)) or {}
+        cfdi = request_row.get("request_payload") or {}
+        if not uuid_sat or not xml_content or uuid_sat in known_uuids:
+            already_existing += bool(uuid_sat in known_uuids)
+            continue
+        method = str(cfdi.get("MetodoPago") or "").upper()
+        total = float(Decimal(str(cfdi.get("Total") or 0)))
+        created_at = response.get("created_at") or request_row.get("created_at") or datetime.now(timezone.utc).isoformat()
+        row = _sb_insert(FACTURAS, _scope_row(scope, {
+            "status": "timbrada",
+            "idempotency_key": f"pac-recovery:{uuid_sat}",
+            "tipo_comprobante": cfdi.get("TipoDeComprobante") or "I",
+            "serie": cfdi.get("Serie") or "",
+            "folio": cfdi.get("Folio") or "",
+            "uuid_sat": uuid_sat,
+            "xml_content": xml_content,
+            "pdf_url": response.get("pdf_url") or "",
+            "cfdi_json": cfdi,
+            "pac_response": response.get("response_payload") or {},
+            "estado_pago": "pagada" if method == "PUE" else "pendiente",
+            "fecha_pago": created_at if method == "PUE" else None,
+            "fecha_vencimiento": None if method == "PUE" else str(created_at)[:10],
+            "saldo_pendiente": 0.0 if method == "PUE" else total,
+            "created_at": created_at,
+        }))
+        if row:
+            known_uuids.add(uuid_sat)
+            recovered_rows.append(row)
+
+    all_invoices = current + recovered_rows
+    executions = _sb_list(EJECUCIONES, scope, active_only=False, order="created_at", desc=True)
+    execution_updates = 0
+    for execution in executions:
+        if execution.get("status") not in {"error", "rechazada", "pac_timbrada", "procesando"}:
+            continue
+        schedule = next((item for item in schedules if int(item.get("id") or 0) == int(execution.get("programacion_id") or 0)), None)
+        if not schedule:
+            continue
+        target = schedule.get("payload_json") or {}
+        target_rfc = str(((target.get("Receptor") or {}).get("Rfc") or "")).strip().upper()
+        target_total = Decimal(str(target.get("Total") or 0)).quantize(Decimal("0.01"))
+        candidates = [row for row in all_invoices if
+                      str((((row.get("cfdi_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper() == target_rfc
+                      and Decimal(str((row.get("cfdi_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")) == target_total
+                      and str(row.get("created_at") or "")[:7] == str(execution.get("periodo") or "")]
+        if not candidates:
+            continue
+        invoice = sorted(candidates, key=lambda item: str(item.get("created_at") or ""))[0]
+        update = sb.table(EJECUCIONES).update({
+            "status": "completada", "factura_id": invoice["id"], "error": "",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", execution["id"]).eq("perfil_id", scope["perfil_id"])
+        if scope.get("tenant_id"):
+            update = update.eq("tenant_id", scope["tenant_id"])
+        update.execute()
+        execution_updates += 1
+    return {"recovered": len(recovered_rows), "existing": already_existing, "execution_updates": execution_updates}
+
+
 @router.get("/configuracion-fiscal")
 async def get_fiscal_config(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
@@ -349,6 +460,13 @@ async def listar_facturas_generales(authorization: str = Header(default=""), x_p
             _sb_update(FACTURAS, row["id"], scope, {"status": "rechazada"})
             row["status"] = "rechazada"
     return {"ok": True, "facturas": rows}
+
+
+@router.post("/facturas/sincronizar-pac")
+async def sincronizar_facturas_pac(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    """Importa desde la auditoría fiscal sin emitir ni timbrar documentos nuevos."""
+    result = _recover_profile_pac_invoices(_scope_required(authorization, x_perfil_id))
+    return {"ok": True, **result}
 
 
 @router.patch("/facturas/{factura_id}/pago")
