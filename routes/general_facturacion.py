@@ -265,15 +265,41 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         if not candidates:
             continue
         invoice = sorted(candidates, key=lambda item: str(item.get("created_at") or ""))[0]
+        completed_at = datetime.now(timezone.utc).isoformat()
         update = sb.table(EJECUCIONES).update({
             "status": "completada", "factura_id": invoice["id"], "error": "",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": completed_at,
         }).eq("id", execution["id"]).eq("perfil_id", scope["perfil_id"])
         if scope.get("tenant_id"):
             update = update.eq("tenant_id", scope["tenant_id"])
         update.execute()
+        execution.update({"status": "completada", "factura_id": invoice["id"], "updated_at": completed_at})
         execution_updates += 1
-    return {"recovered": len(recovered_rows), "existing": already_existing, "execution_updates": execution_updates}
+    # Un timbrado recuperado también debe cerrar el calendario de la
+    # programación. Esto repara fechas antiguas de "Próxima" sin volver a PAC.
+    schedule_updates = 0
+    completed_by_schedule = {}
+    for execution in executions:
+        if execution.get("status") == "completada":
+            completed_by_schedule.setdefault(str(execution.get("programacion_id")), execution)
+    for schedule in schedules:
+        completed = completed_by_schedule.get(str(schedule.get("id")))
+        if not completed:
+            continue
+        completed_at = datetime.fromisoformat(
+            str(completed.get("updated_at") or completed.get("created_at") or datetime.now(timezone.utc).isoformat()).replace("Z", "+00:00")
+        )
+        current_next = datetime.fromisoformat(str(schedule.get("proxima_ejecucion_at") or "1970-01-01T00:00:00+00:00").replace("Z", "+00:00"))
+        if current_next > completed_at:
+            continue
+        next_at = next_execution(schedule, after=completed_at).isoformat()
+        if _sb_update(PROGRAMACIONES, schedule["id"], scope, {
+            "ultima_ejecucion_at": completed_at.isoformat(),
+            "proxima_ejecucion_at": next_at,
+        }):
+            schedule["proxima_ejecucion_at"] = next_at
+            schedule_updates += 1
+    return {"recovered": len(recovered_rows), "existing": already_existing, "execution_updates": execution_updates, "schedule_updates": schedule_updates}
 
 
 def _sync_profile_cancellation_states(scope: dict) -> dict:
@@ -1010,13 +1036,13 @@ async def ejecutar_programacion(
     schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
     if not schedule:
         raise HTTPException(404, "Programación no encontrada.")
-    if schedule.get("status") != "activa":
-        raise HTTPException(409, "La programación no está activa.")
+    if schedule.get("status") == "cancelada":
+        raise HTTPException(409, "La programación está cancelada.")
     execution_now = datetime.now(timezone.utc)
     actual_period = execution_now.astimezone(__import__("zoneinfo").ZoneInfo(schedule.get("timezone") or "America/Mexico_City")).strftime("%Y-%m")
     if periodo != actual_period:
         raise HTTPException(422, "La ejecución manual solo permite el periodo actual.")
-    result = execute_schedule(schedule, now=execution_now)
+    result = execute_schedule(schedule, now=execution_now, allow_retry_omitted=True)
     if not result.get("ok"):
         raise HTTPException(422, {"message": result.get("error") or "La programación no pudo completarse.", "ejecucion": result.get("ejecucion")})
     return result
