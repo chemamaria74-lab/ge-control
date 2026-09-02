@@ -25,6 +25,12 @@ def test_automatic_token_refresh_does_not_count_as_user_activity():
     assert "markActivity(" not in refreshed
 
 
+def test_form_edits_and_scanner_input_count_as_activity():
+    source = (ROOT / "static/js/session_timeout.js").read_text(encoding="utf-8")
+
+    assert "'input', 'change'" in source
+
+
 def test_pages_bust_the_session_script_cache_for_the_coordinated_release():
     templates = list((ROOT / "templates").rglob("*.html"))
     consumers = [

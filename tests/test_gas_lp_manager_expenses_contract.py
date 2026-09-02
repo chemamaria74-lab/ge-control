@@ -776,6 +776,23 @@ def test_pending_invoice_edit_ignores_itself_and_is_available_from_payment_queue
     assert 'title="Editar gasto pendiente"' in script
 
 
+def test_pending_expense_can_change_from_supplier_payment_to_reimbursement():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    update_route = route.split('def update_direct_invoice(', 1)[1].split(
+        '@router.put("/gastos/invoices/{invoice_id}/paid-date")', 1
+    )[0]
+    assert 'payment_target: Literal["supplier", "reimbursement"] | None = None' in route
+    assert '"reimbursement_recipient_id": payload.reimbursement_recipient_id' in update_route
+    assert '"reimbursement_account_id": payload.reimbursement_account_id' in update_route
+    assert 'id="expenseEditPaymentTarget"' in html
+    assert 'id="expenseEditRecipient"' in html
+    assert 'id="expenseEditAccount"' in html
+    assert "payment_target:target" in script
+
+
 def test_payment_queue_can_delete_unpaid_expenses_and_export_is_separated():
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")

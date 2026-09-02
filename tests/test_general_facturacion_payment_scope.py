@@ -115,3 +115,12 @@ def test_email_delivery_is_visible_and_recovered_invoices_are_not_claimed_as_sen
     assert '"email_delivery": delivery' in email_endpoint
     assert "emailPill(row)" in FRONTEND
     assert "No enviado" in FRONTEND
+
+
+def test_recovered_invoice_pdf_uses_current_company_logo_without_duplicating_it():
+    assert "def _invoice_pdf_branding" in SOURCE
+    assert "selected_general_logo(config" in SOURCE
+    assert "logo_data, pdf_theme = _invoice_pdf_branding(factura, scope)" in SOURCE
+    assert '"Cache-Control": "no-store"' in SOURCE
+    recovery = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
+    assert '"logo_data_url": "",' in recovery

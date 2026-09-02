@@ -141,3 +141,32 @@ def test_refresh_rejects_cookie_that_belongs_to_another_user(monkeypatch):
     assert response.status_code == 409
     assert b"otro usuario" in response.body
     assert auth.REFRESH_COOKIE in response.headers["set-cookie"]
+
+
+def test_refresh_accepts_expired_access_token_for_same_cookie_user(monkeypatch):
+    import base64
+    import json
+
+    subject = "user-after-browser-sleep"
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": subject}).encode()).decode().rstrip("=")
+    expired_token = f"header.{payload}.signature"
+
+    class _Auth:
+        def refresh_session(self, refresh_token):
+            assert refresh_token == "refresh-still-valid"
+            return SimpleNamespace(
+                session=SimpleNamespace(access_token="access-new", refresh_token="refresh-new"),
+                user=SimpleNamespace(id=subject),
+            )
+
+    monkeypatch.setattr(auth, "get_supabase", lambda: SimpleNamespace(auth=_Auth()))
+    monkeypatch.setattr(auth, "verify_token", lambda _token: None)
+    request = SimpleNamespace(
+        cookies={auth.REFRESH_COOKIE: "refresh-still-valid"},
+        url=SimpleNamespace(scheme="https"),
+    )
+
+    response = asyncio.run(auth.refresh(request, authorization=f"Bearer {expired_token}"))
+
+    assert response.status_code == 200
+    assert b'"token":"access-new"' in response.body
