@@ -27,6 +27,19 @@ class PacStampPersistenceError(RuntimeError):
     """El PAC timbró; nunca debe convertirse esta ejecución en reintentable."""
 
 
+def _json_safe(value):
+    """Normaliza valores de PostgREST antes de enviarlos al PAC o guardarlos."""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def next_execution(schedule: dict, *, after: datetime) -> datetime:
     """Devuelve la siguiente fecha mensual en UTC, siempre posterior a ``after``."""
     tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
@@ -82,7 +95,7 @@ def cfdi_for_execution(schedule: dict, *, now: datetime) -> dict:
             for (tax, factor, rate), amounts in sorted(traslado_groups.items())
         ]
         impuestos["TotalImpuestosTrasladados"] = f"{sum((x['importe'] for x in traslado_groups.values()), Decimal('0')):.2f}"
-    return cfdi
+    return _json_safe(cfdi)
 
 
 def reserve_general_folio(sb, *, tenant_id: str, perfil_id: int, cfdi: dict) -> dict:
@@ -136,7 +149,7 @@ def _scope_row(schedule: dict, values: dict) -> dict:
     }
 
 
-def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
+def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry_omitted: bool = False) -> dict:
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
     from services.email_delivery import send_gas_lp_invoice_email
     from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
@@ -160,7 +173,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         .data
         or []
     )
-    if previous:
+    execution = None
+    if previous and allow_retry_omitted and previous[0].get("status") == "omitida":
+        # Único caso reintentable: el PAC nunca fue contactado porque el turno
+        # estaba ocupado. Se reutiliza la misma ejecución; no se crea otra.
+        execution = previous[0]
+        sb.table(EJECUCIONES).update({
+            "status": "procesando", "error": "", "updated_at": now.isoformat(),
+        }).eq("id", execution["id"]).execute()
+    elif previous:
         previous_row = previous[0]
         return {
             "ok": previous_row.get("status") == "completada",
@@ -171,14 +192,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
 
     # La ejecución única se registra antes de reservar turno, folio o contactar
     # al PAC. La restricción única de Supabase impide dos intentos concurrentes.
-    execution = (
-        sb.table(EJECUCIONES)
-        .insert(_scope_row(schedule, {
-            "programacion_id": schedule["id"], "periodo": periodo,
-            "status": "procesando", "email_delivery": {}, "error": "",
-        }))
-        .execute().data or []
-    )[0]
+    if execution is None:
+        execution = (
+            sb.table(EJECUCIONES)
+            .insert(_scope_row(schedule, {
+                "programacion_id": schedule["id"], "periodo": periodo,
+                "status": "procesando", "email_delivery": {}, "error": "",
+            }))
+            .execute().data or []
+        )[0]
     next_at = next_execution(schedule, after=now).isoformat()
 
     stamp_slot = acquire_general_stamp_slot(
