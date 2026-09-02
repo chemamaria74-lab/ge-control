@@ -27,6 +27,8 @@ dependencies = [
 package = false
 
 [tool.pytest.ini_options]
+norecursedirs = ["tmp"]
+addopts = "-m 'not integration_rls'"
 markers = [
     "integration_rls: requires a dedicated real Supabase/Postgres environment with RLS enabled",
 ]
