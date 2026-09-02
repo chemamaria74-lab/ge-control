@@ -1,0 +1,378 @@
+(function () {
+  // Dos horas sin actividad, o hasta 24 horas cuando el usuario eligió mantener
+  // la sesión en su dispositivo. El backend sigue siendo la autoridad.
+  const REMEMBER_SESSION_KEY = 'ge_remember_session';
+  const TIMEOUT_MS = localStorage.getItem(REMEMBER_SESSION_KEY) === 'true'
+    ? 24 * 60 * 60 * 1000
+    : 2 * 60 * 60 * 1000;
+  const LAST_ACTIVITY_PREFIX = 'ge_session_last_activity:';
+  const SESSION_EXPIRED_REASON = 'session_expired';
+  const REFRESH_LOCK_NAME = 'ge-session-refresh';
+  const REFRESH_CHANNEL_NAME = 'ge-session-refresh-events';
+  const REFRESH_TIMEOUT_MS = 10 * 1000;
+  const TAB_IDENTITY_KEY = 'ge_tab_session_user_id';
+  const AUTH_KEYS = [
+    'sat_token', 'zc_token', 'sat_user_id', 'sat_email', 'sat_role',
+    'sat_assigned_perfil_id', 'sat_modulo', 'trv2_user', 'zc_perfil',
+    'zc_perfil_gas_lp', 'zc_perfil_transporte_v2', 'trv2_perfil',
+    'ge_gaslp_internal_token', 'ge_gaslp_conciliacion_token',
+    'trv2_operator_token', 'trv2_operator_profile',
+  ];
+  let lastWrite = 0;
+  let redirecting = false;
+  let authValidation = null;
+  let refreshPromise = null;
+  const refreshChannel = typeof BroadcastChannel === 'function'
+    ? new BroadcastChannel(REFRESH_CHANNEL_NAME)
+    : null;
+
+  function portal() {
+    const path = location.pathname;
+    if (path.startsWith('/control-administrativo')) return {
+      tokenKeys: ['sat_token', 'zc_token'],
+      login: path.startsWith('/control-administrativo/facturacion')
+        ? '/login/control-administrativo?portal=facturacion'
+        : '/login/control-administrativo?portal=gastos',
+      renewable: true,
+    };
+    if (path.startsWith('/transporte-v2/operador')) return {
+      tokenKeys: ['trv2_operator_token'],
+      login: '/transporte-v2/login-operador?next=/transporte-v2/operador',
+      noTimeout: true,
+    };
+    if (path.startsWith('/transporte-v2')) return {
+      tokenKeys: ['sat_token', 'zc_token'],
+      login: '/transporte-v2/login-admin?next=/transporte-v2/admin',
+      renewable: true,
+    };
+    if (path.startsWith('/asistente/gas-lp')) return {
+      tokenKeys: ['ge_gaslp_internal_token'], login: '/gas-lp/asistente',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_internal_token',
+    };
+    if (path.startsWith('/conciliacion/gas-lp')) return {
+      tokenKeys: ['ge_gaslp_conciliacion_token'], login: '/gas-lp/conciliacion',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_conciliacion_token',
+      renewable: true,
+    };
+    if (path.startsWith('/gas-lp/gastos')) return {
+      tokenKeys: ['ge_gaslp_conciliacion_token', 'sat_token', 'zc_token'],
+      login: '/gas-lp/conciliacion?area=gastos',
+      internalSection: 'gas_lp', internalTokenKey: 'ge_gaslp_conciliacion_token',
+      renewable: true,
+    };
+    if (path.startsWith('/gas-lp/flotilla') || path.startsWith('/gas-lp/gerentes')) return {
+      tokenKeys: (sessionStorage.getItem('ge_flotilla_auth_mode') === 'internal' || sessionStorage.getItem('ge_flotilla_identity')) ? [] : ['ge_gaslp_conciliacion_token', 'sat_token', 'zc_token'],
+      // Supervisión oficial entra desde Conciliación; los gerentes con acceso
+      // limitado usan el portal dedicado. Se decide antes de limpiar la sesión.
+      login: sessionStorage.getItem('ge_flotilla_auth_mode') === 'official' || (!sessionStorage.getItem('ge_flotilla_identity') && localStorage.getItem('ge_gaslp_conciliacion_token'))
+        ? '/gas-lp/conciliacion?area=flotilla'
+        : '/gas-lp/flotilla/acceso',
+      sessionTokenKey: 'ge_flotilla_access',
+      renewable: true,
+    };
+    if (path === '/app' || path.startsWith('/modulo/gas-lp')) return {
+      tokenKeys: ['sat_token', 'zc_token'], login: '/login?next=/app',
+      renewable: true,
+    };
+    return {tokenKeys: ['sat_token', 'zc_token'], login: '/choice', renewable: true};
+  }
+
+  function activeToken() {
+    for (const key of portal().tokenKeys) {
+      const value = localStorage.getItem(key);
+      if (value) return value;
+    }
+    const sessionTokenKey = portal().sessionTokenKey;
+    if (sessionTokenKey) return sessionStorage.getItem(sessionTokenKey) || '';
+    return '';
+  }
+
+  function moduleLoginTarget() { return portal().login; }
+
+  function sessionKey() {
+    // No se guarda el token dentro de la llave; basta una huella local corta.
+    const token = activeToken();
+    let hash = 0;
+    for (let i = 0; i < token.length; i += 1) hash = ((hash << 5) - hash + token.charCodeAt(i)) | 0;
+    return `${LAST_ACTIVITY_PREFIX}${location.pathname.split('/').slice(0, 3).join('/')}:${hash}`;
+  }
+
+  function clearStoredSession() {
+    const isolatedFleetManager = (location.pathname.startsWith('/gas-lp/flotilla') || location.pathname.startsWith('/gas-lp/gerentes'))
+      && (sessionStorage.getItem('ge_flotilla_auth_mode') === 'internal' || Boolean(sessionStorage.getItem('ge_flotilla_identity')));
+    if (!isolatedFleetManager) AUTH_KEYS.forEach(key => localStorage.removeItem(key));
+    sessionStorage.removeItem('ge_flotilla_access');
+    sessionStorage.removeItem('ge_flotilla_expires_at');
+    sessionStorage.removeItem('ge_flotilla_identity');
+    sessionStorage.removeItem('ge_flotilla_auth_mode');
+    sessionStorage.removeItem(TAB_IDENTITY_KEY);
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(LAST_ACTIVITY_PREFIX)) localStorage.removeItem(key);
+    });
+  }
+
+  function jwtExpired(token, now = Date.now()) {
+    if (!token || token.split('.').length !== 3) return false;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return Number(payload.exp || 0) > 0 && now >= Number(payload.exp) * 1000;
+    } catch (_err) { return false; }
+  }
+
+  function jwtSubject(token) {
+    if (!token || token.split('.').length !== 3) return '';
+    try {
+      return String(JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub || '');
+    } catch (_err) { return ''; }
+  }
+
+  function expectedUserId() {
+    const pinned = sessionStorage.getItem(TAB_IDENTITY_KEY) || '';
+    if (pinned) return pinned;
+    const subject = jwtSubject(activeToken());
+    if (subject && !location.pathname.startsWith('/login')) sessionStorage.setItem(TAB_IDENTITY_KEY, subject);
+    return subject;
+  }
+
+  function jwtExpiresSoon(token, windowMs = 5 * 60 * 1000, now = Date.now()) {
+    if (!token || token.split('.').length !== 3) return false;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      const expiresAt = Number(payload.exp || 0) * 1000;
+      return expiresAt > 0 && now + windowMs >= expiresAt;
+    } catch (_err) { return false; }
+  }
+
+  function lastActivity() { return Number(localStorage.getItem(sessionKey()) || 0) || 0; }
+  function isExpired(now = Date.now()) {
+    if (portal().noTimeout) return false;
+    const token = activeToken();
+    const last = lastActivity();
+    // La caducidad corta del JWT no equivale a dos horas de inactividad: el
+    // refresh token puede renovarlo. Esto importa cuando Safari suspende los
+    // temporizadores de una pestaña en segundo plano y se vuelve a ella después.
+    return Boolean(token) && last > 0 && now - last >= TIMEOUT_MS;
+  }
+
+  function markActivity(force = false) {
+    if (portal().noTimeout || !activeToken()) return;
+    const now = Date.now();
+    if (!force && now - lastWrite < 15000) return;
+    lastWrite = now;
+    localStorage.setItem(sessionKey(), String(now));
+  }
+
+  function withExpiredReason(target) {
+    const url = new URL(target, location.origin);
+    url.searchParams.set('reason', SESSION_EXPIRED_REASON);
+    return url.pathname + url.search + url.hash;
+  }
+
+  function logoutExpired() {
+    if (redirecting) return;
+    redirecting = true;
+    const target = withExpiredReason(portal().login);
+    clearStoredSession();
+    location.replace(target);
+  }
+
+  function enforce() {
+    if (portal().noTimeout) return false;
+    if (!activeToken()) return false;
+    if (!lastActivity()) { markActivity(true); return false; }
+    if (isExpired()) { logoutExpired(); return true; }
+    return false;
+  }
+
+  function showExpiredNotice() {
+    if (new URLSearchParams(location.search).get('reason') !== SESSION_EXPIRED_REASON) return;
+    const notice = document.createElement('div');
+    notice.setAttribute('role', 'alert');
+    notice.textContent = 'Tu sesión expiró por seguridad. Vuelve a iniciar sesión para continuar.';
+    notice.style.cssText = 'position:fixed;z-index:2147483647;top:16px;left:50%;transform:translateX(-50%);width:min(560px,calc(100% - 32px));padding:13px 16px;border:1px solid #d5aa58;border-radius:8px;background:#fff8e8;color:#5b0f1d;box-shadow:0 10px 30px rgba(0,0,0,.18);font:700 14px/1.4 system-ui,sans-serif;text-align:center';
+    document.body.appendChild(notice);
+  }
+
+  window.GESessionTimeout = {
+    timeoutMs: TIMEOUT_MS, clear: clearStoredSession, enforce,
+    markLogin: () => markActivity(true), markActivity: () => markActivity(true),
+    expire: logoutExpired,
+  };
+
+  // Convierte respuestas de autenticación vencida en una salida clara. Un 403 es
+  // un problema de permisos y deliberadamente no cierra una sesión válida.
+  const nativeFetch = window.fetch.bind(window);
+  function applyRefreshedToken(token, broadcast = false) {
+    token = String(token || '');
+    if (!token) return '';
+    const expected = expectedUserId();
+    const refreshedUser = jwtSubject(token);
+    if (!expected || !refreshedUser || refreshedUser !== expected) return '';
+    const currentPortal = portal();
+    currentPortal.tokenKeys.forEach(key => {
+      if (localStorage.getItem(key)) localStorage.setItem(key, token);
+    });
+    if (currentPortal.tokenKeys.includes('sat_token')) localStorage.setItem('sat_token', token);
+    window.dispatchEvent(new CustomEvent('ge:token-refreshed', {detail: {token}}));
+    // Renovar credenciales es trabajo automático del sistema, no actividad
+    // humana. No reiniciar aquí el reloj de inactividad.
+    if (broadcast && refreshChannel) refreshChannel.postMessage({type: 'token', token});
+    return token;
+  }
+
+  if (refreshChannel) {
+    refreshChannel.addEventListener('message', event => {
+      if (event.data?.type === 'token') applyRefreshedToken(event.data.token);
+    });
+  }
+
+  async function requestFreshToken() {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS) : null;
+    return nativeFetch('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {Authorization: `Bearer ${activeToken()}`},
+      ...(controller ? {signal: controller.signal} : {}),
+    }).then(async response => {
+      if (!response.ok) return '';
+      const data = await response.json();
+      return applyRefreshedToken(data.token, true);
+    }).catch(() => '')
+      .finally(() => { if (timeout) clearTimeout(timeout); });
+  }
+
+  async function coordinatedRefresh() {
+    const tokenBeforeWaiting = activeToken();
+    if (!navigator.locks?.request) return requestFreshToken();
+    return navigator.locks.request(REFRESH_LOCK_NAME, {mode: 'exclusive'}, async () => {
+      // Otra pestaña pudo renovar mientras ésta esperaba el bloqueo. En ese
+      // caso se reutiliza el JWT compartido y no se rota otra vez la cookie.
+      const tokenAfterWaiting = activeToken();
+      if (tokenAfterWaiting && tokenAfterWaiting !== tokenBeforeWaiting) {
+        return applyRefreshedToken(tokenAfterWaiting);
+      }
+      return requestFreshToken();
+    });
+  }
+
+  async function refreshAccessToken() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = coordinatedRefresh()
+      .finally(() => { refreshPromise = null; });
+    return refreshPromise;
+  }
+
+  function requestPath(input) {
+    try {
+      const raw = typeof input === 'string' ? input : input?.url;
+      return new URL(raw, location.origin).pathname;
+    } catch (_err) { return ''; }
+  }
+
+  function withFreshAuthorization(input, init, oldToken, newToken) {
+    if (!newToken || newToken === oldToken) return init;
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    const authorization = headers.get('Authorization') || '';
+    if (authorization === `Bearer ${oldToken}`) headers.set('Authorization', `Bearer ${newToken}`);
+    return {...(init || {}), headers};
+  }
+  function withFreshQueryToken(input, newToken) {
+    if (!newToken || typeof input !== 'string') return input;
+    try {
+      const url = new URL(input, location.origin);
+      if (!url.searchParams.has('token') || url.searchParams.get('token') === newToken) return input;
+      url.searchParams.set('token', newToken);
+      return url.origin === location.origin ? url.pathname + url.search + url.hash : url.href;
+    } catch (_err) { return input; }
+  }
+  function isAuthValidationRequest(input) {
+    try {
+      const raw = typeof input === 'string' ? input : input?.url;
+      return new URL(raw, location.origin).pathname === '/api/auth/me';
+    } catch (_err) { return false; }
+  }
+
+  async function sessionIsInvalid() {
+    if (authValidation) return authValidation;
+    const token = activeToken();
+    if (!token) return false;
+    const currentPortal = portal();
+    const internalFleet = currentPortal.sessionTokenKey && !localStorage.getItem('sat_token') && !localStorage.getItem('zc_token');
+    if (internalFleet) {
+      authValidation = nativeFetch('/api/flotilla/session', {
+        headers: {'X-Flotilla-Access': token},
+        cache: 'no-store',
+      }).then(response => response.status === 401)
+        .catch(() => false)
+        .finally(() => { authValidation = null; });
+      return authValidation;
+    }
+    const usesInternalToken = Boolean(
+      currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+      && token.split('.').length !== 3
+    );
+    const validationUrl = usesInternalToken
+      ? `/api/internal-auth/me?token=${encodeURIComponent(token)}&section=${encodeURIComponent(currentPortal.internalSection)}`
+      : '/api/auth/me';
+    const validationInit = usesInternalToken
+      ? {cache: 'no-store'}
+      : {headers: {Authorization: `Bearer ${token}`}, cache: 'no-store'};
+    authValidation = nativeFetch(validationUrl, validationInit).then(response => response.status === 401)
+      // Un problema de red o del servidor no demuestra que la sesión venció.
+      .catch(() => false)
+      .finally(() => { authValidation = null; });
+    return authValidation;
+  }
+
+  window.fetch = async function geSessionFetch(input, init) {
+    const path = requestPath(input);
+    const currentPortal = portal();
+    const oldToken = activeToken();
+    const usesInternalToken = Boolean(
+      currentPortal.internalTokenKey && localStorage.getItem(currentPortal.internalTokenKey)
+      && oldToken.split('.').length !== 3
+    );
+    const canRefresh = currentPortal.renewable === true && !usesInternalToken
+      && path !== '/api/auth/login' && path !== '/api/auth/refresh' && path !== '/api/auth/logout';
+    let freshToken = oldToken;
+    if (canRefresh && oldToken && jwtExpiresSoon(oldToken)) {
+      freshToken = await refreshAccessToken() || oldToken;
+    }
+    let requestInput = withFreshQueryToken(input, freshToken);
+    let requestInit = withFreshAuthorization(requestInput, init, oldToken, freshToken);
+    let response = await nativeFetch(requestInput, requestInit);
+    if (response.status === 401 && canRefresh && activeToken()) {
+      const renewed = await refreshAccessToken();
+      if (renewed) {
+        requestInit = withFreshAuthorization(input, requestInit, freshToken, renewed);
+        requestInput = withFreshQueryToken(input, renewed);
+        response = await nativeFetch(requestInput, requestInit);
+      }
+    }
+    if (response.status === 401 && activeToken() && !portal().noTimeout) {
+      if (isAuthValidationRequest(input) || await sessionIsInvalid()) logoutExpired();
+    }
+    return response;
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showExpiredNotice);
+  else showExpiredNotice();
+  enforce();
+  ['click', 'keydown', 'input', 'change', 'pointerdown', 'scroll', 'touchstart'].forEach(eventName => {
+    window.addEventListener(eventName, () => { if (!enforce()) markActivity(); }, {passive: true});
+  });
+  async function resumeSession() {
+    if (enforce()) return;
+    const token = activeToken();
+    if (portal().renewable === true && token && token.split('.').length === 3 && jwtExpiresSoon(token)) await refreshAccessToken();
+  }
+  window.addEventListener('focus', resumeSession);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeSession(); });
+  setInterval(enforce, 60 * 1000);
+  setInterval(() => {
+    const token = activeToken();
+    if (portal().renewable === true && token && token.split('.').length === 3 && jwtExpiresSoon(token)) refreshAccessToken();
+  }, 60 * 1000);
+})();
