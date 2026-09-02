@@ -96,19 +96,12 @@ def _document_filename(factura: dict, extension: str) -> str:
 
 
 def _invoice_pdf_branding(factura: dict, scope: dict) -> tuple[str, dict]:
-    """Usa la marca bloqueada al emitir y completa faltantes con la vigente."""
-    logo_data = str(factura.get("logo_data_url") or "")
+    """Regenera la representación impresa con la marca vigente de la empresa."""
     theme_keys = ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")
-    theme = {key: factura.get(key) for key in theme_keys}
-    if logo_data and all(theme.values()):
-        return logo_data, theme
-
     config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
-    if not logo_data:
-        _logo_name, logo_data = selected_general_logo(config, int(factura.get("logo_slot") or 1))
-    for key in theme_keys:
-        if not theme.get(key):
-            theme[key] = config.get(key)
+    _logo_name, current_logo = selected_general_logo(config, int(factura.get("logo_slot") or 1))
+    logo_data = str(current_logo or factura.get("logo_data_url") or "")
+    theme = {key: config.get(key) or factura.get(key) for key in theme_keys}
     return logo_data, theme
 
 
@@ -867,10 +860,32 @@ class ScheduleRequest(BaseModel):
     dia_mes: int = Field(ge=1, le=28)
     hora_local: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
-    factura: GeneralCfdiRequest
+    factura: Optional[GeneralCfdiRequest] = None
+    cliente_id: Optional[int] = Field(default=None, gt=0)
+    producto_id: Optional[int] = Field(default=None, gt=0)
     email_destino: Optional[EmailStr] = None
     logo_slot: int = Field(default=1, ge=1, le=2)
     descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _schedule_cfdi_from_catalogs(scope: dict, cliente_id: int, producto_id: int) -> tuple[dict, str]:
+    """Construye la plantilla exclusivamente desde los catálogos de la empresa."""
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    client = _sb_get(CLIENTES, cliente_id, scope)
+    product = _sb_get(PRODUCTOS, producto_id, scope)
+    if not client or not client.get("activo", True):
+        raise HTTPException(422, "El cliente seleccionado ya no está disponible.")
+    if not product or not product.get("activo", True):
+        raise HTTPException(422, "El producto o servicio seleccionado ya no está disponible.")
+    request = GeneralCfdiRequest.model_validate({
+        "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
+        "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
+        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
+        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": config.get("forma_pago_default") or "99", "metodo_pago": config.get("metodo_pago_default") or "PPD", "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
+        "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
+        "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
+    })
+    return build_general_cfdi(request), str(client.get("email") or "").strip()
 
 
 class ScheduleUpdate(BaseModel):
@@ -932,15 +947,35 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
 @router.post("/programaciones")
 async def crear_programacion(payload: ScheduleRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
+    cliente_id, producto_id = payload.cliente_id, payload.producto_id
+    if payload.factura is not None and (not cliente_id or not producto_id):
+        receptor_rfc = payload.factura.receptor.rfc.strip().upper()
+        concept = payload.factura.conceptos[0] if payload.factura.conceptos else None
+        client = next((row for row in _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
+                       if str(row.get("rfc") or "").strip().upper() == receptor_rfc), None)
+        products = _sb_list(PRODUCTOS, scope, active_only=True, order="descripcion", desc=False)
+        product = next((row for row in products if concept and (
+            (concept.no_identificacion and str(row.get("no_identificacion") or "") == concept.no_identificacion)
+            or (str(row.get("clave_prod_serv") or "") == concept.clave_prod_serv
+                and str(row.get("descripcion") or "").strip() == concept.descripcion.split(" — ", 1)[0].strip())
+        )), None)
+        cliente_id = cliente_id or ((client or {}).get("id"))
+        producto_id = producto_id or ((product or {}).get("id"))
     _validate_schedule_spacing(
         _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True),
         day=payload.dia_mes,
         local_time=payload.hora_local,
     )
-    cfdi = build_general_cfdi(payload.factura)
-    if payload.descripcion_concepto and cfdi.get("Conceptos"):
-        cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
-    email_destino = str(payload.email_destino or "")
+    if cliente_id and producto_id:
+        cfdi, email_destino = _schedule_cfdi_from_catalogs(scope, cliente_id, producto_id)
+    elif payload.factura is not None:
+        # Compatibilidad temporal con clientes anteriores al catálogo vinculado.
+        cfdi = build_general_cfdi(payload.factura)
+        if payload.descripcion_concepto and cfdi.get("Conceptos"):
+            cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
+        email_destino = str(payload.email_destino or "")
+    else:
+        raise HTTPException(422, "Selecciona un cliente y un producto del catálogo.")
     if not email_destino:
         receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
         client = next((row for row in _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
@@ -955,6 +990,8 @@ async def crear_programacion(payload: ScheduleRequest, authorization: str = Head
         "email_destino": email_destino,
         "status": "activa",
         "logo_slot": payload.logo_slot,
+        "cliente_id": cliente_id,
+        "producto_id": producto_id,
     }
     schedule_values["proxima_ejecucion_at"] = next_execution(
         schedule_values, after=datetime.now(timezone.utc)
