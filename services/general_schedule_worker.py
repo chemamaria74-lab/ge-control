@@ -23,6 +23,10 @@ CONFIG = "general_fiscal_config"
 CLIENTES = "general_facturacion_clientes"
 
 
+class PacStampPersistenceError(RuntimeError):
+    """El PAC timbró; nunca debe convertirse esta ejecución en reintentable."""
+
+
 def next_execution(schedule: dict, *, after: datetime) -> datetime:
     """Devuelve la siguiente fecha mensual en UTC, siempre posterior a ``after``."""
     tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
@@ -162,9 +166,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         schedule_updated = _parse_timestamp(schedule.get("updated_at"))
         execution_updated = _parse_timestamp(previous_row.get("updated_at"))
         previous_status = previous_row.get("status")
+        # Sólo un diferimiento anterior al PAC se reintenta automáticamente.
+        # Cualquier error/rechazo requiere que una persona edite explícitamente
+        # la programación; así un timeout ambiguo jamás genera otro CFDI solo.
         retry_after_edit = (
-            previous_status == "error"
-            or (previous_status == "rechazada" and schedule_updated > execution_updated)
+            previous_status == "diferida"
+            or (
+                previous_status in {"error", "rechazada"}
+                and schedule_updated > execution_updated
+            )
         )
         if retry_after_edit:
             claimed = sb.table(EJECUCIONES).update({
@@ -188,7 +198,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         retry_at = stamp_slot.get("proximo_timbrado_at")
         if execution is not None and execution.get("id"):
             sb.table(EJECUCIONES).update({
-                "status": "rechazada", "error": "Timbrado diferido por turno de empresa.",
+                "status": "diferida", "error": "Timbrado diferido por turno de empresa.",
                 "updated_at": now.isoformat(),
             }).eq("id", execution["id"]).execute()
         sb.table(PROGRAMACIONES).update({
@@ -231,6 +241,28 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         return {"ok": False, "reused": False, "error": error, "ejecucion": execution}
 
     data = result.get("data") or {}
+    # Desde este punto el CFDI ya existe ante el PAC/SAT. Persistir este estado
+    # antes de generar PDF, correo o factura local evita volver a timbrarlo si
+    # cualquiera de esos pasos posteriores falla.
+    pac_uuid = str(data.get("uuid") or "").strip()
+    try:
+        sb.table(EJECUCIONES).update({
+            "status": "pac_timbrada",
+            "error": "CFDI timbrado por el PAC; guardado local pendiente.",
+            "email_delivery": {"pac_uuid": pac_uuid, "persistence_pending": True},
+            "updated_at": now.isoformat(),
+        }).eq("id", execution["id"]).execute()
+        sb.table(PROGRAMACIONES).update({
+            "ultima_ejecucion_at": now.isoformat(),
+            "proxima_ejecucion_at": next_at,
+            "updated_at": now.isoformat(),
+        }).eq("id", schedule["id"]).execute()
+    except Exception as exc:
+        # El PAC ya respondió con éxito. Propagar un tipo específico impide que
+        # run_due_schedules cambie "procesando" a "error" y vuelva a timbrar.
+        raise PacStampPersistenceError(
+            f"El PAC timbró el CFDI {pac_uuid or '(UUID no informado)'}, pero no se pudo guardar el bloqueo antireintento."
+        ) from exc
     receptor_rfc = str((cfdi.get("Receptor") or {}).get("Rfc") or "").strip().upper()
     clients = (
         sb.table(CLIENTES).select("rfc,email,dias_credito")
@@ -263,7 +295,8 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
             "estado_pago": "pagada" if is_paid else "pendiente",
             "fecha_pago": now.isoformat() if is_paid else None,
             "fecha_vencimiento": None if is_paid else (date.today() + timedelta(days=credit_days)).isoformat(),
-            "saldo_pendiente": Decimal("0") if is_paid else Decimal(str(cfdi.get("Total") or 0)),
+            # El cliente de Supabase serializa el cuerpo como JSON.
+            "saldo_pendiente": 0.0 if is_paid else float(Decimal(str(cfdi.get("Total") or 0))),
         }))
         .execute()
         .data
@@ -343,7 +376,7 @@ def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
                     get_supabase_admin().table(EJECUCIONES).select("id,status")
                     .eq("programacion_id", schedule["id"]).eq("periodo", period).limit(1).execute().data or []
                 )
-                if pending and pending[0].get("status") == "procesando":
+                if not isinstance(exc, PacStampPersistenceError) and pending and pending[0].get("status") == "procesando":
                     get_supabase_admin().table(EJECUCIONES).update({
                         "status": "error", "error": str(exc)[:500], "updated_at": now.isoformat()
                     }).eq("id", pending[0]["id"]).execute()
