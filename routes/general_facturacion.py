@@ -313,8 +313,10 @@ def _sync_profile_cancellation_states(scope: dict) -> dict:
             status = "en_proceso"
         else:
             status = ""
-        if status != str(row.get("cancelacion_status") or ""):
+        canonical_status = "cancelada" if status == "cancelada" else ("cancelacion_en_proceso" if status == "en_proceso" else "timbrada")
+        if status != str(row.get("cancelacion_status") or "") or canonical_status != str(row.get("status") or ""):
             _sb_update(FACTURAS, row["id"], scope, {
+                "status": canonical_status,
                 "cancelacion_status": status,
                 "cancelacion_resultado": {"consulta_sat": result},
             })
@@ -700,7 +702,8 @@ async def cancelar_factura_general(factura_id: int, payload: CancelGeneralReques
     if not issuer_rfc:
         raise HTTPException(400, "No se puede cancelar: la factura no tiene RFC emisor guardado.")
     update = get_supabase_admin().table(FACTURAS).update({
-        "cancelacion_status": "en_proceso", "updated_at": datetime.now(timezone.utc).isoformat()
+        "status": "cancelacion_en_proceso", "cancelacion_status": "en_proceso",
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
     if scope.get("tenant_id"):
         update = update.eq("tenant_id", scope["tenant_id"])
@@ -709,7 +712,8 @@ async def cancelar_factura_general(factura_id: int, payload: CancelGeneralReques
         result = cancel_cfdi_universal(sb=get_supabase_admin(), module="general_facturacion", invoice_table=FACTURAS, invoice_id=factura_id, uuid_sat=factura.get("uuid_sat") or "", rfc_emisor=issuer_rfc, motivo=payload.motivo, uuid_sustitucion=payload.uuid_sustitucion, user_id=scope["user_id"], perfil_id=scope.get("perfil_id"), tenant_id=scope.get("tenant_id"), requested_by=scope["user_id"])
     except HTTPException as exc:
         failed_update = get_supabase_admin().table(FACTURAS).update({
-            "cancelacion_status": "error", "cancelacion_resultado": {"detail": exc.detail},
+            "status": "cancelacion_error", "cancelacion_status": "error",
+            "cancelacion_resultado": {"detail": exc.detail},
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
         if scope.get("tenant_id"):
@@ -718,7 +722,11 @@ async def cancelar_factura_general(factura_id: int, payload: CancelGeneralReques
         raise
     raw_text = str(result.get("raw") or "").lower()
     pending = any(token in raw_text for token in ("pending", "pendiente", "proceso", "solicitud")) and not any(token in raw_text for token in ("cancelado", "cancelada"))
-    values = {"status": "timbrada", "cancelacion_status": "en_proceso" if pending else "cancelada", "cancelacion_resultado": result}
+    values = {
+        "status": "cancelacion_en_proceso" if pending else "cancelada",
+        "cancelacion_status": "en_proceso" if pending else "cancelada",
+        "cancelacion_resultado": result,
+    }
     final_update = get_supabase_admin().table(FACTURAS).update({
         **values, "updated_at": datetime.now(timezone.utc).isoformat()
     }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
