@@ -154,6 +154,11 @@
 body.company-switching { overflow:hidden; }
 @keyframes company-switch-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) { .company-switch-spinner { animation-duration:1.5s; } }
+.config-summary-card { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:18px 20px; }
+.config-summary-grid { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:16px 26px; flex:1; }
+.config-summary-grid span { display:grid; gap:3px; color:var(--muted); font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; }
+.config-summary-grid b { color:var(--ink); font-size:.94rem; text-transform:none; letter-spacing:0; }
+.config-edit-actions { display:flex; justify-content:flex-end; gap:10px; }
 
 @media (max-width: 700px) {
   .logo-config, .logos-grid, .logos-grid .logo-config { grid-template-columns: 1fr; }
@@ -173,4 +178,6 @@ body.company-switching { overflow:hidden; }
   .step-title .secondary { margin-left:42px; }
   .invoice-actions { grid-template-columns:1fr; }
   .pdf-colors { grid-template-columns:1fr; }
+  .config-summary-card { align-items:stretch; flex-direction:column; }
+  .config-summary-grid { grid-template-columns:1fr 1fr; }
 }
