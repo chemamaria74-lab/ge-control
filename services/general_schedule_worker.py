@@ -160,63 +160,42 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
         .data
         or []
     )
-    execution = None
     if previous:
         previous_row = previous[0]
-        schedule_updated = _parse_timestamp(schedule.get("updated_at"))
-        execution_updated = _parse_timestamp(previous_row.get("updated_at"))
-        previous_status = previous_row.get("status")
-        # Sólo un diferimiento anterior al PAC se reintenta automáticamente.
-        # Cualquier error/rechazo requiere que una persona edite explícitamente
-        # la programación; así un timeout ambiguo jamás genera otro CFDI solo.
-        retry_after_edit = (
-            previous_status == "diferida"
-            or (
-                previous_status in {"error", "rechazada"}
-                and schedule_updated > execution_updated
-            )
-        )
-        if retry_after_edit:
-            claimed = sb.table(EJECUCIONES).update({
-                "status": "procesando", "error": "", "updated_at": now.isoformat()
-            }).eq("id", previous_row["id"]).eq("status", previous_status).eq("updated_at", previous_row.get("updated_at")).execute().data or []
-            if not claimed:
-                return {"ok": False, "reused": True, "error": "La programación ya está siendo procesada.", "ejecucion": previous_row}
-            execution = claimed[0]
-        else:
-            return {
-                "ok": previous_row.get("status") == "completada",
-                "reused": True,
-                "error": previous_row.get("error") or "La ejecución del periodo ya existe y no fue completada.",
-                "ejecucion": previous_row,
-            }
+        return {
+            "ok": previous_row.get("status") == "completada",
+            "reused": True,
+            "error": previous_row.get("error") or "Esta programación ya tuvo su único intento del periodo.",
+            "ejecucion": previous_row,
+        }
+
+    # La ejecución única se registra antes de reservar turno, folio o contactar
+    # al PAC. La restricción única de Supabase impide dos intentos concurrentes.
+    execution = (
+        sb.table(EJECUCIONES)
+        .insert(_scope_row(schedule, {
+            "programacion_id": schedule["id"], "periodo": periodo,
+            "status": "procesando", "email_delivery": {}, "error": "",
+        }))
+        .execute().data or []
+    )[0]
+    next_at = next_execution(schedule, after=now).isoformat()
 
     stamp_slot = acquire_general_stamp_slot(
         sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"]
     )
     if not stamp_slot.get("adquirido"):
-        retry_at = stamp_slot.get("proximo_timbrado_at")
-        if execution is not None and execution.get("id"):
-            sb.table(EJECUCIONES).update({
-                "status": "diferida", "error": "Timbrado diferido por turno de empresa.",
-                "updated_at": now.isoformat(),
-            }).eq("id", execution["id"]).execute()
+        sb.table(EJECUCIONES).update({
+            "status": "omitida", "error": "No se timbró: el turno de la empresa estaba ocupado. No habrá reintento automático.",
+            "updated_at": now.isoformat(),
+        }).eq("id", execution["id"]).execute()
         sb.table(PROGRAMACIONES).update({
-            "proxima_ejecucion_at": retry_at,
-            "updated_at": retry_at if execution is not None else now.isoformat(),
+            "ultima_ejecucion_at": now.isoformat(),
+            "proxima_ejecucion_at": next_at,
+            "updated_at": now.isoformat(),
         }).eq("id", schedule["id"]).execute()
-        return {"ok": False, "deferred": True, "retry_at": retry_at,
-                "error": "Otra factura de esta empresa está en turno de timbrado."}
-
-    if execution is None:
-        execution = (
-            sb.table(EJECUCIONES)
-            .insert(_scope_row(schedule, {
-                "programacion_id": schedule["id"], "periodo": periodo,
-                "status": "procesando", "email_delivery": {}, "error": "",
-            }))
-            .execute().data or []
-        )[0]
+        return {"ok": False, "skipped": True,
+                "error": "El turno estaba ocupado; se omitió este mes sin reintentar."}
     cfdi = reserve_general_folio(
         sb,
         tenant_id=schedule.get("tenant_id"),
@@ -232,8 +211,6 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
     logo_slot = 2 if int(schedule.get("logo_slot") or 1) == 2 else 1
     logo_name, logo_data = selected_general_logo(config, logo_slot)
     result = emitir_timbrar_json(cfdi)
-    next_at = next_execution(schedule, after=now).isoformat()
-
     if not result.get("ok"):
         error = result.get("error") or "SW Sapien rechazó el CFDI."
         sb.table(EJECUCIONES).update({"status": "rechazada", "error": error, "updated_at": now.isoformat()}).eq("id", execution["id"]).execute()
@@ -297,6 +274,10 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
             "fecha_vencimiento": None if is_paid else (date.today() + timedelta(days=credit_days)).isoformat(),
             # El cliente de Supabase serializa el cuerpo como JSON.
             "saldo_pendiente": 0.0 if is_paid else float(Decimal(str(cfdi.get("Total") or 0))),
+            "email_delivery": {
+                "status": "pendiente", "ok": False, "skipped": True,
+                "recipient": destination_email, "message_id": "", "error": "Envío pendiente.",
+            },
         }))
         .execute()
         .data
@@ -322,6 +303,15 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None) -> dict:
             ).as_metadata()
         except Exception as exc:
             email = {"ok": False, "skipped": False, "error": str(exc)[:500]}
+    email = {
+        **email,
+        "status": "enviado" if email.get("ok") else ("no_enviado" if email.get("skipped") else "error"),
+        "recipient": destination_email,
+        "attempted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    sb.table(FACTURAS).update({
+        "email_delivery": email, "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", factura["id"]).execute()
 
     sb.table(EJECUCIONES).update({
         "status": "completada",

@@ -30,6 +30,7 @@ import time
 import unicodedata
 import uuid
 import requests
+from decimal import Decimal
 from services.observability import measure_external
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -102,6 +103,59 @@ SW_XML_STAMP_URL = os.environ.get("SW_XML_STAMP_URL", f"{BASE_URL}/cfdi33/stamp/
 SW_JSON_ISSUE_URL = os.environ.get("SW_JSON_ISSUE_URL", f"{BASE_URL}/v3/cfdi33/issue/json/v4").strip()
 SW_CANCEL_URL = os.environ.get("SW_CANCEL_URL", f"{BASE_URL}/cfdi33/cancel/pfx").strip()
 SW_CANCEL_STATUS_URL = os.environ.get("SW_CANCEL_STATUS_URL", f"{BASE_URL}/cfdi33/cancel/pfx/status").strip()
+SAT_CFDI_STATUS_URL = os.environ.get(
+    "SAT_CFDI_STATUS_URL",
+    "https://consultaqr.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc",
+).strip()
+
+
+@measure_external("sat")
+def consultar_estatus_cfdi(*, uuid_sat: str, rfc_emisor: str, rfc_receptor: str,
+                           total: object, sello_cfdi: str, timeout: int = 15) -> dict:
+    """Consulta pública y no destructiva del estado vigente/cancelación ante SAT."""
+    uuid_sat = str(uuid_sat or "").strip().upper()
+    rfc_emisor = str(rfc_emisor or "").strip().upper()
+    rfc_receptor = str(rfc_receptor or "").strip().upper()
+    sello_cfdi = str(sello_cfdi or "").strip()
+    if not all((uuid_sat, rfc_emisor, rfc_receptor, sello_cfdi)):
+        return {"ok": False, "error": "Faltan datos del CFDI para consultar su estado."}
+    total_text = format(Decimal(str(total or 0)), ".6f")
+    expression = (
+        f"?re={rfc_emisor}&rr={rfc_receptor}&tt={total_text}"
+        f"&id={uuid_sat}&fe={sello_cfdi[-8:]}"
+    )
+    envelope = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+        '<s:Body><Consulta xmlns="http://tempuri.org/">'
+        f'<expresionImpresa><![CDATA[{expression}]]></expresionImpresa>'
+        '</Consulta></s:Body></s:Envelope>'
+    )
+    try:
+        response = requests.post(
+            SAT_CFDI_STATUS_URL,
+            data=envelope.encode("utf-8"),
+            headers={
+                "Content-Type": "text/xml; charset=utf-8",
+                "SOAPAction": "http://tempuri.org/IConsultaCFDIService/Consulta",
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        fields = {node.tag.rsplit("}", 1)[-1]: (node.text or "").strip() for node in root.iter()}
+        estado = fields.get("Estado", "")
+        estatus_cancelacion = fields.get("EstatusCancelacion", "")
+        return {
+            "ok": bool(estado),
+            "estado": estado,
+            "estatus_cancelacion": estatus_cancelacion,
+            "es_cancelable": fields.get("EsCancelable", ""),
+            "codigo_estatus": fields.get("CodigoEstatus", ""),
+        }
+    except Exception as exc:
+        logger.warning("SAT status lookup failed uuid=%s error=%s", uuid_sat, exc)
+        return {"ok": False, "error": "No fue posible consultar el estado fiscal ante el SAT."}
 
 # Credenciales vía variables de entorno. Se soportan ambos nombres para evitar
 # fallas de despliegue durante la transición del cierre productivo.
