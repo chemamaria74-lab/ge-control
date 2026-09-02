@@ -7,11 +7,14 @@
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
   <link rel="stylesheet" href="/static/css/control_facturacion.css?v=20260814-3">
-  <link rel="stylesheet" href="/static/css/control_facturacion_actions.css?v=all-table-scroll-20260902">
+  <link rel="stylesheet" href="/static/css/control_facturacion_actions.css?v=company-switch-overlay-20260902">
   <link rel="stylesheet" href="/static/css/control_facturacion_schedule_status.css?v=20260815-1">
 </head>
 <body>
   <script>if(!(localStorage.getItem('sat_token')||localStorage.getItem('zc_token'))&&!['localhost','127.0.0.1'].includes(location.hostname))location.replace('/login/control-administrativo?portal=facturacion');</script>
+  <div id="companySwitchOverlay" class="company-switch-overlay" hidden aria-live="assertive" aria-busy="true">
+    <div class="company-switch-card" role="status"><span class="company-switch-spinner" aria-hidden="true"></span><strong>Cambiando de empresa…</strong><small id="companySwitchName">Cargando la información correcta.</small></div>
+  </div>
   <header class="topbar">
     <a class="brand" href="/control-administrativo/facturacion"><img src="/static/img/ge-isotype-light.svg" alt="GE"><span><b>Administrador de empresas</b><small>Facturación</small></span></a>
     <label class="company-control"><span>Empresa</span><select id="companySelect"><option value="">Cargando…</option></select></label>
@@ -68,6 +71,6 @@
   <dialog id="editorDialog"><form class="dialog-card" id="editorForm"><div class="dialog-head"><div><span class="eyebrow" id="dialogEyebrow">Catálogo</span><h2 id="dialogTitle">Editar</h2></div><button class="icon-btn" id="editorClose" type="button" aria-label="Cerrar">×</button></div><div id="dialogFields" class="form-grid"></div><div id="editorError" class="validation bad" role="alert" hidden></div><div class="form-actions"><button class="secondary" id="editorCancel" type="button">Cancelar</button><button class="primary" id="dialogSave" type="submit">Guardar</button></div></form></dialog>
   <dialog id="cancelInvoiceDialog"><form class="dialog-card" id="cancelInvoiceForm"><div class="dialog-head"><div><span class="eyebrow">Cancelación fiscal SAT</span><h2>Cancelar factura</h2></div><button class="icon-btn" id="cancelInvoiceClose" type="button" aria-label="Cerrar">×</button></div><p id="cancelInvoiceSummary"></p><div class="form-grid"><label class="full">Motivo SAT<select id="cancelInvoiceReason" required><option value="02">02 · Comprobante emitido con errores sin relación</option><option value="01">01 · Comprobante emitido con errores con relación</option><option value="03">03 · No se llevó a cabo la operación</option><option value="04">04 · Operación nominativa relacionada en factura global</option></select></label><label class="full" id="cancelReplacementField" hidden>UUID de la factura sustituta<input id="cancelReplacementUuid" maxlength="36" autocomplete="off"></label><label class="full">Confirmación<input id="cancelInvoiceConfirmation" autocomplete="off" placeholder="Escribe CANCELAR"></label></div><div id="cancelInvoiceError" class="validation bad" role="alert" hidden></div><div class="form-actions"><button class="secondary" id="cancelInvoiceBack" type="button">Regresar</button><button class="primary" id="cancelInvoiceSubmit" type="submit" disabled>Enviar solicitud al SAT</button></div></form></dialog>
   <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
-  <script src="/static/js/control_facturacion.js?v=schedule-safety-20260902"></script>
+  <script src="/static/js/control_facturacion.js?v=company-switch-overlay-20260902"></script>
 </body>
 </html>
