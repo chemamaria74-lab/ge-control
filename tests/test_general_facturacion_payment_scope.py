@@ -75,8 +75,16 @@ def test_cancelled_and_pending_cancellation_invoices_remain_visible():
     assert "row.status==='timbrada'" not in renderer
     assert "fiscalPill(row)" in renderer
     assert "Cancelación en proceso" in FRONTEND
-    assert '"status": "timbrada"' in cancel_endpoint
+    assert '"status": "cancelacion_en_proceso" if pending else "cancelada"' in cancel_endpoint
     assert '"cancelacion_status": "en_proceso"' in cancel_endpoint
+
+
+def test_sat_sync_persists_one_canonical_invoice_status():
+    helper = SOURCE.split("def _sync_profile_cancellation_states", 1)[1].split("@router.get", 1)[0]
+
+    assert 'canonical_status = "cancelada"' in helper
+    assert '"cancelacion_en_proceso" if status == "en_proceso"' in helper
+    assert '"status": canonical_status' in helper
 
 
 def test_general_cancellation_uses_the_same_runtime_and_invoice_issuer_as_other_modules():

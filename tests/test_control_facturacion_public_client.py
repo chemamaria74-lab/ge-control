@@ -46,6 +46,14 @@ def test_today_table_only_shows_invoices_with_a_sat_uuid():
     assert "No hay CFDI sincronizados hoy." in render
 
 
+def test_cancelled_and_pending_cancellations_do_not_inflate_summary_totals():
+    summary = SOURCE.split("function renderAll()", 1)[1].split("function invoiceParty", 1)[0]
+
+    assert "i.status==='timbrada'" in summary
+    assert "cancelStatus" not in summary
+    assert "vigente${monthRows.length===1?'':'s'} del mes" in summary
+
+
 def test_stamp_button_is_reenabled_for_the_next_invoice():
     invalidate = SOURCE.split("function invalidate()", 1)[1].split("function buildPayload()", 1)[0]
     reset = SOURCE.split("function resetInvoice()", 1)[1].split("function field(", 1)[0]
