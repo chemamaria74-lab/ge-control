@@ -135,6 +135,16 @@
 .selection-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px; padding:15px; border-radius:10px; background:#faf6f2; border:1px solid var(--line); }
 .selection-bar b,.selection-bar small { display:block; }
 .selection-bar b { color:var(--wine); font-size:1.25rem; }
+.invoice-toolbar { align-items:end; flex-wrap:wrap; }
+.invoice-toolbar>input { flex:1 1 300px; }
+.invoice-toolbar>label { display:grid; gap:5px; min-width:150px; font-size:.76rem; }
+.invoice-toolbar input,.invoice-toolbar select { border:1px solid #dcd4ca; border-radius:8px; background:#fff; padding:10px 11px; }
+.view .card>.table-wrap { max-height:min(62vh,680px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.view .card>.table-wrap thead { position:sticky; top:0; z-index:3; background:#f5f1ed; box-shadow:0 1px 0 var(--line); }
+.invoice-table-scroll { min-height:300px; }
+.invoice-table-scroll tbody tr[data-fiscal="cancelada"] { background:#fffafa; }
+#cancelInvoiceDialog .dialog-card { max-width:620px; }
+#cancelInvoiceSummary { padding:12px; border-radius:9px; background:#faf6f2; color:var(--ink); }
 
 @media (max-width: 700px) {
   .logo-config, .logos-grid, .logos-grid .logo-config { grid-template-columns: 1fr; }
