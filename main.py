@@ -653,7 +653,7 @@ async def login_global_view(request: Request):
       <a class="back" href="/choice">Cambiar módulo</a>
     </section>
   </main>
-  <script src="/static/js/session_timeout.js"></script>
+  <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
   <script>
     const LOGIN_NEXT = '__NEXT__';
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
@@ -1030,7 +1030,7 @@ def _render_transporte_v2_login(kind: str, title: str, subtitle: str, next_param
       <a class="back" href="/transporte-v2/roles">Cambiar acceso</a>
     </section>
   </main>
-  <script src="/static/js/session_timeout.js"></script>
+  <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
   <script>
     const LOGIN_NEXT = '__NEXT__';
     const IS_OPERATOR = __OPERATOR__;
