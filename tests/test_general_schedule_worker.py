@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, next_execution,
                                                 reserve_general_folio, selected_general_logo)
@@ -119,3 +120,32 @@ def test_next_execution_moves_to_following_month_after_due_time():
 def test_next_execution_keeps_current_month_before_due_time():
     result = next_execution(schedule(), after=datetime(2026, 9, 5, 14, 59, tzinfo=timezone.utc))
     assert result == datetime(2026, 9, 5, 15, 0, tzinfo=timezone.utc)
+
+
+def test_pac_success_is_persisted_before_local_invoice_insert_and_never_uses_decimal_balance():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    success = source.split('data = result.get("data") or {}', 1)[1]
+
+    pac_marker = success.index('"status": "pac_timbrada"')
+    invoice_insert = success.index("sb.table(FACTURAS)")
+    assert pac_marker < invoice_insert
+    assert '"saldo_pendiente": Decimal(' not in success
+    assert '"saldo_pendiente": 0.0 if is_paid else float(' in success
+    assert "PacStampPersistenceError" in success
+
+
+def test_post_stamp_persistence_failure_is_not_made_retryable():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    runner = source.split("def run_due_schedules", 1)[1]
+
+    assert "not isinstance(exc, PacStampPersistenceError)" in runner
+
+
+def test_ambiguous_errors_require_human_edit_before_retrying_the_period():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
+
+    assert 'previous_status == "error"\n            or' not in executor
+    assert 'previous_status in {"error", "rechazada"}' in executor
+    assert 'previous_status == "diferida"' in executor
+    assert '"status": "diferida"' in executor
