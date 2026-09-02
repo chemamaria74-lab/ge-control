@@ -1,6 +1,9 @@
 import json
 import subprocess
+import pytest
 from pathlib import Path
+
+pytestmark = pytest.mark.integration_rls
 
 
 ROOT = Path(__file__).resolve().parents[2]
