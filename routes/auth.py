@@ -12,6 +12,8 @@ CAMBIOS vs versión anterior:
 """
 import hashlib
 import logging
+import base64
+import json
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Depends, Request
@@ -367,6 +369,25 @@ def _extract_bearer(authorization: str) -> Optional[str]:
     return authorization[7:].strip() or None
 
 
+def _jwt_subject_for_refresh(token: str) -> Optional[str]:
+    """Read ``sub`` from an expired JWT only to bind it to the refresh cookie.
+
+    The refresh token remains the credential and Supabase validates it.  This
+    subject is never accepted as authentication on its own; it only prevents a
+    refresh cookie from replacing a different user's browser session.
+    """
+    if not token or token.count(".") != 2:
+        return None
+    try:
+        payload = token.split(".", 2)[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+        subject = str(claims.get("sub") or "").strip()
+        return subject or None
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        return None
+
+
 def get_current_user(authorization: str = Header(default="")) -> Optional[str]:
     """FastAPI dependency: extrae user_id del header Authorization."""
     token = _extract_bearer(authorization)
@@ -543,6 +564,11 @@ async def refresh(request: Request, authorization: str = Header(default="")):
     """Renueva el JWT sin exponer el refresh token a JavaScript."""
     current_token = _extract_bearer(authorization)
     current_user_id = verify_token(current_token) if current_token else None
+    if not current_user_id and current_token:
+        # El JWT de acceso normalmente vence antes que la sesión recordada. Su
+        # firma ya no autoriza peticiones, pero el ``sub`` todavía sirve para
+        # comprobar que la cookie HttpOnly renovada pertenece a la misma cuenta.
+        current_user_id = _jwt_subject_for_refresh(current_token)
     if not current_user_id:
         raise HTTPException(status_code=401, detail="La sesión actual no es válida para renovarse.")
     refresh_token = request.cookies.get(REFRESH_COOKIE, "")

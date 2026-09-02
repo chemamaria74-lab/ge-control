@@ -165,6 +165,9 @@ class DirectInvoiceUpdate(BaseModel):
     total_mxn: float = Field(gt=0, le=100_000_000)
     description: str = Field(default="", max_length=500)
     observation: str = Field(default="", max_length=500)
+    payment_target: Literal["supplier", "reimbursement"] | None = None
+    reimbursement_recipient_id: int | None = None
+    reimbursement_account_id: int | None = None
 
 
 class PaidInvoiceDateUpdate(BaseModel):
@@ -2290,6 +2293,25 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
                      .eq("invoice_id", invoice_id).limit(1).execute().data or [])
     if advance_links:
         raise HTTPException(409, "Esta factura tiene anticipos aplicados y ya no se puede editar.")
+    payment_target = payload.payment_target or row.get("payment_target") or "supplier"
+    if row.get("expense_type") == "credit_note" and payment_target != "supplier":
+        raise HTTPException(400, "Una nota de crédito debe quedar asociada al proveedor.")
+    if payment_target == "reimbursement":
+        if not payload.reimbursement_recipient_id:
+            raise HTTPException(400, "Selecciona a la persona que recibirá el reembolso.")
+        if not payload.reimbursement_account_id:
+            raise HTTPException(400, "Selecciona si el reembolso será a nómina o tarjeta de crédito.")
+        recipients = (_base_query(ctx, "gas_lp_expense_recipients")
+                      .eq("id", payload.reimbursement_recipient_id).eq("status", "active")
+                      .limit(1).execute().data or [])
+        if not recipients:
+            raise HTTPException(400, "La persona a reembolsar no está disponible.")
+        accounts = (_base_query(ctx, "gas_lp_expense_recipient_accounts")
+                    .eq("id", payload.reimbursement_account_id)
+                    .eq("recipient_id", payload.reimbursement_recipient_id)
+                    .eq("status", "active").limit(1).execute().data or [])
+        if not accounts:
+            raise HTTPException(400, "El destino de reembolso no pertenece a esta persona.")
     alerts = _invoice_alerts(
         ctx, supplier_id=int(row["supplier_id"]), invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date, total_mxn=payload.total_mxn,
@@ -2308,6 +2330,9 @@ def update_direct_invoice(invoice_id: int, payload: DirectInvoiceUpdate, token: 
         "total_mxn": round(payload.total_mxn, 2),
         "description": payload.description.strip(),
         "observation": observation,
+        "payment_target": payment_target,
+        "reimbursement_recipient_id": payload.reimbursement_recipient_id if payment_target == "reimbursement" else None,
+        "reimbursement_account_id": payload.reimbursement_account_id if payment_target == "reimbursement" else None,
         "updated_at": _now(),
     }
     ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(

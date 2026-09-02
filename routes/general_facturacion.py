@@ -95,6 +95,23 @@ def _document_filename(factura: dict, extension: str) -> str:
     return f"{safe_name}_{safe_folio}.{extension}"
 
 
+def _invoice_pdf_branding(factura: dict, scope: dict) -> tuple[str, dict]:
+    """Usa la marca bloqueada al emitir y completa faltantes con la vigente."""
+    logo_data = str(factura.get("logo_data_url") or "")
+    theme_keys = ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")
+    theme = {key: factura.get(key) for key in theme_keys}
+    if logo_data and all(theme.values()):
+        return logo_data, theme
+
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    if not logo_data:
+        _logo_name, logo_data = selected_general_logo(config, int(factura.get("logo_slot") or 1))
+    for key in theme_keys:
+        if not theme.get(key):
+            theme[key] = config.get(key)
+    return logo_data, theme
+
+
 class GeneralProducto(BaseModel):
     clave_prod_serv: str = Field(pattern=r"^\d{8}$")
     clave_unidad: str = Field(min_length=2, max_length=3)
@@ -220,6 +237,16 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         method = str(cfdi.get("MetodoPago") or "").upper()
         total = float(Decimal(str(cfdi.get("Total") or 0)))
         created_at = response.get("created_at") or request_row.get("created_at") or datetime.now(timezone.utc).isoformat()
+        signature = (
+            str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
+            Decimal(str(cfdi.get("Total") or 0)).quantize(Decimal("0.01")),
+        )
+        matching_schedule = next((item for item in schedules if (
+            str((((item.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
+            Decimal(str((item.get("payload_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")),
+        ) == signature), {})
+        logo_slot = 2 if int(matching_schedule.get("logo_slot") or 1) == 2 else 1
+        logo_name, _logo_data = selected_general_logo(config, logo_slot)
         row = _sb_insert(FACTURAS, _scope_row(scope, {
             "status": "timbrada",
             "idempotency_key": f"pac-recovery:{uuid_sat}",
@@ -231,6 +258,14 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
             "pdf_url": response.get("pdf_url") or "",
             "cfdi_json": cfdi,
             "pac_response": response.get("response_payload") or {},
+            "logo_slot": logo_slot,
+            "logo_nombre": logo_name,
+            # El archivo vive una sola vez en la configuración. El PDF resuelve
+            # este slot al descargarse y evita duplicar cientos de KB por CFDI.
+            "logo_data_url": "",
+            "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C",
+            "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF",
+            "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
             "estado_pago": "pagada" if method == "PUE" else "pendiente",
             "fecha_pago": created_at if method == "PUE" else None,
             "fecha_vencimiento": None if method == "PUE" else str(created_at)[:10],
@@ -630,10 +665,10 @@ async def descargar_pdf_factura_general(factura_id: int, authorization: str = He
     factura = invoices[0] if invoices else None
     if not factura or not factura.get("xml_content"):
         raise HTTPException(404, "La factura o su XML timbrado no están disponibles.")
-    pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
-    pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=str(factura.get("logo_data_url") or ""), observaciones=str(factura.get("notas") or ""), pdf_theme=pdf_theme)
+    logo_data, pdf_theme = _invoice_pdf_branding(factura, scope)
+    pdf = generar_pdf_ingreso_desde_xml(factura["xml_content"], logo_data_url=logo_data, observaciones=str(factura.get("notas") or ""), pdf_theme=pdf_theme)
     filename = _document_filename(factura, "pdf")
-    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "private, max-age=300"})
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "no-store"})
 
 
 @router.get("/facturas/{factura_id}/xml")
@@ -669,10 +704,10 @@ async def enviar_factura_general_por_correo(
     else:
         quantity = len(concepts)
         unit_label = "conceptos"
-    pdf_theme = {key: factura.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")}
+    logo_data, pdf_theme = _invoice_pdf_branding(factura, scope)
     pdf = generar_pdf_ingreso_desde_xml(
         factura["xml_content"],
-        logo_data_url=str(factura.get("logo_data_url") or ""),
+        logo_data_url=logo_data,
         observaciones=str(factura.get("notas") or ""),
         pdf_theme=pdf_theme,
     )
