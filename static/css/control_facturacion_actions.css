@@ -145,6 +145,15 @@
 .invoice-table-scroll tbody tr[data-fiscal="cancelada"] { background:#fffafa; }
 #cancelInvoiceDialog .dialog-card { max-width:620px; }
 #cancelInvoiceSummary { padding:12px; border-radius:9px; background:#faf6f2; color:var(--ink); }
+.company-switch-overlay { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:24px; background:rgba(48,10,18,.72); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+.company-switch-overlay[hidden] { display:none; }
+.company-switch-card { display:grid; justify-items:center; gap:10px; width:min(390px,100%); padding:30px 26px; border:1px solid rgba(255,255,255,.3); border-radius:16px; background:#fff; color:var(--wine); text-align:center; box-shadow:0 24px 70px rgba(20,0,5,.35); }
+.company-switch-card strong { font-size:1.25rem; }
+.company-switch-card small { color:var(--muted); }
+.company-switch-spinner { width:34px; height:34px; border:4px solid #ead7db; border-top-color:var(--wine); border-radius:50%; animation:company-switch-spin .75s linear infinite; }
+body.company-switching { overflow:hidden; }
+@keyframes company-switch-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .company-switch-spinner { animation-duration:1.5s; } }
 
 @media (max-width: 700px) {
   .logo-config, .logos-grid, .logos-grid .logo-config { grid-template-columns: 1fr; }
