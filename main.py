@@ -115,6 +115,7 @@ def _inject_legal_branding(html: str) -> str:
     footer_already_rendered = (
         '<footer class="ge-legal-footer"' in html
         or "<footer class='ge-legal-footer'" in html
+        or "data-ge-legal-satisfied" in html
     )
     if footer_already_rendered and "data-ge-legal-footer" not in html:
         html = html.replace('class="ge-legal-footer"', 'class="ge-legal-footer" data-ge-legal-footer')
@@ -365,7 +366,7 @@ class DemoLeadSchema(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
     company: str = Field(..., min_length=2, max_length=160)
     email: EmailStr
-    phone: str = Field("", max_length=40)
+    phone: str = Field("", max_length=40, pattern=r"^(?:$|[0-9+().\s-]{7,40})$")
     interest: str = Field("Demo GE Control", max_length=120)
     message: str = Field("", max_length=900)
     source: str = Field("landing", max_length=80)
