@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from services.general_schedule_worker import (acquire_general_stamp_slot, catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
+from services.general_schedule_worker import (_canceled_invoice_linked_to_execution, _schedule_invoice_idempotency_key,
+                                                acquire_general_stamp_slot,
+                                                catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
                                                 reserve_general_folio, selected_general_logo)
 
 
@@ -157,7 +159,7 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
-    previous_guard = executor.index("elif previous:")
+    previous_guard = executor.index("elif previous_row:")
     execution_insert = executor.index("sb.table(EJECUCIONES)\n            .insert")
     pac_call = executor.index("result = emitir_timbrar_json(cfdi)")
     assert previous_guard < execution_insert < pac_call
@@ -171,9 +173,54 @@ def test_manual_retry_is_limited_to_attempts_known_not_to_have_stamped():
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
     assert "allow_retry_omitted: bool = False" in executor
-    assert 'previous[0].get("status") in {"omitida", "rechazada"}' in executor
-    assert 'execution = previous[0]' in executor
+    assert 'previous_row.get("status") in {"omitida", "rechazada"}' in executor
+    assert 'previous_row.get("status") == "completada" and canceled_invoice' in executor
+    assert '_canceled_invoice_linked_to_execution(sb, schedule, previous_row)' in executor
+    assert 'execution = previous_row' in executor
     assert '"status": "procesando"' in executor
+
+
+def test_canceled_invoice_replacement_uses_a_distinct_stable_idempotency_key():
+    assert _schedule_invoice_idempotency_key(42, "2026-09") == "programacion:42:2026-09"
+    assert _schedule_invoice_idempotency_key(42, "2026-09", 917) == (
+        "programacion:42:2026-09:reposicion:917"
+    )
+
+
+def test_only_a_scoped_canceled_invoice_unlocks_manual_replacement():
+    class Response:
+        def __init__(self, status):
+            self.data = [{"id": 917, "status": status, "cancelacion_status": status, "uuid_sat": "uuid"}]
+
+    class Query:
+        def __init__(self, status):
+            self.status = status
+            self.filters = []
+
+        def table(self, name):
+            assert name == "general_facturas"
+            return self
+
+        def select(self, columns):
+            assert columns == "id,status,cancelacion_status,uuid_sat"
+            return self
+
+        def eq(self, column, value):
+            self.filters.append((column, value))
+            return self
+
+        def limit(self, value):
+            assert value == 1
+            return self
+
+        def execute(self):
+            assert self.filters == [("id", 917), ("tenant_id", "tenant"), ("perfil_id", 7)]
+            return Response(self.status)
+
+    linked = {"factura_id": 917}
+    company_schedule = {"tenant_id": "tenant", "perfil_id": 7}
+    assert _canceled_invoice_linked_to_execution(Query("cancelada"), company_schedule, linked)["id"] == 917
+    assert _canceled_invoice_linked_to_execution(Query("timbrada"), company_schedule, linked) is None
 
 
 def test_scheduled_cfdi_is_json_safe_before_pac_call():
