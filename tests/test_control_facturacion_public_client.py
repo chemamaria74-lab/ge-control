@@ -96,7 +96,24 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert "state.config&&state.config!==previous" in disclosure
     assert "syncConfigDisclosure()" in disclosure
     assert "syncConfig任选Disclosure" not in SOURCE
-    assert "control_facturacion.js?v=payment-by-client-20260903" in TEMPLATE
+    assert "control_facturacion.js?v=schedule-price-label-20260903" in TEMPLATE
+
+
+def test_invoice_documents_are_named_with_issuer_and_invoice_number():
+    naming = SOURCE.split("function documentName", 1)[1].split("function invoicePeriod", 1)[0]
+
+    assert "cfdi_json?.Emisor" in naming
+    assert "issuer.Nombre||issuer.Rfc" in naming
+    assert "row?.serie,row?.folio" in naming
+    assert "new File([blob],documentName(row,'pdf')" in SOURCE
+
+
+def test_schedule_product_selector_explains_price_treatment_without_internal_id():
+    binder = SOURCE.split("function bindScheduleFiscalPreview", 1)[1].split("function scheduleConceptPreview", 1)[0]
+
+    assert "product.descripcion" in binder
+    assert "product.precio_incluye_iva?'IVA incluido':'más IVA'" in binder
+    assert "product.id" not in binder
 
 
 def test_dense_tables_use_numeric_dates_and_compact_layout():
