@@ -195,7 +195,9 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     assert previous_guard < execution_insert < pac_call
     assert "retry_after_edit" not in executor
     assert '"status": "omitida"' in executor
-    assert "No habrá reintento automático" in executor
+    assert '"status": "esperando_turno"' in executor
+    assert "timedelta(minutes=5)" in executor
+    assert "retry_waiting_for_slot" in executor
 
 
 def test_pre_pac_failures_are_made_retryable_instead_of_staying_processing():

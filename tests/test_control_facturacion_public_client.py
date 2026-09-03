@@ -96,7 +96,7 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert "state.config&&state.config!==previous" in disclosure
     assert "syncConfigDisclosure()" in disclosure
     assert "syncConfig任选Disclosure" not in SOURCE
-    assert "control_facturacion.js?v=schedule-price-label-20260903" in TEMPLATE
+    assert "control_facturacion.js?v=clear-action-icons-20260903" in TEMPLATE
 
 
 def test_invoice_documents_are_named_with_issuer_and_invoice_number():

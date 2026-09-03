@@ -217,3 +217,23 @@ def test_regenerated_invoice_pdf_prefers_current_company_branding():
 
     assert "current_logo or factura.get" in helper
     assert "config.get(key) or factura.get(key)" in helper
+
+
+def test_product_updates_are_scoped_to_company_not_original_creator():
+    helper = SOURCE.split("def _profile_update", 1)[1].split("def _pac_recovery_description", 1)[0]
+    endpoint = SOURCE.split("async def update_general_product", 1)[1].split("@router.delete", 1)[0]
+
+    assert '.eq("perfil_id", scope["perfil_id"])' in helper
+    assert '.eq("tenant_id", scope["tenant_id"])' in helper
+    assert '.eq("user_id"' not in helper
+    assert "_profile_update(PRODUCTOS" in endpoint
+
+
+def test_product_delete_is_blocked_while_any_schedule_references_it():
+    endpoint = SOURCE.split("async def delete_general_product", 1)[1].split("@router.post", 1)[0]
+
+    assert "_profile_table_query(PROGRAMACIONES" in endpoint
+    assert '.eq("producto_id", producto_id)' in endpoint
+    assert "if linked:" in endpoint
+    assert "Cambia el producto de esas programaciones antes de eliminarlo" in endpoint
+    assert "_profile_delete(PRODUCTOS" in endpoint
