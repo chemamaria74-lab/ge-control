@@ -15,6 +15,63 @@ from services.observability import measure_external
 
 logger = logging.getLogger(__name__)
 
+_REGIMEN_FISCAL = {
+    "601": "General de Ley Personas Morales",
+    "603": "Personas Morales con Fines no Lucrativos",
+    "605": "Sueldos y Salarios e Ingresos Asimilados a Salarios",
+    "606": "Arrendamiento",
+    "607": "Régimen de Enajenación o Adquisición de Bienes",
+    "608": "Demás ingresos",
+    "610": "Residentes en el Extranjero sin Establecimiento Permanente en México",
+    "611": "Ingresos por Dividendos",
+    "612": "Personas Físicas con Actividades Empresariales y Profesionales",
+    "614": "Ingresos por intereses",
+    "615": "Régimen de los ingresos por obtención de premios",
+    "616": "Sin obligaciones fiscales",
+    "620": "Sociedades Cooperativas de Producción que optan por diferir sus ingresos",
+    "621": "Incorporación Fiscal",
+    "622": "Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras",
+    "623": "Opcional para Grupos de Sociedades",
+    "624": "Coordinados",
+    "625": "Actividades Empresariales con ingresos a través de Plataformas Tecnológicas",
+    "626": "Régimen Simplificado de Confianza",
+}
+
+_USO_CFDI = {
+    "G01": "Adquisición de mercancías", "G02": "Devoluciones, descuentos o bonificaciones",
+    "G03": "Gastos en general", "I01": "Construcciones", "I02": "Mobiliario y equipo de oficina por inversiones",
+    "I03": "Equipo de transporte", "I04": "Equipo de cómputo y accesorios",
+    "I05": "Dados, troqueles, moldes, matrices y herramental", "I06": "Comunicaciones telefónicas",
+    "I07": "Comunicaciones satelitales", "I08": "Otra maquinaria y equipo",
+    "D01": "Honorarios médicos, dentales y gastos hospitalarios", "D02": "Gastos médicos por incapacidad o discapacidad",
+    "D03": "Gastos funerales", "D04": "Donativos", "D05": "Intereses reales por créditos hipotecarios",
+    "D06": "Aportaciones voluntarias al SAR", "D07": "Primas por seguros de gastos médicos",
+    "D08": "Gastos de transportación escolar obligatoria", "D09": "Depósitos para el ahorro y pensiones",
+    "D10": "Pagos por servicios educativos", "S01": "Sin efectos fiscales", "CP01": "Pagos", "CN01": "Nómina",
+}
+
+_FORMA_PAGO = {
+    "01": "Efectivo", "02": "Cheque nominativo", "03": "Transferencia electrónica de fondos",
+    "04": "Tarjeta de crédito", "05": "Monedero electrónico", "06": "Dinero electrónico",
+    "08": "Vales de despensa", "12": "Dación en pago", "13": "Pago por subrogación",
+    "14": "Pago por consignación", "15": "Condonación", "17": "Compensación", "23": "Novación",
+    "24": "Confusión", "25": "Remisión de deuda", "26": "Prescripción o caducidad",
+    "27": "A satisfacción del acreedor", "28": "Tarjeta de débito", "29": "Tarjeta de servicios",
+    "30": "Aplicación de anticipos", "31": "Intermediario pagos", "99": "Por definir",
+}
+
+_METODO_PAGO = {"PUE": "Pago en una sola exhibición", "PPD": "Pago en parcialidades o diferido"}
+_EXPORTACION = {
+    "01": "No aplica", "02": "Definitiva con clave A1", "03": "Temporal",
+    "04": "Definitiva con clave distinta de A1",
+}
+
+
+def _catalog_label(code: str, catalog: dict[str, str]) -> str:
+    value = str(code or "").strip().upper()
+    description = catalog.get(value)
+    return f"{value} - {description}" if value and description else value
+
 
 @dataclass
 class FiscalPdfInfo:
@@ -162,25 +219,25 @@ def generar_pdf_cfdi_desde_xml(
             ("Datos del emisor", [
                 ("Nombre", _attr(emisor, "Nombre", "Emisor")),
                 ("RFC", _attr(emisor, "Rfc")),
-                ("Régimen fiscal", _attr(emisor, "RegimenFiscal")),
+                ("Régimen fiscal", _catalog_label(_attr(emisor, "RegimenFiscal"), _REGIMEN_FISCAL)),
                 ("Lugar de expedición", _attr(root, "LugarExpedicion")),
             ]),
             ("Datos del receptor", [
             ("Nombre", _attr(receptor, "Nombre")),
             ("RFC", _attr(receptor, "Rfc")),
             ("CP fiscal", _attr(receptor, "DomicilioFiscalReceptor")),
-            ("Régimen fiscal", _attr(receptor, "RegimenFiscalReceptor")),
-            ("Uso CFDI", _attr(receptor, "UsoCFDI")),
+            ("Régimen fiscal", _catalog_label(_attr(receptor, "RegimenFiscalReceptor"), _REGIMEN_FISCAL)),
+            ("Uso CFDI", _catalog_label(_attr(receptor, "UsoCFDI"), _USO_CFDI)),
             ]),
             ("Datos del comprobante", _compact_rows([
             ("Tipo", f"{_tipo_cfdi(_attr(root, 'TipoDeComprobante'))} ({_attr(root, 'TipoDeComprobante')})"),
             ("Folio", _serie_folio_label(_attr(root, "Serie", ""), _attr(root, "Folio", ""))),
             ("Fecha emisión", _attr(root, "Fecha")),
             ("Fecha timbrado", _attr(timbre, "FechaTimbrado")),
-            ("Forma de pago", _attr(root, "FormaPago")),
-            ("Método de pago", _attr(root, "MetodoPago")),
+            ("Forma de pago", _catalog_label(_attr(root, "FormaPago"), _FORMA_PAGO)),
+            ("Método de pago", _catalog_label(_attr(root, "MetodoPago"), _METODO_PAGO)),
             ("Moneda", _attr(root, "Moneda")),
-            ("Exportación", _attr(root, "Exportacion")),
+            ("Exportación", _catalog_label(_attr(root, "Exportacion"), _EXPORTACION)),
             ("Permiso CRE", permiso_cre),
             ])),
         ],

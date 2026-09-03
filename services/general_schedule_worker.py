@@ -160,11 +160,13 @@ def catalog_cfdi_for_execution(sb, schedule: dict, *, now: datetime) -> dict:
     config = config_rows[0] if config_rows else {}
     if not client or not product or not config:
         raise RuntimeError("La programación ya no tiene disponible su cliente, producto o configuración fiscal.")
+    payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
+    payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
         "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
-        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": config.get("forma_pago_default") or "99", "metodo_pago": config.get("metodo_pago_default") or "PPD", "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
+        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": payment_form, "metodo_pago": payment_method, "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
         "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
         "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
     })
@@ -353,7 +355,8 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     client = next((row for row in clients if str(row.get("rfc") or "").strip().upper() == receptor_rfc), {})
     destination_email = str(client.get("email") or schedule.get("email_destino") or "").strip()
     credit_days = max(0, min(365, int(client.get("dias_credito") or 0)))
-    is_paid = str(cfdi.get("MetodoPago") or "") == "PUE"
+    # PUE describe el método fiscal, no confirma que el dinero ya se recibió.
+    # El estado de cobranza solo cambia cuando una persona registra el pago.
     factura = (
         sb.table(FACTURAS)
         .insert(_scope_row(schedule, {
@@ -375,11 +378,11 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C",
             "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF",
             "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
-            "estado_pago": "pagada" if is_paid else "pendiente",
-            "fecha_pago": now.isoformat() if is_paid else None,
-            "fecha_vencimiento": None if is_paid else (date.today() + timedelta(days=credit_days)).isoformat(),
+            "estado_pago": "pendiente",
+            "fecha_pago": None,
+            "fecha_vencimiento": (date.today() + timedelta(days=credit_days)).isoformat(),
             # El cliente de Supabase serializa el cuerpo como JSON.
-            "saldo_pendiente": 0.0 if is_paid else float(Decimal(str(cfdi.get("Total") or 0))),
+            "saldo_pendiente": float(Decimal(str(cfdi.get("Total") or 0))),
             "email_delivery": {
                 "status": "pendiente", "ok": False, "skipped": True,
                 "recipient": destination_email, "message_id": "", "error": "Envío pendiente.",
