@@ -7,7 +7,7 @@ from typing import Optional
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
@@ -561,18 +561,46 @@ async def timbrar_factura_general(
 
 
 @router.get("/facturas")
-async def listar_facturas_generales(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+async def listar_facturas_generales(
+    mes: Optional[str] = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    estado: str = Query(default="vigentes", pattern=r"^(vigentes|todas|canceladas|cancelacion_en_proceso)$"),
+    buscar: str = Query(default="", max_length=120),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
     scope = _scope_required(authorization, x_perfil_id)
-    rows = (_profile_invoice_query(
+    query = _profile_invoice_query(
         scope,
         "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status,email_delivery"
-    ).order("created_at", desc=True).execute().data or [])
-    if not rows:
+    )
+    start_utc = end_utc = None
+    if mes:
+        year, month = map(int, mes.split("-"))
+        start_local = datetime(year, month, 1, tzinfo=ZoneInfo("America/Mexico_City"))
+        end_local = datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=ZoneInfo("America/Mexico_City"))
+        start_utc, end_utc = start_local.astimezone(timezone.utc).isoformat(), end_local.astimezone(timezone.utc).isoformat()
+        query = query.gte("created_at", start_utc).lt("created_at", end_utc)
+    status_map = {"vigentes": "timbrada", "canceladas": "cancelada", "cancelacion_en_proceso": "cancelacion_en_proceso"}
+    if estado in status_map:
+        query = query.eq("status", status_map[estado])
+    rows = (query.order("created_at", desc=True).limit(1000).execute().data or [])
+    if not rows and not mes and not buscar:
         _recover_profile_pac_invoices(scope)
-        rows = (_profile_invoice_query(
+        query = _profile_invoice_query(
             scope,
             "id,status,tipo_comprobante,serie,folio,uuid_sat,cfdi_json,created_at,updated_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente,cancelacion_status,email_delivery"
-        ).order("created_at", desc=True).execute().data or [])
+        )
+        if start_utc and end_utc:
+            query = query.gte("created_at", start_utc).lt("created_at", end_utc)
+        if estado in status_map:
+            query = query.eq("status", status_map[estado])
+        rows = (query.order("created_at", desc=True).limit(1000).execute().data or [])
+    needle = buscar.strip().casefold()
+    if needle:
+        rows = [row for row in rows if needle in " ".join((
+            str(row.get("uuid_sat") or ""), str(row.get("serie") or ""), str(row.get("folio") or ""),
+            str(((row.get("cfdi_json") or {}).get("Receptor") or {}).get("Nombre") or ""),
+        )).casefold()]
     for row in rows:
         if row.get("status") == "timbrada" and not str(row.get("uuid_sat") or "").strip():
             _sb_update(FACTURAS, row["id"], scope, {"status": "rechazada"})
