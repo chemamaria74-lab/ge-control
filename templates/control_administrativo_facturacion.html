@@ -6,7 +6,7 @@
   <title>GE CONTROL | Facturación</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/css/ge-brand.css">
-  <link rel="stylesheet" href="/static/css/control_facturacion.css?v=20260814-3">
+  <link rel="stylesheet" href="/static/css/control_facturacion.css?v=clear-action-icons-20260903">
   <link rel="stylesheet" href="/static/css/control_facturacion_actions.css?v=config-disclosure-20260902">
   <link rel="stylesheet" href="/static/css/control_facturacion_schedule_status.css?v=compact-tables-20260902">
 </head>
@@ -72,6 +72,6 @@
   <dialog id="cancelInvoiceDialog"><form class="dialog-card" id="cancelInvoiceForm"><div class="dialog-head"><div><span class="eyebrow">Cancelación fiscal SAT</span><h2>Cancelar factura</h2></div><button class="icon-btn" id="cancelInvoiceClose" type="button" aria-label="Cerrar">×</button></div><p id="cancelInvoiceSummary"></p><div class="form-grid"><label class="full">Motivo SAT<select id="cancelInvoiceReason" required><option value="02">02 · Comprobante emitido con errores sin relación</option><option value="01">01 · Comprobante emitido con errores con relación</option><option value="03">03 · No se llevó a cabo la operación</option><option value="04">04 · Operación nominativa relacionada en factura global</option></select></label><label class="full" id="cancelReplacementField" hidden>UUID de la factura sustituta<input id="cancelReplacementUuid" maxlength="36" autocomplete="off"></label><label class="full">Confirmación<input id="cancelInvoiceConfirmation" autocomplete="off" placeholder="Escribe CANCELAR"></label></div><div id="cancelInvoiceError" class="validation bad" role="alert" hidden></div><div class="form-actions"><button class="secondary" id="cancelInvoiceBack" type="button">Regresar</button><button class="primary" id="cancelInvoiceSubmit" type="submit" disabled>Enviar solicitud al SAT</button></div></form></dialog>
   <dialog id="actionDialog"><form class="dialog-card action-dialog-card" id="actionDialogForm"><div class="dialog-head"><div><span class="eyebrow" id="actionDialogEyebrow">Confirmación</span><h2 id="actionDialogTitle">Confirmar acción</h2></div><button class="icon-btn" id="actionDialogClose" type="button" aria-label="Cerrar">×</button></div><p id="actionDialogMessage"></p><label id="actionDialogField"><span id="actionDialogLabel"></span><input id="actionDialogInput" autocomplete="off"></label><small id="actionDialogHelp" class="action-dialog-help"></small><div class="form-actions"><button class="secondary" id="actionDialogCancel" type="button">Cancelar</button><button class="primary" id="actionDialogSubmit" type="submit">Continuar</button></div></form></dialog>
   <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
-  <script src="/static/js/control_facturacion.js?v=schedule-price-label-20260903"></script>
+  <script src="/static/js/control_facturacion.js?v=clear-action-icons-20260903"></script>
 </body>
 </html>
