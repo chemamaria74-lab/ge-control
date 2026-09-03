@@ -64,8 +64,18 @@ def test_pac_sync_also_refreshes_external_cancellation_states():
 def test_empty_invoice_list_recovers_pac_documents_automatically():
     endpoint = SOURCE.split("async def listar_facturas_generales", 1)[1].split("@router.post", 1)[0]
 
-    assert "if not rows:" in endpoint
+    assert "if not rows and not mes and not buscar:" in endpoint
     assert "_recover_profile_pac_invoices(scope)" in endpoint
+
+
+def test_invoice_history_is_filtered_at_database_by_month_and_status():
+    endpoint = SOURCE.split("async def listar_facturas_generales", 1)[1].split("@router.post", 1)[0]
+
+    assert 'mes: Optional[str] = Query' in endpoint
+    assert '.gte("created_at", start_utc).lt("created_at", end_utc)' in endpoint
+    assert 'query.eq("status", status_map[estado])' in endpoint
+    assert '.limit(1000)' in endpoint
+    assert 'needle = buscar.strip().casefold()' in endpoint
 
 
 def test_cancelled_and_pending_cancellation_invoices_remain_visible():
@@ -73,7 +83,7 @@ def test_cancelled_and_pending_cancellation_invoices_remain_visible():
     cancel_endpoint = SOURCE.split("async def cancelar_factura_general", 1)[1].split("@router.get", 1)[0]
 
     assert "const rows=state.invoices.filter" in renderer
-    assert "row.status==='cancelada'" in renderer
+    assert "cancelada:3" in renderer
     assert "fiscalPill(row)" in renderer
     assert "Cancelación en proceso" in FRONTEND
     assert '"status": "cancelacion_en_proceso" if pending else "cancelada"' in cancel_endpoint
@@ -86,6 +96,15 @@ def test_invoice_filters_and_formal_cancellation_flow_are_present():
     assert "openCancelInvoice" in FRONTEND
     assert "submitCancelInvoice" in FRONTEND
     assert "Escribe CANCELAR" in (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
+
+
+def test_invoice_filters_only_query_when_search_is_requested():
+    assert "function invoiceQueryPath()" in FRONTEND
+    assert "function searchInvoices()" in FRONTEND
+    assert "$('refreshInvoices').onclick=searchInvoices" in FRONTEND
+    assert "$('invoiceMonth').onchange=renderInvoices" not in FRONTEND
+    assert "$('invoiceFiscalFilter').onchange=renderInvoices" not in FRONTEND
+    assert "api(invoiceQueryPath(),{},profileId)" in FRONTEND
 
 
 def test_sat_sync_persists_one_canonical_invoice_status():
