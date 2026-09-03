@@ -160,12 +160,20 @@ def catalog_cfdi_for_execution(sb, schedule: dict, *, now: datetime) -> dict:
     config = config_rows[0] if config_rows else {}
     if not client or not product or not config:
         raise RuntimeError("La programación ya no tiene disponible su cliente, producto o configuración fiscal.")
+    stored_concept = ((schedule.get("payload_json") or {}).get("Conceptos") or [{}])[0]
+    current_price = Decimal(str(product.get("valor_unitario") or "0"))
+    stored_price = Decimal(str(stored_concept.get("ValorUnitario") or "0"))
+    # El catálogo es la fuente vigente. La plantilla solo sirve de respaldo para
+    # programaciones antiguas mientras se termina de normalizar su producto.
+    execution_price = current_price if current_price > 0 else stored_price
+    if execution_price <= 0:
+        raise RuntimeError("El producto de la programación necesita un precio mayor que cero.")
     payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
     payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
-        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
+        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": execution_price, "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva")) if current_price > 0 else False}],
         "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": payment_form, "metodo_pago": payment_method, "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
         "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
         "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
