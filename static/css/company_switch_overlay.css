@@ -1,0 +1,9 @@
+.ge-company-switch-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:24px;background:rgba(48,10,18,.72);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.ge-company-switch-overlay[hidden]{display:none}
+.ge-company-switch-card{display:grid;justify-items:center;gap:10px;width:min(390px,100%);padding:30px 26px;border:1px solid rgba(255,255,255,.3);border-radius:16px;background:#fff;color:var(--wine,#7a1e2c);text-align:center;box-shadow:0 24px 70px rgba(20,0,5,.35)}
+.ge-company-switch-card strong{font-size:1.25rem}
+.ge-company-switch-card small{color:var(--muted,#6f6965);line-height:1.3}
+.ge-company-switch-spinner{width:34px;height:34px;border:4px solid #ead7db;border-top-color:var(--wine,#7a1e2c);border-radius:50%;animation:ge-company-switch-spin .75s linear infinite}
+body.ge-company-switching{overflow:hidden}
+@keyframes ge-company-switch-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.ge-company-switch-spinner{animation-duration:1.5s}}
