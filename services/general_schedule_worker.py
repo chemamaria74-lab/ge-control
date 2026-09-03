@@ -169,7 +169,7 @@ def catalog_cfdi_for_execution(sb, schedule: dict, *, now: datetime) -> dict:
     if execution_price <= 0:
         raise RuntimeError("El producto de la programación necesita un precio mayor que cero.")
     payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
-    payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
+    payment_form = "99" if payment_method == "PPD" else (client.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
