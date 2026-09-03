@@ -64,14 +64,14 @@ def test_stamp_button_is_reenabled_for_the_next_invoice():
     assert "$('stampInvoice').textContent='Timbrar CFDI'" in reset
 
 
-def test_schedule_editor_is_catalog_driven_and_keeps_only_calendar_fields_editable():
+def test_schedule_editor_is_fully_catalog_driven():
     simplified = SOURCE.rsplit("function scheduleCatalogPayload", 1)[1]
 
     assert "selectField('dia_mes'" in simplified
     assert "selectField('cliente_id','Cliente'" in simplified
     assert "selectField('producto_id','Producto o servicio'" in simplified
-    assert "Correo y datos fiscales: del cliente" in simplified
-    assert "Descripción, precio, IVA y cuenta predial: del producto" in simplified
+    assert "Precio mensual sin IVA" not in simplified
+    assert "Las retenciones se leen del cliente seleccionado" in simplified
     assert "cliente_id:Number(values.cliente_id)" in simplified
     assert "producto_id:Number(values.producto_id)" in simplified
 
@@ -79,6 +79,11 @@ def test_schedule_editor_is_catalog_driven_and_keeps_only_calendar_fields_editab
     assert "email_destino','Correo de destino'" not in edit
     assert "descripcion_concepto','Descripción dinámica" not in edit
     assert "logo_slot','Logo del PDF'" not in edit
+    assert "valor_unitario_override" not in edit
+    assert "selectField('cliente_id','Cliente'" in edit
+    assert "selectField('producto_id','Producto o servicio'" in edit
+    assert "cliente_id:Number(values.cliente_id)" in edit
+    assert "producto_id:Number(values.producto_id)" in edit
 
 
 def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
@@ -134,10 +139,11 @@ def test_schedule_day_options_do_not_repeat_the_same_number():
     assert "String(code)===String(text)?esc(text)" in select_helper
 
 
-def test_schedule_editor_shows_the_automatic_month_and_year_before_stamping():
-    schedule_ui = SOURCE.split("function scheduleConceptPreview", 1)[1].split("function syncConfigDisclosure", 1)[0]
+def test_schedule_editor_shows_the_client_specific_final_total_before_stamping():
+    schedule_ui = SOURCE.rsplit("function scheduleCatalogPayload", 1)[1].split("function syncConfigDisclosure", 1)[0]
 
-    assert "proxima_ejecucion_at" in schedule_ui
-    assert "month:'long',year:'numeric'" in schedule_ui
-    assert "Así aparecerá en la factura" in schedule_ui
-    assert "El mes y el año se agregarán automáticamente al timbrar" in schedule_ui
+    assert "function scheduleFiscalPreview" in schedule_ui
+    assert "client.retencion_isr" in schedule_ui
+    assert "client.retencion_iva" in schedule_ui
+    assert "Total estimado para" in schedule_ui
+    assert "bindScheduleFiscalPreview" in schedule_ui

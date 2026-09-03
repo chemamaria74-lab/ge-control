@@ -64,6 +64,17 @@ def test_catalog_linked_schedules_refresh_predial_and_all_catalog_values_at_exec
     assert 'client.get("email")' not in helper
 
 
+def test_zero_catalog_price_temporarily_keeps_the_price_saved_in_legacy_schedule():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    helper = source.split("def catalog_cfdi_for_execution", 1)[1].split("def _scope_row", 1)[0]
+
+    assert 'stored_concept.get("ValorUnitario")' in helper
+    assert "valor_unitario_override" not in helper
+    assert "execution_price = current_price if current_price > 0 else stored_price" in helper
+    assert '"valor_unitario": execution_price' in helper
+    assert "necesita un precio mayor que cero" in helper
+
+
 def test_repairs_global_vat_group_from_scheduled_concepts():
     original = schedule(payload_json={
         "Conceptos": [{"Descripcion": "Servicio", "Impuestos": {"Traslados": [{
