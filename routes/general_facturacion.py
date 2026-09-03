@@ -41,7 +41,6 @@ class FiscalConfig(BaseModel):
     regimen_fiscal: str = Field(pattern=r"^\d{3}$")
     serie: str = Field(default="", max_length=25)
     forma_pago_default: str = Field(default="99", pattern=r"^\d{2}$")
-    metodo_pago_default: str = Field(default="PPD", pattern=r"^(PUE|PPD)$")
     email_envio: Optional[EmailStr] = None
     logo_data_url: str = Field(default="", max_length=500_000)
     logo_1_nombre: str = Field(default="Principal", min_length=1, max_length=60)
@@ -68,6 +67,7 @@ class GeneralCliente(BaseModel):
     regimen_fiscal: str = Field(pattern=r"^\d{3}$")
     uso_cfdi: str = Field(pattern=r"^[A-Z0-9]{3}$")
     email: Optional[EmailStr] = None
+    metodo_pago_default: str = Field(default="PUE", pattern=r"^(PUE|PPD)$")
     retencion_isr: bool = False
     retencion_isr_tasa: Decimal = Field(default=Decimal("0.0125"), ge=0, le=1)
     retencion_iva: bool = False
@@ -170,6 +170,36 @@ def _profile_invoice_query(scope: dict, select: str = "*"):
     return _profile_table_query(FACTURAS, scope, select)
 
 
+def _pac_recovery_description(value: object) -> str:
+    """Normaliza la parte variable del periodo sin borrar la identidad del concepto."""
+    text = " ".join(str(value or "").strip().upper().split())
+    text = re.sub(r"\{(?:MES|AÑO|ANIO|PERIODO)\}", " ", text)
+    text = re.sub(
+        r"\b(?:ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)\s+20\d{2}\b",
+        " ",
+        text,
+    )
+    return " ".join(text.replace("—", " ").strip(" -").split())
+
+
+def _pac_recovery_signature(cfdi: dict) -> tuple:
+    """Identifica un CFDI programado por receptor, importe y conceptos fiscales."""
+    concepts = []
+    for concept in cfdi.get("Conceptos") or []:
+        predial = concept.get("CuentaPredial") or {}
+        concepts.append((
+            str(concept.get("ClaveProdServ") or "").strip(),
+            str(concept.get("NoIdentificacion") or "").strip().upper(),
+            str(predial.get("Numero") or "").strip() if isinstance(predial, dict) else str(predial).strip(),
+            _pac_recovery_description(concept.get("Descripcion")),
+        ))
+    return (
+        str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
+        Decimal(str(cfdi.get("Total") or 0)).quantize(Decimal("0.01")),
+        tuple(concepts),
+    )
+
+
 def _recover_profile_pac_invoices(scope: dict) -> dict:
     """Recupera CFDI timbrados auditados que no alcanzaron a guardarse localmente."""
     sb = get_supabase_admin()
@@ -178,13 +208,7 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
     if not issuer_rfc:
         raise HTTPException(409, "Configura el RFC emisor antes de sincronizar con el PAC.")
     schedules = _profile_table_query(PROGRAMACIONES, scope).order("created_at", desc=True).execute().data or []
-    scheduled_signatures = {
-        (
-            str((((item.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
-            Decimal(str((item.get("payload_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")),
-        )
-        for item in schedules
-    }
+    scheduled_signatures = {_pac_recovery_signature(item.get("payload_json") or {}) for item in schedules}
 
     requests_rows = (
         sb.table("pac_requests")
@@ -198,10 +222,7 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
     for row in requests_rows:
         cfdi = row.get("request_payload") or {}
         emitter = str(((cfdi.get("Emisor") or {}).get("Rfc") or "")).strip().upper()
-        signature = (
-            str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
-            Decimal(str(cfdi.get("Total") or 0)).quantize(Decimal("0.01")),
-        )
+        signature = _pac_recovery_signature(cfdi)
         if emitter == issuer_rfc and signature in scheduled_signatures:
             matching_requests[int(row["id"])] = row
     if not matching_requests:
@@ -230,14 +251,9 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         method = str(cfdi.get("MetodoPago") or "").upper()
         total = float(Decimal(str(cfdi.get("Total") or 0)))
         created_at = response.get("created_at") or request_row.get("created_at") or datetime.now(timezone.utc).isoformat()
-        signature = (
-            str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
-            Decimal(str(cfdi.get("Total") or 0)).quantize(Decimal("0.01")),
-        )
-        matching_schedule = next((item for item in schedules if (
-            str((((item.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper(),
-            Decimal(str((item.get("payload_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")),
-        ) == signature), {})
+        signature = _pac_recovery_signature(cfdi)
+        matching_schedule = next((item for item in schedules if
+                                  _pac_recovery_signature(item.get("payload_json") or {}) == signature), {})
         logo_slot = 2 if int(matching_schedule.get("logo_slot") or 1) == 2 else 1
         logo_name, _logo_data = selected_general_logo(config, logo_slot)
         row = _sb_insert(FACTURAS, _scope_row(scope, {
@@ -259,10 +275,10 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
             "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C",
             "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF",
             "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
-            "estado_pago": "pagada" if method == "PUE" else "pendiente",
-            "fecha_pago": created_at if method == "PUE" else None,
-            "fecha_vencimiento": None if method == "PUE" else str(created_at)[:10],
-            "saldo_pendiente": 0.0 if method == "PUE" else total,
+            "estado_pago": "pendiente",
+            "fecha_pago": None,
+            "fecha_vencimiento": str(created_at)[:10],
+            "saldo_pendiente": total,
             "email_delivery": {
                 "status": "no_enviado", "ok": False, "skipped": True,
                 "recipient": "", "message_id": "",
@@ -284,11 +300,9 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         if not schedule:
             continue
         target = schedule.get("payload_json") or {}
-        target_rfc = str(((target.get("Receptor") or {}).get("Rfc") or "")).strip().upper()
-        target_total = Decimal(str(target.get("Total") or 0)).quantize(Decimal("0.01"))
+        target_signature = _pac_recovery_signature(target)
         candidates = [row for row in all_invoices if
-                      str((((row.get("cfdi_json") or {}).get("Receptor") or {}).get("Rfc") or "")).strip().upper() == target_rfc
-                      and Decimal(str((row.get("cfdi_json") or {}).get("Total") or 0)).quantize(Decimal("0.01")) == target_total
+                      _pac_recovery_signature(row.get("cfdi_json") or {}) == target_signature
                       and str(row.get("created_at") or "")[:7] == str(execution.get("periodo") or "")]
         if not candidates:
             continue
@@ -550,10 +564,11 @@ async def timbrar_factura_general(
         "pac_response": result.get("raw") or {},
         "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
         "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C", "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF", "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
-        "estado_pago": "pagada" if payload.factura.metodo_pago == "PUE" else "pendiente",
-        "fecha_pago": datetime.now(timezone.utc).isoformat() if payload.factura.metodo_pago == "PUE" else None,
-        "fecha_vencimiento": None if payload.factura.metodo_pago == "PUE" else _client_due_date(scope, (cfdi.get("Receptor") or {}).get("Rfc") or ""),
-        "saldo_pendiente": 0 if payload.factura.metodo_pago == "PUE" else Decimal(str(cfdi.get("Total") or 0)),
+        # PUE no es evidencia de cobro. La cobranza se confirma por separado.
+        "estado_pago": "pendiente",
+        "fecha_pago": None,
+        "fecha_vencimiento": _client_due_date(scope, (cfdi.get("Receptor") or {}).get("Rfc") or ""),
+        "saldo_pendiente": Decimal(str(cfdi.get("Total") or 0)),
     }))
     if not row:
         raise HTTPException(500, "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado.")
@@ -905,11 +920,13 @@ def _schedule_cfdi_from_catalogs(scope: dict, cliente_id: int, producto_id: int)
         raise HTTPException(422, "El cliente seleccionado ya no está disponible.")
     if not product or not product.get("activo", True):
         raise HTTPException(422, "El producto o servicio seleccionado ya no está disponible.")
+    payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
+    payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
         "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
-        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": config.get("forma_pago_default") or "99", "metodo_pago": config.get("metodo_pago_default") or "PPD", "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
+        "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": payment_form, "metodo_pago": payment_method, "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
         "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
         "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
     })
@@ -968,6 +985,12 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
         if client_email:
             schedule["email_destino"] = client_email
         schedule["correo_cliente"] = client_email
+        if client:
+            cfdi = copy.deepcopy(schedule.get("payload_json") or {})
+            payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
+            cfdi["MetodoPago"] = payment_method
+            cfdi["FormaPago"] = "99" if payment_method == "PPD" else str(cfdi.get("FormaPago") or "99")
+            schedule["payload_json"] = cfdi
         schedule["ultima_ejecucion"] = latest_by_schedule.get(str(schedule.get("id")))
     return {"ok": True, "programaciones": schedules}
 
