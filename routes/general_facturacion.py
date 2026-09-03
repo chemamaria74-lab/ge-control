@@ -170,6 +170,36 @@ def _profile_invoice_query(scope: dict, select: str = "*"):
     return _profile_table_query(FACTURAS, scope, select)
 
 
+def _profile_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
+    """Actualiza un registro de la empresa aunque lo haya creado otro usuario autorizado."""
+    existing = _profile_table_query(table, scope, "id").eq("id", row_id).limit(1).execute().data or []
+    if not existing:
+        return False
+    query = (
+        get_supabase_admin()
+        .table(table)
+        .update({**values, "updated_at": datetime.now(timezone.utc).isoformat()})
+        .eq("perfil_id", scope["perfil_id"])
+        .eq("id", row_id)
+    )
+    if scope.get("tenant_id"):
+        query = query.eq("tenant_id", scope["tenant_id"])
+    query.execute()
+    return True
+
+
+def _profile_delete(table: str, row_id: int, scope: dict) -> bool:
+    """Elimina un registro perteneciente al perfil empresarial verificado."""
+    existing = _profile_table_query(table, scope, "id").eq("id", row_id).limit(1).execute().data or []
+    if not existing:
+        return False
+    query = get_supabase_admin().table(table).delete().eq("perfil_id", scope["perfil_id"]).eq("id", row_id)
+    if scope.get("tenant_id"):
+        query = query.eq("tenant_id", scope["tenant_id"])
+    query.execute()
+    return True
+
+
 def _pac_recovery_description(value: object) -> str:
     """Normaliza la parte variable del periodo sin borrar la identidad del concepto."""
     text = " ".join(str(value or "").strip().upper().split())
@@ -463,14 +493,30 @@ async def create_general_product(payload: GeneralProducto, authorization: str = 
 
 @router.put("/productos/{producto_id}")
 async def update_general_product(producto_id: int, payload: GeneralProducto, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    if not _sb_update(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id), payload.model_dump()):
+    if not _profile_update(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id), payload.model_dump()):
         raise HTTPException(404, "Producto o servicio no encontrado.")
     return {"ok": True, "producto_id": producto_id}
 
 
 @router.delete("/productos/{producto_id}")
 async def delete_general_product(producto_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    if not _sb_delete(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id)):
+    scope = _scope_required(authorization, x_perfil_id)
+    linked = (
+        _profile_table_query(PROGRAMACIONES, scope, "id,nombre,status")
+        .eq("producto_id", producto_id)
+        .limit(5)
+        .execute()
+        .data
+        or []
+    )
+    if linked:
+        names = ", ".join(str(item.get("nombre") or f"Programación {item['id']}") for item in linked)
+        raise HTTPException(
+            409,
+            f"No puedes eliminar este producto porque está relacionado con: {names}. "
+            "Cambia el producto de esas programaciones antes de eliminarlo.",
+        )
+    if not _profile_delete(PRODUCTOS, producto_id, scope):
         raise HTTPException(404, "Producto o servicio no encontrado.")
     return {"ok": True, "producto_id": producto_id}
 
