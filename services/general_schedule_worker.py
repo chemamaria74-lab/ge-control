@@ -302,20 +302,35 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         }).eq("id", schedule["id"]).execute()
         return {"ok": False, "skipped": True,
                 "error": "El turno estaba ocupado; se omitió este mes sin reintentar."}
-    cfdi = reserve_general_folio(
-        sb,
-        tenant_id=schedule.get("tenant_id"),
-        perfil_id=schedule["perfil_id"],
-        cfdi=catalog_cfdi_for_execution(sb, schedule, now=now),
-    )
-    config = (
-        sb.table(CONFIG).select("*")
-        .eq("tenant_id", schedule.get("tenant_id"))
-        .eq("perfil_id", schedule["perfil_id"]).eq("activo", True)
-        .order("updated_at", desc=True).limit(1).execute().data or [{}]
-    )[0]
-    logo_slot = 2 if int(schedule.get("logo_slot") or 1) == 2 else 1
-    logo_name, logo_data = selected_general_logo(config, logo_slot)
+    try:
+        cfdi = reserve_general_folio(
+            sb,
+            tenant_id=schedule.get("tenant_id"),
+            perfil_id=schedule["perfil_id"],
+            cfdi=catalog_cfdi_for_execution(sb, schedule, now=now),
+        )
+        config = (
+            sb.table(CONFIG).select("*")
+            .eq("tenant_id", schedule.get("tenant_id"))
+            .eq("perfil_id", schedule["perfil_id"]).eq("activo", True)
+            .order("updated_at", desc=True).limit(1).execute().data or [{}]
+        )[0]
+        logo_slot = 2 if int(schedule.get("logo_slot") or 1) == 2 else 1
+        logo_name, logo_data = selected_general_logo(config, logo_slot)
+    except Exception as exc:
+        # Todavía no se contactó al PAC. Dejar el intento como reintentable y
+        # mostrar el motivo real, en vez de mantenerlo indefinidamente procesando.
+        error = f"No se contactó al PAC: {str(exc)}"[:500]
+        sb.table(EJECUCIONES).update({
+            "status": "omitida", "error": error, "updated_at": now.isoformat(),
+        }).eq("id", execution["id"]).execute()
+        sb.table(PROGRAMACIONES).update({
+            "ultima_ejecucion_at": now.isoformat(),
+            "proxima_ejecucion_at": next_at,
+            "updated_at": now.isoformat(),
+        }).eq("id", schedule["id"]).execute()
+        return {"ok": False, "skipped": True, "error": error, "ejecucion": execution}
+
     result = emitir_timbrar_json(cfdi)
     if not result.get("ok"):
         error = result.get("error") or "SW Sapien rechazó el CFDI."
