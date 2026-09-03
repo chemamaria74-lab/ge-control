@@ -166,12 +166,12 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     assert "No habrá reintento automático" in executor
 
 
-def test_manual_retry_is_limited_to_omitted_attempt_without_pac_contact():
+def test_manual_retry_is_limited_to_attempts_known_not_to_have_stamped():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
     assert "allow_retry_omitted: bool = False" in executor
-    assert 'previous[0].get("status") == "omitida"' in executor
+    assert 'previous[0].get("status") in {"omitida", "rechazada"}' in executor
     assert 'execution = previous[0]' in executor
     assert '"status": "procesando"' in executor
 

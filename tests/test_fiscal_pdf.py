@@ -12,6 +12,7 @@ from services.fiscal_pdf import (
     _tax_line,
     fiscal_pdf_info,
     generar_pdf_gas_lp_desde_xml,
+    generar_pdf_ingreso_desde_xml,
 )
 from services.carta_porte_pdf import (
     es_carta_porte_traslado,
@@ -49,6 +50,31 @@ def test_pdf_tax_summary_uses_global_transferred_tax_once():
     assert _sum_importes_value(global_traslados) == 660.41
     assert _sum_importes_value(concept_traslados + global_traslados) == 1320.82
     assert _tax_line(global_traslados[0], "Traslado") == "Traslado IVA (16%): $660.41"
+
+
+def test_income_pdf_prints_each_retention_on_its_own_line():
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" Serie="E" Folio="1" Fecha="2026-09-02T11:46:14" SubTotal="45000.00" Moneda="MXN" Total="42899.98" TipoDeComprobante="I" MetodoPago="PUE" FormaPago="03" Exportacion="01" LugarExpedicion="98098">
+      <cfdi:Emisor Rfc="MUCE450904J94" Nombre="EMMA MUÑOZ COVARRUBIAS" RegimenFiscal="606"/>
+      <cfdi:Receptor Rfc="PHN020815T83" Nombre="PARADOR HACIENDA NUEVA" DomicilioFiscalReceptor="98100" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+      <cfdi:Conceptos>
+        <cfdi:Concepto ClaveProdServ="80131500" Cantidad="1" ClaveUnidad="E48" Unidad="SERVICIO" Descripcion="RENTA" ValorUnitario="45000.00" Importe="45000.00" ObjetoImp="02">
+          <cfdi:Impuestos><cfdi:Retenciones>
+            <cfdi:Retencion Base="45000.00" Impuesto="001" TipoFactor="Tasa" TasaOCuota="0.100000" Importe="4500.00"/>
+            <cfdi:Retencion Base="45000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.106667" Importe="4800.02"/>
+          </cfdi:Retenciones></cfdi:Impuestos>
+        </cfdi:Concepto>
+      </cfdi:Conceptos>
+      <cfdi:Impuestos TotalImpuestosRetenidos="9300.02"><cfdi:Retenciones>
+        <cfdi:Retencion Impuesto="001" Importe="4500.00"/>
+        <cfdi:Retencion Impuesto="002" Importe="4800.02"/>
+      </cfdi:Retenciones></cfdi:Impuestos>
+    </cfdi:Comprobante>"""
+
+    pdf = generar_pdf_ingreso_desde_xml(xml)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Retención de ISR (10%): $4,500.00\nRetención de IVA (10.6667%): $4,800.02" in text
 
 
 def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():

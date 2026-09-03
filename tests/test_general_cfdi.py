@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime
+from decimal import Decimal
 from pydantic import ValidationError
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,22 @@ def test_isr_and_iva_retentions_are_subtracted_and_itemized():
     ]
     assert payload["Conceptos"][0]["Impuestos"]["Retenciones"][1]["TasaOCuota"] == "0.106667"
     assert payload["Total"] == "57199.98"
+
+
+def test_total_uses_the_same_rounded_tax_amounts_sent_to_sat():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "80131500", "cantidad": "1", "clave_unidad": "E48",
+            "descripcion": "RENTA", "valor_unitario": "1000.04", "iva_tasa": "0.16",
+        }],
+        retencion_isr_tasa="0.10", retencion_iva_tasa="0.106667",
+    ))
+
+    subtotal = Decimal(payload["SubTotal"])
+    trasladados = Decimal(payload["Impuestos"]["TotalImpuestosTrasladados"])
+    retenidos = Decimal(payload["Impuestos"]["TotalImpuestosRetenidos"])
+    assert payload["Total"] == "953.38"
+    assert Decimal(payload["Total"]) == subtotal + trasladados - retenidos
 
 
 def test_price_with_iva_is_converted_to_tax_base_without_double_charging():

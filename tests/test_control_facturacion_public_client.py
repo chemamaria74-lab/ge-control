@@ -90,7 +90,15 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert "state.config&&state.config!==previous" in disclosure
     assert "syncConfigDisclosure()" in disclosure
     assert "syncConfig任选Disclosure" not in SOURCE
-    assert "control_facturacion.js?v=session-safe-actions-20260902" in TEMPLATE
+    assert "control_facturacion.js?v=professional-actions-20260902" in TEMPLATE
+
+
+def test_sensitive_actions_use_branded_dialog_instead_of_browser_prompts():
+    assert 'id="actionDialog"' in TEMPLATE
+    assert "recipient=prompt(" not in SOURCE
+    assert "const confirmation=prompt(" not in SOURCE
+    assert "title:'Enviar factura por correo'" in SOURCE
+    assert "title:'Ejecutar programación'" in SOURCE
 
 
 def test_every_document_download_uses_the_authenticated_company_request():
@@ -116,3 +124,12 @@ def test_schedule_day_options_do_not_repeat_the_same_number():
     select_helper = SOURCE.split("function selectField", 1)[1].split("function enhanceProductEditor", 1)[0]
 
     assert "String(code)===String(text)?esc(text)" in select_helper
+
+
+def test_schedule_editor_shows_the_automatic_month_and_year_before_stamping():
+    schedule_ui = SOURCE.split("function scheduleConceptPreview", 1)[1].split("function syncConfigDisclosure", 1)[0]
+
+    assert "proxima_ejecucion_at" in schedule_ui
+    assert "month:'long',year:'numeric'" in schedule_ui
+    assert "Así aparecerá en la factura" in schedule_ui
+    assert "El mes y el año se agregarán automáticamente al timbrar" in schedule_ui
