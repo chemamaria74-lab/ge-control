@@ -86,10 +86,10 @@ def _client_due_date(scope: dict, receptor_rfc: str) -> str:
 
 def _document_filename(factura: dict, extension: str) -> str:
     cfdi = factura.get("cfdi_json") or {}
-    receptor = cfdi.get("Receptor") or {}
-    name = str(receptor.get("Nombre") or receptor.get("Rfc") or "CLIENTE")
+    emisor = cfdi.get("Emisor") or {}
+    name = str(emisor.get("Nombre") or emisor.get("Rfc") or "EMISOR")
     normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_").upper() or "CLIENTE"
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_").upper() or "EMISOR"
     folio = "-".join(filter(None, (str(factura.get("serie") or "").strip(), str(factura.get("folio") or "").strip())))
     safe_folio = re.sub(r"[^A-Za-z0-9-]+", "_", folio).strip("_") or str(factura.get("uuid_sat") or factura.get("id") or "CFDI")
     return f"{safe_name}_{safe_folio}.{extension}"
