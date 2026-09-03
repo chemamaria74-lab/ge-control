@@ -184,6 +184,36 @@ def _scope_row(schedule: dict, values: dict) -> dict:
     }
 
 
+def _canceled_invoice_linked_to_execution(sb, schedule: dict, execution: dict) -> dict | None:
+    """Devuelve el CFDI cancelado que permite una reposición manual segura."""
+    factura_id = execution.get("factura_id")
+    if not factura_id:
+        return None
+    rows = (
+        sb.table(FACTURAS)
+        .select("id,status,cancelacion_status,uuid_sat")
+        .eq("id", factura_id)
+        .eq("tenant_id", schedule.get("tenant_id"))
+        .eq("perfil_id", schedule["perfil_id"])
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    invoice = rows[0] if rows else None
+    if not invoice:
+        return None
+    fiscal_status = str(invoice.get("status") or "").strip().lower()
+    cancellation_status = str(invoice.get("cancelacion_status") or "").strip().lower()
+    return invoice if fiscal_status == "cancelada" or cancellation_status == "cancelada" else None
+
+
+def _schedule_invoice_idempotency_key(schedule_id: object, periodo: str, replacement_for: object = None) -> str:
+    """Mantiene una llave estable por intento y otra por cada CFDI cancelado repuesto."""
+    base = f"programacion:{schedule_id}:{periodo}"
+    return f"{base}:reposicion:{replacement_for}" if replacement_for else base
+
+
 def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry_omitted: bool = False) -> dict:
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
     from services.email_delivery import send_gas_lp_invoice_email
@@ -209,19 +239,36 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         or []
     )
     execution = None
-    if previous and allow_retry_omitted and previous[0].get("status") in {"omitida", "rechazada"}:
-        # Reintento exclusivamente manual cuando consta que el PAC no timbró:
-        # turno omitido o rechazo fiscal. Se reutiliza la ejecución del periodo.
-        execution = previous[0]
+    replacement_for_invoice_id = None
+    previous_row = previous[0] if previous else None
+    canceled_invoice = (
+        _canceled_invoice_linked_to_execution(sb, schedule, previous_row)
+        if allow_retry_omitted and previous_row else None
+    )
+    retry_without_stamp = bool(
+        previous_row and previous_row.get("status") in {"omitida", "rechazada"}
+    )
+    retry_canceled_invoice = bool(
+        previous_row and previous_row.get("status") == "completada" and canceled_invoice
+    )
+    if previous_row and allow_retry_omitted and (retry_without_stamp or retry_canceled_invoice):
+        # El reintento manual solo procede cuando consta que no hubo timbrado o
+        # cuando el CFDI antes ligado ya está fiscalmente cancelado. En este
+        # último caso se genera una llave de reposición distinta y auditable.
+        execution = previous_row
+        replacement_for_invoice_id = canceled_invoice.get("id") if canceled_invoice else None
         sb.table(EJECUCIONES).update({
             "status": "procesando", "error": "", "updated_at": now.isoformat(),
         }).eq("id", execution["id"]).execute()
-    elif previous:
-        previous_row = previous[0]
+    elif previous_row:
+        already_stamped = previous_row.get("status") == "completada"
         return {
-            "ok": previous_row.get("status") == "completada",
+            "ok": already_stamped,
             "reused": True,
-            "error": previous_row.get("error") or "Esta programación ya tuvo su único intento del periodo.",
+            "error": previous_row.get("error") or (
+                "No se generó otra factura: esta programación ya tiene un CFDI vigente para el periodo."
+                if already_stamped else "Esta programación ya tuvo su único intento del periodo."
+            ),
             "ejecucion": previous_row,
         }
 
@@ -311,7 +358,9 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         sb.table(FACTURAS)
         .insert(_scope_row(schedule, {
             "status": "timbrada",
-            "idempotency_key": f"programacion:{schedule['id']}:{periodo}",
+            "idempotency_key": _schedule_invoice_idempotency_key(
+                schedule["id"], periodo, replacement_for_invoice_id
+            ),
             "tipo_comprobante": cfdi.get("TipoDeComprobante") or "I",
             "serie": cfdi.get("Serie") or "",
             "folio": cfdi.get("Folio") or "",
