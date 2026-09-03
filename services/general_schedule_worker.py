@@ -258,10 +258,11 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     retry_without_stamp = bool(
         previous_row and previous_row.get("status") in {"omitida", "rechazada"}
     )
+    retry_waiting_for_slot = bool(previous_row and previous_row.get("status") == "esperando_turno")
     retry_canceled_invoice = bool(
         previous_row and previous_row.get("status") == "completada" and canceled_invoice
     )
-    if previous_row and allow_retry_omitted and (retry_without_stamp or retry_canceled_invoice):
+    if previous_row and (retry_waiting_for_slot or (allow_retry_omitted and (retry_without_stamp or retry_canceled_invoice))):
         # El reintento manual solo procede cuando consta que no hubo timbrado o
         # cuando el CFDI antes ligado ya está fiscalmente cancelado. En este
         # último caso se genera una llave de reposición distinta y auditable.
@@ -299,8 +300,30 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"]
     )
     if not stamp_slot.get("adquirido"):
+        first_attempt_at = _parse_timestamp(execution.get("created_at") or now.isoformat())
+        retry_deadline = first_attempt_at + timedelta(minutes=5)
+        slot_available_at = _parse_timestamp(stamp_slot.get("proximo_timbrado_at"))
+        if slot_available_at <= retry_deadline:
+            retry_at = max(now + timedelta(seconds=5), slot_available_at + timedelta(seconds=1))
+            sb.table(EJECUCIONES).update({
+                "status": "esperando_turno",
+                "error": "Turno ocupado. Se reintentará automáticamente durante un máximo de 5 minutos.",
+                "updated_at": now.isoformat(),
+            }).eq("id", execution["id"]).execute()
+            sb.table(PROGRAMACIONES).update({
+                "ultima_ejecucion_at": now.isoformat(),
+                "proxima_ejecucion_at": retry_at.isoformat(),
+                "updated_at": now.isoformat(),
+            }).eq("id", schedule["id"]).execute()
+            return {
+                "ok": False,
+                "waiting": True,
+                "error": "El turno está ocupado; se reintentará automáticamente en cuanto quede libre.",
+                "retry_at": retry_at.isoformat(),
+                "ejecucion": execution,
+            }
         sb.table(EJECUCIONES).update({
-            "status": "omitida", "error": "No se timbró: el turno de la empresa estaba ocupado. No habrá reintento automático.",
+            "status": "omitida", "error": "No se timbró: el turno siguió ocupado durante 5 minutos.",
             "updated_at": now.isoformat(),
         }).eq("id", execution["id"]).execute()
         sb.table(PROGRAMACIONES).update({
@@ -309,7 +332,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "updated_at": now.isoformat(),
         }).eq("id", schedule["id"]).execute()
         return {"ok": False, "skipped": True,
-                "error": "El turno estaba ocupado; se omitió este mes sin reintentar."}
+                "error": "El turno siguió ocupado durante 5 minutos; puedes reintentar manualmente."}
     try:
         cfdi = reserve_general_folio(
             sb,
