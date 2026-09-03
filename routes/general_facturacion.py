@@ -920,12 +920,15 @@ def _schedule_cfdi_from_catalogs(scope: dict, cliente_id: int, producto_id: int)
         raise HTTPException(422, "El cliente seleccionado ya no está disponible.")
     if not product or not product.get("activo", True):
         raise HTTPException(422, "El producto o servicio seleccionado ya no está disponible.")
+    price = Decimal(str(product.get("valor_unitario") or "0"))
+    if price <= 0:
+        raise HTTPException(422, "El producto seleccionado necesita un precio mayor que cero en el catálogo.")
     payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
     payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
-        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": product.get("valor_unitario"), "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
+        "conceptos": [{"clave_prod_serv": product.get("clave_prod_serv"), "cantidad": 1, "clave_unidad": product.get("clave_unidad"), "unidad": product.get("unidad") or None, "descripcion": f"{product.get('descripcion')} — {{mes}} {{año}}", "no_identificacion": product.get("no_identificacion") or None, "cuenta_predial": product.get("cuenta_predial") or None, "valor_unitario": price, "objeto_imp": product.get("objeto_imp") or "02", "iva_tasa": product.get("iva_tasa") or 0, "iva_incluido": bool(product.get("precio_incluye_iva"))}],
         "tipo_comprobante": "I", "moneda": "MXN", "forma_pago": payment_form, "metodo_pago": payment_method, "lugar_expedicion": config.get("lugar_expedicion") or config.get("codigo_postal"), "exportacion": "01", "serie": config.get("serie") or None,
         "retencion_isr_tasa": client.get("retencion_isr_tasa") if client.get("retencion_isr") else 0,
         "retencion_iva_tasa": client.get("retencion_iva_tasa") if client.get("retencion_iva") else 0,
@@ -938,6 +941,8 @@ class ScheduleUpdate(BaseModel):
     dia_mes: int = Field(ge=1, le=28)
     hora_local: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     timezone: str = Field(default="America/Mexico_City", min_length=3, max_length=64)
+    cliente_id: Optional[int] = Field(default=None, gt=0)
+    producto_id: Optional[int] = Field(default=None, gt=0)
     email_destino: Optional[EmailStr] = None
     logo_slot: int = Field(default=1, ge=1, le=2)
     descripcion_concepto: Optional[str] = Field(default=None, max_length=1000)
@@ -1067,8 +1072,20 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
         exclude_id=programacion_id,
     )
     values = {"nombre": payload.nombre, "dia_mes": payload.dia_mes, "hora_local": payload.hora_local, "timezone": payload.timezone, "email_destino": str(payload.email_destino or ""), "logo_slot": payload.logo_slot}
+    if payload.cliente_id is not None or payload.producto_id is not None:
+        cliente_id = payload.cliente_id or schedule.get("cliente_id")
+        producto_id = payload.producto_id or schedule.get("producto_id")
+        if not cliente_id or not producto_id:
+            raise HTTPException(422, "Selecciona un cliente y un producto del catálogo.")
+        cfdi, email_destino = _schedule_cfdi_from_catalogs(scope, int(cliente_id), int(producto_id))
+        values.update({
+            "cliente_id": int(cliente_id),
+            "producto_id": int(producto_id),
+            "payload_json": cfdi,
+            "email_destino": email_destino,
+        })
     if payload.descripcion_concepto is not None:
-        cfdi = copy.deepcopy(schedule.get("payload_json") or {})
+        cfdi = copy.deepcopy(values.get("payload_json") or schedule.get("payload_json") or {})
         if cfdi.get("Conceptos"):
             cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
             if payload.cuenta_predial:
@@ -1077,7 +1094,7 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
                 cfdi["Conceptos"][0].pop("CuentaPredial", None)
             values["payload_json"] = cfdi
     elif payload.cuenta_predial is not None:
-        cfdi = copy.deepcopy(schedule.get("payload_json") or {})
+        cfdi = copy.deepcopy(values.get("payload_json") or schedule.get("payload_json") or {})
         if cfdi.get("Conceptos"):
             if payload.cuenta_predial:
                 cfdi["Conceptos"][0]["CuentaPredial"] = {"Numero": payload.cuenta_predial}
