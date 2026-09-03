@@ -50,7 +50,8 @@ def test_cancelled_and_pending_cancellations_do_not_inflate_summary_totals():
 
     assert "i.status==='timbrada'" in summary
     assert "cancelStatus" not in summary
-    assert "vigente${monthRows.length===1?'':'s'} del mes" in summary
+    assert "${monthRows.length} factura${monthRows.length===1?'':'s'}" in summary
+    assert "${money(sum(monthRows))} facturados" in summary
 
 
 def test_stamp_button_is_reenabled_for_the_next_invoice():
@@ -90,7 +91,14 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert "state.config&&state.config!==previous" in disclosure
     assert "syncConfigDisclosure()" in disclosure
     assert "syncConfig任选Disclosure" not in SOURCE
-    assert "control_facturacion.js?v=professional-actions-20260902" in TEMPLATE
+    assert "control_facturacion.js?v=compact-tables-20260902" in TEMPLATE
+
+
+def test_dense_tables_use_numeric_dates_and_compact_layout():
+    assert "day:'2-digit',month:'2-digit',year:'numeric'" in SOURCE
+    assert 'class="date-compact"' in SOURCE
+    assert "calendarDate(row.fecha_vencimiento)" in SOURCE
+    assert "compact-tables-20260902" in TEMPLATE
 
 
 def test_sensitive_actions_use_branded_dialog_instead_of_browser_prompts():

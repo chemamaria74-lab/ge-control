@@ -114,6 +114,13 @@ def test_folio_counter_is_isolated_by_company_and_series():
     assert "'E', 1" in sql
 
 
+def test_folio_reservation_uses_named_constraint_to_avoid_output_column_ambiguity():
+    sql = (Path(__file__).resolve().parents[1] / "migrations/general_facturacion_reservar_folio_ambiguity_fix_20260902.sql").read_text()
+
+    assert "on conflict on constraint general_facturacion_folio_counters_pkey" in sql
+    assert "returning general_facturacion_folio_counters.folio_siguiente - 1" in sql
+
+
 def test_acquires_exclusive_company_stamp_slot():
     class Response:
         data = [{"adquirido": True, "proximo_timbrado_at": "2026-08-14T21:05:00Z"}]
@@ -178,6 +185,15 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     assert "retry_after_edit" not in executor
     assert '"status": "omitida"' in executor
     assert "No habrá reintento automático" in executor
+
+
+def test_pre_pac_failures_are_made_retryable_instead_of_staying_processing():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
+    before_pac = executor.split("result = emitir_timbrar_json(cfdi)", 1)[0]
+
+    assert 'error = f"No se contactó al PAC:' in before_pac
+    assert '"status": "omitida"' in before_pac
 
 
 def test_manual_retry_is_limited_to_attempts_known_not_to_have_stamped():
