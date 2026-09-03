@@ -154,7 +154,7 @@ def _scope_required(authorization: str, x_perfil_id: str) -> dict:
 
 
 def _profile_table_query(table: str, scope: dict, select: str = "*"):
-    """Company records belong to the verified profile, including legacy creators."""
+    """Limita la operación al perfil empresarial verificado."""
     query = (
         get_supabase_admin()
         .table(table)
@@ -171,7 +171,7 @@ def _profile_invoice_query(scope: dict, select: str = "*"):
 
 
 def _profile_update(table: str, row_id: int, scope: dict, values: dict) -> bool:
-    """Actualiza un registro de la empresa aunque lo haya creado otro usuario autorizado."""
+    """Actualiza un registro que pertenece al perfil empresarial verificado."""
     existing = _profile_table_query(table, scope, "id").eq("id", row_id).limit(1).execute().data or []
     if not existing:
         return False
@@ -433,7 +433,7 @@ async def get_fiscal_config(authorization: str = Header(default=""), x_perfil_id
 async def put_fiscal_config(payload: FiscalConfig, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
     existing = _sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True)
-    values = payload.model_dump(exclude_none=True)
+    values = payload.model_dump(mode="json", exclude_none=True)
     values["email_envio"] = str(payload.email_envio or "")
     if existing and _sb_update(CONFIG, existing[0]["id"], scope, values):
         return {"ok": True, "configuracion": {**existing[0], **values}}
@@ -451,7 +451,7 @@ async def list_general_clients(authorization: str = Header(default=""), x_perfil
 @router.post("/clientes")
 async def create_general_client(payload: GeneralCliente, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    row = _sb_insert(CLIENTES, _scope_row(scope, {**payload.model_dump(exclude_none=True), "email": str(payload.email or "")}))
+    row = _sb_insert(CLIENTES, _scope_row(scope, {**payload.model_dump(mode="json", exclude_none=True), "email": str(payload.email or "")}))
     if not row:
         raise HTTPException(500, "No se pudo guardar el cliente.")
     return {"ok": True, "cliente": row}
@@ -460,7 +460,7 @@ async def create_general_client(payload: GeneralCliente, authorization: str = He
 @router.put("/clientes/{cliente_id}")
 async def update_general_client(cliente_id: int, payload: GeneralCliente, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    values = {**payload.model_dump(exclude_none=True), "email": str(payload.email or "")}
+    values = {**payload.model_dump(mode="json", exclude_none=True), "email": str(payload.email or "")}
     if not _sb_update(CLIENTES, cliente_id, scope, values):
         raise HTTPException(404, "Cliente no encontrado.")
     for schedule in _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True):
@@ -485,7 +485,7 @@ async def list_general_products(authorization: str = Header(default=""), x_perfi
 @router.post("/productos")
 async def create_general_product(payload: GeneralProducto, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
     scope = _scope_required(authorization, x_perfil_id)
-    row = _sb_insert(PRODUCTOS, _scope_row(scope, payload.model_dump()))
+    row = _sb_insert(PRODUCTOS, _scope_row(scope, payload.model_dump(mode="json")))
     if not row:
         raise HTTPException(500, "No se pudo guardar el producto o servicio.")
     return {"ok": True, "producto": row}
@@ -493,7 +493,7 @@ async def create_general_product(payload: GeneralProducto, authorization: str = 
 
 @router.put("/productos/{producto_id}")
 async def update_general_product(producto_id: int, payload: GeneralProducto, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    if not _profile_update(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id), payload.model_dump()):
+    if not _profile_update(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id), payload.model_dump(mode="json")):
         raise HTTPException(404, "Producto o servicio no encontrado.")
     return {"ok": True, "producto_id": producto_id}
 
