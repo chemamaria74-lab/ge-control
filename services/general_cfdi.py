@@ -13,6 +13,10 @@ def _money(value: Decimal | int | float | str) -> str:
     return str(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def _money_decimal(value: Decimal | int | float | str) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _sat_rate(value: Decimal | int | float | str) -> str:
     """SAT c_TasaOCuota values are serialized with exactly six decimals."""
     return format(Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f")
@@ -111,10 +115,6 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         if item.iva_incluido and item.iva_tasa > 0 else item.valor_unitario
         for item in payload.conceptos
     ]
-    subtotal = sum((item.cantidad * base for item, base in zip(payload.conceptos, bases)), Decimal("0"))
-    iva_total = sum((item.cantidad * base * item.iva_tasa for item, base in zip(payload.conceptos, bases)), Decimal("0"))
-    isr_total = subtotal * payload.retencion_isr_tasa
-    iva_retenido_total = subtotal * payload.retencion_iva_tasa
     receptor = {
         "Rfc": payload.receptor.rfc,
         "Nombre": payload.receptor.nombre,
@@ -136,6 +136,16 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "ObjetoImp": item.objeto_imp,
         **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(item.iva_tasa), "Importe": _money(item.cantidad * base * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
     } for item, base in zip(payload.conceptos, bases)]
+    # SAT valida Total contra los importes monetarios ya redondeados que viajan
+    # en el CFDI. Usar esos mismos centavos evita rechazos CFDI40119.
+    subtotal = sum((Decimal(item["Importe"]) for item in conceptos), Decimal("0"))
+    iva_total = sum((
+        Decimal(tax["Importe"])
+        for item in conceptos
+        for tax in (item.get("Impuestos") or {}).get("Traslados", [])
+    ), Decimal("0"))
+    isr_total = sum((_money_decimal(Decimal(item["Importe"]) * payload.retencion_isr_tasa) for item in conceptos), Decimal("0"))
+    iva_retenido_total = sum((_money_decimal(Decimal(item["Importe"]) * payload.retencion_iva_tasa) for item in conceptos), Decimal("0"))
     result = {
         "Version": "4.0",
         "Serie": payload.serie or "",
@@ -177,13 +187,13 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
                     {
                         "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(rate),
                         "Base": _money(sum(
-                            item.cantidad * base
-                            for item, base in zip(payload.conceptos, bases)
+                            Decimal(concept["Importe"])
+                            for item, concept in zip(payload.conceptos, conceptos)
                             if item.iva_tasa == rate
                         )),
                         "Importe": _money(sum(
-                            item.cantidad * base * item.iva_tasa
-                            for item, base in zip(payload.conceptos, bases)
+                            Decimal(((concept.get("Impuestos") or {}).get("Traslados") or [{}])[0].get("Importe") or 0)
+                            for item, concept in zip(payload.conceptos, conceptos)
                             if item.iva_tasa == rate
                         )),
                     }

@@ -819,7 +819,7 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     tax_text = "; ".join(_tax_line(t, "Traslado") for t in display_traslados[:8]) or "—"
     concept_retenciones = _concept_tax_nodes(root, "Retencion")
     detailed_retenciones = concept_retenciones if any(_attr(node, "TasaOCuota") for node in concept_retenciones) else display_retenciones
-    ret_text = "; ".join(_tax_line(r, "Retención de") for r in detailed_retenciones[:8]) or "—"
+    retention_lines = [_tax_line(r, "Retención de") for r in detailed_retenciones[:8]] or ["—"]
     total_value = _money_value(_attr(root, "Total", "0"))
     descuento_value = _money_value(_attr(root, "Descuento", "0"))
     conceptos = _all(root, "Concepto")
@@ -834,13 +834,14 @@ def _totals_block(root, traslados, retenciones, Table, TableStyle, Paragraph, st
     retained_tax_names = sorted({{"001": "ISR", "002": "IVA", "003": "IEPS"}.get(_attr(node, "Impuesto"), _attr(node, "Impuesto")) for node in display_retenciones})
     retained_label = f"Retención de {retained_tax_names[0]}" if len(retained_tax_names) == 1 else "Retenciones"
     amount_words = _amount_to_spanish_mxn(total_value, _attr(root, "Moneda", "MXN"))
-    left = Table([
+    left_rows = [
         [Paragraph("<b>Importe con letra</b>", styles["TinyBold"])],
         [Paragraph(_text(amount_words), styles["AmountWords"])],
         [Paragraph("<b>Impuestos</b>", styles["TinyBold"])],
         [Paragraph(_text(tax_text), styles["Tiny"])],
-        [Paragraph(_text(ret_text), styles["Tiny"])],
-    ], colWidths=[4.78 * 72])
+    ]
+    left_rows.extend([Paragraph(_text(line), styles["Tiny"])] for line in retention_lines)
+    left = Table(left_rows, colWidths=[4.78 * 72])
     left.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.3, line),
         ("BACKGROUND", (0, 0), (-1, 0), cream),

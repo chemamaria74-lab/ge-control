@@ -209,9 +209,9 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         or []
     )
     execution = None
-    if previous and allow_retry_omitted and previous[0].get("status") == "omitida":
-        # Único caso reintentable: el PAC nunca fue contactado porque el turno
-        # estaba ocupado. Se reutiliza la misma ejecución; no se crea otra.
+    if previous and allow_retry_omitted and previous[0].get("status") in {"omitida", "rechazada"}:
+        # Reintento exclusivamente manual cuando consta que el PAC no timbró:
+        # turno omitido o rechazo fiscal. Se reutiliza la ejecución del periodo.
         execution = previous[0]
         sb.table(EJECUCIONES).update({
             "status": "procesando", "error": "", "updated_at": now.isoformat(),
