@@ -40,7 +40,6 @@ class FiscalConfig(BaseModel):
     lugar_expedicion: Optional[str] = Field(default=None, pattern=r"^\d{5}$")
     regimen_fiscal: str = Field(pattern=r"^\d{3}$")
     serie: str = Field(default="", max_length=25)
-    forma_pago_default: str = Field(default="99", pattern=r"^\d{2}$")
     email_envio: Optional[EmailStr] = None
     logo_data_url: str = Field(default="", max_length=500_000)
     logo_1_nombre: str = Field(default="Principal", min_length=1, max_length=60)
@@ -68,6 +67,7 @@ class GeneralCliente(BaseModel):
     uso_cfdi: str = Field(pattern=r"^[A-Z0-9]{3}$")
     email: Optional[EmailStr] = None
     metodo_pago_default: str = Field(default="PUE", pattern=r"^(PUE|PPD)$")
+    forma_pago_default: str = Field(default="99", pattern=r"^\d{2}$")
     retencion_isr: bool = False
     retencion_isr_tasa: Decimal = Field(default=Decimal("0.0125"), ge=0, le=1)
     retencion_iva: bool = False
@@ -924,7 +924,7 @@ def _schedule_cfdi_from_catalogs(scope: dict, cliente_id: int, producto_id: int)
     if price <= 0:
         raise HTTPException(422, "El producto seleccionado necesita un precio mayor que cero en el catálogo.")
     payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
-    payment_form = "99" if payment_method == "PPD" else (config.get("forma_pago_default") or "99")
+    payment_form = "99" if payment_method == "PPD" else (client.get("forma_pago_default") or "99")
     request = GeneralCfdiRequest.model_validate({
         "emisor": {"rfc": config.get("rfc"), "nombre": config.get("nombre_razon_social"), "codigo_postal": config.get("codigo_postal"), "regimen_fiscal": config.get("regimen_fiscal")},
         "receptor": {"rfc": client.get("rfc"), "nombre": client.get("nombre"), "codigo_postal": client.get("codigo_postal"), "regimen_fiscal": client.get("regimen_fiscal"), "uso_cfdi": client.get("uso_cfdi")},
@@ -994,7 +994,7 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
             cfdi = copy.deepcopy(schedule.get("payload_json") or {})
             payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
             cfdi["MetodoPago"] = payment_method
-            cfdi["FormaPago"] = "99" if payment_method == "PPD" else str(cfdi.get("FormaPago") or "99")
+            cfdi["FormaPago"] = "99" if payment_method == "PPD" else str(client.get("forma_pago_default") or "99")
             schedule["payload_json"] = cfdi
         schedule["ultima_ejecucion"] = latest_by_schedule.get(str(schedule.get("id")))
     return {"ok": True, "programaciones": schedules}
