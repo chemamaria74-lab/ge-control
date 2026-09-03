@@ -145,6 +145,10 @@
 .invoice-table-scroll tbody tr[data-fiscal="cancelada"] { background:#fffafa; }
 #cancelInvoiceDialog .dialog-card { max-width:620px; }
 #cancelInvoiceSummary { padding:12px; border-radius:9px; background:#faf6f2; color:var(--ink); }
+.action-dialog-card { max-width:580px; }
+#actionDialogMessage { margin:0 0 18px; padding:14px 16px; border:1px solid #eadfcf; border-radius:10px; background:#fffaf3; color:var(--ink); }
+.action-dialog-help { display:block; margin-top:7px; color:var(--muted); line-height:1.45; }
+#actionDialogInput { margin-top:6px; }
 .company-switch-overlay { position:fixed; inset:0; z-index:9999; display:grid; place-items:center; padding:24px; background:rgba(48,10,18,.72); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
 .company-switch-overlay[hidden] { display:none; }
 .company-switch-card { display:grid; justify-items:center; gap:10px; width:min(390px,100%); padding:30px 26px; border:1px solid rgba(255,255,255,.3); border-radius:16px; background:#fff; color:var(--wine); text-align:center; box-shadow:0 24px 70px rgba(20,0,5,.35); }
