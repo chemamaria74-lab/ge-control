@@ -132,19 +132,23 @@
 }
 
 [data-panel="schedules"] table {
-  min-width: 1160px;
+  min-width: 1065px;
   table-layout: fixed;
   font-size: .88rem;
 }
-[data-panel="schedules"] th:nth-child(1) { width: 190px; }
-[data-panel="schedules"] th:nth-child(2) { width: 160px; }
-[data-panel="schedules"] th:nth-child(3) { width: 155px; }
-[data-panel="schedules"] th:nth-child(4) { width: 105px; }
-[data-panel="schedules"] th:nth-child(5) { width: 90px; }
-[data-panel="schedules"] th:nth-child(6) { width: 110px; }
-[data-panel="schedules"] th:nth-child(7) { width: 82px; }
-[data-panel="schedules"] th:nth-child(8) { width: 190px; }
+[data-panel="schedules"] th:nth-child(1) { width: 170px; }
+[data-panel="schedules"] th:nth-child(2) { width: 145px; }
+[data-panel="schedules"] th:nth-child(3) { width: 145px; }
+[data-panel="schedules"] th:nth-child(4) { width: 95px; }
+[data-panel="schedules"] th:nth-child(5) { width: 78px; }
+[data-panel="schedules"] th:nth-child(6) { width: 105px; }
+[data-panel="schedules"] th:nth-child(7) { width: 75px; }
+[data-panel="schedules"] th:nth-child(8) { width: 170px; }
 [data-panel="schedules"] th:nth-child(9) { width: 78px; }
+[data-panel="schedules"] .execution-result {
+  min-width: 0;
+  max-width: 170px;
+}
 [data-panel="schedules"] td:first-child,
 [data-panel="schedules"] td:nth-child(3) {
   overflow-wrap: anywhere;
