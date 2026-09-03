@@ -73,8 +73,15 @@ def test_income_pdf_prints_each_retention_on_its_own_line():
 
     pdf = generar_pdf_ingreso_desde_xml(xml)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+    flat_text = " ".join(text.split())
 
     assert "Retención de ISR (10%): $4,500.00\nRetención de IVA (10.6667%): $4,800.02" in text
+    assert "606 - Arrendamiento" in flat_text
+    assert "601 - General de Ley Personas Morales" in flat_text
+    assert "G03 - Gastos en general" in flat_text
+    assert "03 - Transferencia electrónica de fondos" in flat_text
+    assert "PUE - Pago en una sola exhibición" in flat_text
+    assert "01 - No aplica" in flat_text
 
 
 def test_gas_lp_pdf_filename_and_amount_words_are_business_ready():

@@ -42,3 +42,20 @@ def test_pages_bust_the_session_script_cache_for_the_coordinated_release():
     for path in consumers:
         html = path.read_text(encoding="utf-8")
         assert "session_timeout.js?v=inactivity-fix-20260901" in html, path
+
+
+def test_extended_session_is_always_an_explicit_login_choice():
+    source = (ROOT / "static/js/remember_session.js").read_text(encoding="utf-8")
+
+    assert "checkbox.checked = false;" in source
+    assert "checkbox.checked = localStorage.getItem(STORAGE_KEY) === 'true'" not in source
+
+
+def test_dark_module_login_keeps_session_controls_readable():
+    html = (ROOT / "templates/login.html").read_text(encoding="utf-8")
+
+    assert "--ge-remember-text: #f8fafc" in html
+    assert "--ge-remember-muted: #cbd5e1" in html
+    assert "--ge-password-toggle: #d7dee8" in html
+    assert "-webkit-text-fill-color: #fff" in html
+    assert "remember_session.js?v=20260902" in html

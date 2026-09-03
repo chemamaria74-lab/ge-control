@@ -38,6 +38,38 @@ def test_payment_update_does_not_reload_the_complete_invoice_list():
     assert "reloadPart('invoices')" not in handler
 
 
+def test_new_invoices_are_pending_until_collection_is_confirmed():
+    stamp = SOURCE.split('data = result.get("data") or {}', 1)[1].split('@router.get("/facturas"', 1)[0]
+    recovery = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
+
+    assert '"estado_pago": "pendiente"' in stamp
+    assert '"fecha_pago": None' in stamp
+    assert '"estado_pago": "pendiente"' in recovery
+    assert '"fecha_pago": None' in recovery
+
+
+def test_dashboard_prioritizes_invoice_count_and_shows_collection_counts():
+    template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
+
+    assert '<span>Facturas de este mes</span><strong id="kpiInvoices">' in template
+    assert 'id="kpiMonthTotal">monto facturado' in template
+    assert 'id="kpiPaidCount"' in template
+    assert "factura${pending.length===1?'':'s'} por cobrar" in FRONTEND
+
+
+def test_payment_method_is_a_client_preference_not_an_issuer_default():
+    worker = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text()
+    template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
+
+    assert 'metodo_pago_default: str = Field(default="PUE"' in SOURCE
+    assert "Método de pago habitual" in FRONTEND
+    assert "client.metodo_pago_default||'PUE'" in FRONTEND
+    assert 'client.get("metodo_pago_default") or "PUE"' in worker
+    assert 'payment_form = "99" if payment_method == "PPD"' in worker
+    assert "$('configMethod').closest('label').hidden=true" in FRONTEND
+    assert "Método predeterminado" in template  # Se conserva oculto para compatibilidad de datos.
+
+
 def test_pac_recovery_imports_audited_xml_without_stamping_again():
     helper = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
     endpoint = SOURCE.split("async def sincronizar_facturas_pac", 1)[1].split("@router.patch", 1)[0]
@@ -48,6 +80,39 @@ def test_pac_recovery_imports_audited_xml_without_stamping_again():
     assert "scheduled_signatures" in helper
     assert "emitir_timbrar_json" not in helper
     assert "_recover_profile_pac_invoices" in endpoint
+
+
+def test_pac_recovery_distinguishes_same_receiver_and_total_by_concept():
+    helper = SOURCE.split("def _pac_recovery_signature", 1)[1].split("def _recover_profile_pac_invoices", 1)[0]
+    recovery = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
+
+    assert 'concept.get("ClaveProdServ")' in helper
+    assert 'concept.get("NoIdentificacion")' in helper
+    assert 'concept.get("CuentaPredial")' in helper
+    assert "_pac_recovery_description" in helper
+    assert "_pac_recovery_signature(row.get(\"cfdi_json\") or {}) == target_signature" in recovery
+
+
+def test_pac_recovery_signature_accepts_resolved_period_but_rejects_another_location():
+    from routes.general_facturacion import _pac_recovery_signature
+
+    def cfdi(description):
+        return {
+            "Receptor": {"Rfc": "PHN020815T83"},
+            "Total": "42899.98",
+            "Conceptos": [{
+                "ClaveProdServ": "80131500",
+                "NoIdentificacion": "",
+                "Descripcion": description,
+            }],
+        }
+
+    scheduled = _pac_recovery_signature(cfdi("RENTA DE ESTACION DE SERVICIO (PINOS 1) — {mes} {año}"))
+    stamped = _pac_recovery_signature(cfdi("RENTA DE ESTACION DE SERVICIO (PINOS 1) — septiembre 2026"))
+    other_location = _pac_recovery_signature(cfdi("RENTA DE ESTACION DE SERVICIO (GUADALUPE) — septiembre 2026"))
+
+    assert scheduled == stamped
+    assert scheduled != other_location
 
 
 def test_pac_sync_also_refreshes_external_cancellation_states():

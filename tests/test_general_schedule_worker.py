@@ -104,6 +104,16 @@ def test_does_not_consume_sequence_for_explicit_folio():
     assert reserve_general_folio(None, tenant_id="tenant", perfil_id=7, cfdi=cfdi) is cfdi
 
 
+def test_folio_counter_is_isolated_by_company_and_series():
+    sql = (Path(__file__).resolve().parents[1] / "migrations/general_facturacion_folios_por_serie_20260902.sql").read_text()
+
+    assert "primary key (tenant_id, perfil_id, serie)" in sql
+    assert "on conflict (tenant_id, perfil_id, serie)" in sql
+    assert "general_facturacion_folio_counters.folio_siguiente + 1" in sql
+    assert "upper(btrim(rfc)) = 'MUCE450904J94'" in sql
+    assert "'E', 1" in sql
+
+
 def test_acquires_exclusive_company_stamp_slot():
     class Response:
         data = [{"adquirido": True, "proximo_timbrado_at": "2026-08-14T21:05:00Z"}]
@@ -144,7 +154,9 @@ def test_pac_success_is_persisted_before_local_invoice_insert_and_never_uses_dec
     invoice_insert = success.index("sb.table(FACTURAS)")
     assert pac_marker < invoice_insert
     assert '"saldo_pendiente": Decimal(' not in success
-    assert '"saldo_pendiente": 0.0 if is_paid else float(' in success
+    assert '"estado_pago": "pendiente"' in success
+    assert '"saldo_pendiente": float(' in success
+    assert 'is_paid =' not in success
     assert "PacStampPersistenceError" in success
 
 
