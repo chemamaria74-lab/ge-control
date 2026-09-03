@@ -224,6 +224,13 @@ def _schedule_invoice_idempotency_key(schedule_id: object, periodo: str, replace
     return f"{base}:reposicion:{replacement_for}" if replacement_for else base
 
 
+def _is_unique_execution_conflict(exc: Exception) -> bool:
+    """Identifica la carrera esperada cuando dos workers reclaman el mismo periodo."""
+    code = str(getattr(exc, "code", "") or "")
+    message = str(exc)
+    return (code == "23505" or "'code': '23505'" in message or '"code": "23505"' in message)
+
+
 def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry_omitted: bool = False) -> dict:
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
     from services.email_delivery import send_gas_lp_invoice_email
@@ -286,14 +293,44 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     # La ejecución única se registra antes de reservar turno, folio o contactar
     # al PAC. La restricción única de Supabase impide dos intentos concurrentes.
     if execution is None:
-        execution = (
-            sb.table(EJECUCIONES)
-            .insert(_scope_row(schedule, {
-                "programacion_id": schedule["id"], "periodo": periodo,
-                "status": "procesando", "email_delivery": {}, "error": "",
-            }))
-            .execute().data or []
-        )[0]
+        try:
+            execution = (
+                sb.table(EJECUCIONES)
+                .insert(_scope_row(schedule, {
+                    "programacion_id": schedule["id"], "periodo": periodo,
+                    "status": "procesando", "email_delivery": {}, "error": "",
+                }))
+                .execute().data or []
+            )[0]
+        except Exception as exc:
+            if not _is_unique_execution_conflict(exc):
+                raise
+            # Otro worker ganó la inserción entre el SELECT y el INSERT. No es
+            # un error fiscal y, sobre todo, no debemos cambiar a "error" la
+            # ejecución que el otro worker está procesando.
+            concurrent = (
+                sb.table(EJECUCIONES)
+                .select("*")
+                .eq("tenant_id", schedule.get("tenant_id"))
+                .eq("perfil_id", schedule["perfil_id"])
+                .eq("programacion_id", schedule["id"])
+                .eq("periodo", periodo)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not concurrent:
+                raise
+            concurrent_row = concurrent[0]
+            completed = concurrent_row.get("status") == "completada"
+            return {
+                "ok": completed,
+                "reused": True,
+                "in_progress": not completed,
+                "error": "" if completed else "Esta programación ya está siendo procesada.",
+                "ejecucion": concurrent_row,
+            }
     next_at = next_execution(schedule, after=now).isoformat()
 
     stamp_slot = acquire_general_stamp_slot(
