@@ -66,8 +66,10 @@ def test_payment_method_is_a_client_preference_not_an_issuer_default():
     assert "client.metodo_pago_default||'PUE'" in FRONTEND
     assert 'client.get("metodo_pago_default") or "PUE"' in worker
     assert 'payment_form = "99" if payment_method == "PPD"' in worker
-    assert "$('configMethod').closest('label').hidden=true" in FRONTEND
-    assert "Método predeterminado" in template  # Se conserva oculto para compatibilidad de datos.
+    fiscal_config = SOURCE.split("class FiscalConfig", 1)[1].split("class GeneralCliente", 1)[0]
+    assert "metodo_pago_default" not in fiscal_config
+    assert "configMethod" not in FRONTEND
+    assert "Método predeterminado" not in template
 
 
 def test_pac_recovery_imports_audited_xml_without_stamping_again():
