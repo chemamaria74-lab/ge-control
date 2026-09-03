@@ -1,6 +1,6 @@
 .execution-result {
-  min-width: 250px;
-  max-width: 360px;
+  min-width: 175px;
+  max-width: 230px;
 }
 
 .execution-result small {
@@ -25,4 +25,127 @@
   color: var(--ok);
   font-size: .8rem;
   font-weight: 800;
+}
+
+.date-compact {
+  display: inline-grid;
+  gap: 2px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-compact small {
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+/* Densidad uniforme para todos los listados de Facturación General. */
+.view .table-wrap table {
+  font-size: .88rem;
+}
+.view .table-wrap th,
+.view .table-wrap td {
+  padding: 9px 8px;
+}
+.view .table-wrap th {
+  line-height: 1.15;
+}
+.view .table-wrap td {
+  line-height: 1.3;
+}
+.view .table-wrap td small {
+  line-height: 1.25;
+}
+
+[data-panel="dashboard"] table,
+[data-invoice-panel="portfolio"] table,
+[data-invoice-panel="payments"] table,
+[data-panel="products"] table {
+  min-width: 680px;
+}
+
+[data-panel="clients"] table {
+  min-width: 1060px;
+  table-layout: fixed;
+}
+[data-panel="clients"] th:nth-child(1) { width: 165px; }
+[data-panel="clients"] th:nth-child(2) { width: 120px; }
+[data-panel="clients"] th:nth-child(3) { width: 60px; }
+[data-panel="clients"] th:nth-child(4) { width: 75px; }
+[data-panel="clients"] th:nth-child(5) { width: 65px; }
+[data-panel="clients"] th:nth-child(6) { width: 72px; }
+[data-panel="clients"] th:nth-child(7) { width: 115px; }
+[data-panel="clients"] th:nth-child(8) { width: 105px; }
+[data-panel="clients"] th:nth-child(9) { width: 210px; }
+[data-panel="clients"] th:nth-child(10) { width: 145px; }
+[data-panel="clients"] td:first-child,
+[data-panel="clients"] td:nth-child(9) {
+  overflow-wrap: anywhere;
+}
+[data-panel="clients"] .row-actions {
+  gap: 4px;
+}
+[data-panel="clients"] .row-btn {
+  padding: 6px 8px;
+  font-size: .8rem;
+}
+
+/* Las dos tablas más densas conservan todas sus columnas sin desperdiciar ancho. */
+.invoice-table-scroll table {
+  min-width: 1120px;
+  table-layout: fixed;
+  font-size: .9rem;
+}
+.invoice-table-scroll th,
+.invoice-table-scroll td,
+[data-panel="schedules"] th,
+[data-panel="schedules"] td {
+  padding: 10px 8px;
+}
+
+@media (max-width: 700px) {
+  .view .table-wrap table { font-size: .82rem; }
+  .view .table-wrap th,
+  .view .table-wrap td { padding: 8px 6px; }
+}
+.invoice-table-scroll th:nth-child(1) { width: 92px; }
+.invoice-table-scroll th:nth-child(2) { width: 70px; }
+.invoice-table-scroll th:nth-child(3) { width: 145px; }
+.invoice-table-scroll th:nth-child(4) { width: 100px; }
+.invoice-table-scroll th:nth-child(5) { width: 150px; }
+.invoice-table-scroll th:nth-child(6) { width: 88px; }
+.invoice-table-scroll th:nth-child(7) { width: 108px; }
+.invoice-table-scroll th:nth-child(8) { width: 98px; }
+.invoice-table-scroll th:nth-child(9) { width: 105px; }
+.invoice-table-scroll th:nth-child(10) { width: 164px; }
+.invoice-table-scroll .uuid-cell small {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: .73rem;
+  line-height: 1.25;
+}
+.invoice-table-scroll .row-actions { gap: 4px; }
+.invoice-table-scroll .row-btn.icon-action {
+  width: 32px;
+  height: 32px;
+  font-size: .95rem;
+}
+
+[data-panel="schedules"] table {
+  min-width: 1160px;
+  table-layout: fixed;
+  font-size: .88rem;
+}
+[data-panel="schedules"] th:nth-child(1) { width: 190px; }
+[data-panel="schedules"] th:nth-child(2) { width: 160px; }
+[data-panel="schedules"] th:nth-child(3) { width: 155px; }
+[data-panel="schedules"] th:nth-child(4) { width: 105px; }
+[data-panel="schedules"] th:nth-child(5) { width: 90px; }
+[data-panel="schedules"] th:nth-child(6) { width: 110px; }
+[data-panel="schedules"] th:nth-child(7) { width: 82px; }
+[data-panel="schedules"] th:nth-child(8) { width: 190px; }
+[data-panel="schedules"] th:nth-child(9) { width: 78px; }
+[data-panel="schedules"] td:first-child,
+[data-panel="schedules"] td:nth-child(3) {
+  overflow-wrap: anywhere;
 }
