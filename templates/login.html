@@ -48,6 +48,11 @@
       color: #5B0F1D;
     }
     .login-card {
+      --ge-remember-text: #f8fafc;
+      --ge-remember-muted: #cbd5e1;
+      --ge-password-toggle: #d7dee8;
+      --ge-password-toggle-hover: rgba(255,255,255,.12);
+      --ge-password-toggle-hover-text: #fff;
       background: rgba(17,17,17,0.74);
       backdrop-filter: blur(20px);
       border-radius: 14px;
@@ -107,7 +112,15 @@
       outline: none;
       border-color: #C8A96B;
     }
-    .field input::placeholder { color: #64748b; }
+    .field input::placeholder { color: #aeb9c8; opacity: 1; }
+    .field input:-webkit-autofill,
+    .field input:-webkit-autofill:hover,
+    .field input:-webkit-autofill:focus {
+      -webkit-text-fill-color: #fff;
+      caret-color: #fff;
+      box-shadow: 0 0 0 1000px #343434 inset;
+      border-color: rgba(255,255,255,.28);
+    }
     .btn-login {
       width: 100%;
       padding: 1rem;
@@ -230,7 +243,7 @@
       <a href="/choice"><i class="fa-solid fa-arrow-left"></i> Cambiar módulo</a>
     </div>
   </div>
-  <script src="/static/js/session_timeout.js?v=remember-24h-20260815"></script>
+  <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
   <script>
     function currentLoginLang() {
       const urlLang = new URLSearchParams(location.search).get('lang');
@@ -300,6 +313,6 @@
       } catch(e) { errEl.textContent = e.message || 'Error de conexión.'; }
     });
   </script>
-  <script src="/static/js/remember_session.js?v=20260815-3"></script>
+  <script src="/static/js/remember_session.js?v=20260902"></script>
 </body>
 </html>
