@@ -1001,6 +1001,12 @@ def sync_motive_tenant(
 
     def page_progress(label: str, *, per_page: int = 100):
         def update(page: int, records: int, total: int | None) -> None:
+            run_state = (
+                sb.table("fleet_sync_runs").select("status")
+                .eq("id", run_id).eq("tenant_id", tenant_id).limit(1).execute().data or []
+            )
+            if not run_state or str(run_state[0].get("status") or "") not in {"queued", "running"}:
+                raise MotiveAPIError(409, "La sincronización fue cancelada porque dejó de avanzar.")
             completed = sum(int(value) for value in datasets.values() if isinstance(value, int))
             total_pages = ((total + per_page - 1) // per_page) if total is not None else None
             now = datetime.now(timezone.utc).isoformat()
