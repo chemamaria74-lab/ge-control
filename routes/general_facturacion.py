@@ -1,4 +1,5 @@
 import copy
+import os
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 import re
@@ -7,7 +8,7 @@ from typing import Optional
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
@@ -15,6 +16,7 @@ from services.general_cfdi_preview import general_cfdi_preview_xml
 from services.sw_sapien import consultar_estatus_cfdi, emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import send_gas_lp_invoice_email
+from services.resend_webhooks import delivery_update, verify_resend_webhook
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
 from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, execute_schedule,
                                                 next_execution, reserve_general_folio, selected_general_logo)
@@ -31,6 +33,34 @@ PROGRAMACIONES = "general_facturacion_programaciones"
 EJECUCIONES = "general_facturacion_ejecuciones"
 COMPLEMENTOS = "general_facturacion_complementos_pago"
 COMPLEMENTO_FACTURAS = "general_facturacion_complementos_facturas"
+
+
+@router.post("/webhooks/resend", include_in_schema=False)
+async def resend_delivery_webhook(request: Request):
+    secret = os.environ.get("RESEND_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(503, "Webhook de Resend no configurado.")
+    raw_payload = await request.body()
+    try:
+        event = verify_resend_webhook(raw_payload, request.headers, secret)
+    except ValueError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    email_id = str(data.get("email_id") or "")
+    if not email_id:
+        return {"ok": True, "updated": 0}
+    sb = get_supabase_admin()
+    rows = (sb.table(FACTURAS).select("id,email_delivery")
+            .filter("email_delivery->>message_id", "eq", email_id).execute().data or [])
+    updated = 0
+    for row in rows:
+        current = row.get("email_delivery") if isinstance(row.get("email_delivery"), dict) else {}
+        merged = delivery_update(event, current)
+        if merged is None:
+            continue
+        sb.table(FACTURAS).update({"email_delivery": merged}).eq("id", row["id"]).execute()
+        updated += 1
+    return {"ok": True, "updated": updated}
 
 
 class FiscalConfig(BaseModel):
@@ -808,7 +838,7 @@ async def enviar_factura_general_por_correo(
     )
     delivery = {
         **result.as_metadata(),
-        "status": "enviado" if result.ok else "error",
+        "status": "procesando" if result.ok else "error",
         "recipient": str(payload.email),
         "attempted_at": datetime.now(timezone.utc).isoformat(),
     }
