@@ -15,7 +15,7 @@ from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 from services.general_cfdi_preview import general_cfdi_preview_xml
 from services.sw_sapien import consultar_estatus_cfdi, emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
-from services.email_delivery import send_gas_lp_invoice_email
+from services.email_delivery import retrieve_resend_email_status, send_gas_lp_invoice_email
 from services.resend_webhooks import delivery_update, verify_resend_webhook
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
 from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, execute_schedule,
@@ -696,6 +696,17 @@ async def listar_facturas_generales(
         if row.get("status") == "timbrada" and not str(row.get("uuid_sat") or "").strip():
             _sb_update(FACTURAS, row["id"], scope, {"status": "rechazada"})
             row["status"] = "rechazada"
+    # Recupera estados históricos o webhooks perdidos sin consultar masivamente
+    # a Resend: solo facturas visibles que continúan pendientes de confirmación.
+    pending_delivery = [row for row in rows if str((row.get("email_delivery") or {}).get("status") or "").lower() in {"procesando", "enviado"} and (row.get("email_delivery") or {}).get("message_id")][:25]
+    for row in pending_delivery:
+        current = row.get("email_delivery") or {}
+        provider = retrieve_resend_email_status(current.get("message_id"))
+        if not provider or provider.get("status") == current.get("status"):
+            continue
+        merged = {**current, **provider, "ok": provider.get("status") == "entregado", "error": ""}
+        _profile_update(FACTURAS, row["id"], scope, {"email_delivery": merged})
+        row["email_delivery"] = merged
     return {"ok": True, "facturas": rows}
 
 
