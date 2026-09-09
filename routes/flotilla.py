@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from routes.auth import obtener_acceso_modulo, verify_token
+from routes.auth import obtener_accesos_usuario, verify_token
 from services.motive import MotiveAPIError, motive_is_configured
 from services.motive_sync import (
     queue_motive_sync, sync_motive_tenant,
@@ -109,7 +109,21 @@ def _identity_context(authorization: str) -> dict[str, Any]:
     user_id = verify_token(token)
     if not user_id:
         raise HTTPException(401, "Token inválido o expirado.")
-    access = obtener_acceso_modulo(user_id, "gas_lp", access_token=token)
+    gas_accesses = [
+        row for row in obtener_accesos_usuario(user_id, access_token=token)
+        if str(row.get("section") or "").strip().lower() == "gas_lp"
+        and str(row.get("tenant_id") or "").strip()
+    ]
+    tenant_ids = {str(row["tenant_id"]).strip() for row in gas_accesses}
+    if len(tenant_ids) > 1:
+        # Never guess a client from the first user_sections row. An ambiguous
+        # identity must be repaired or explicitly scoped before fleet data is
+        # exposed, otherwise a global administrator could cross tenant bounds.
+        raise HTTPException(
+            409,
+            "Tu usuario tiene más de un cliente Gas LP asignado. Selecciona o corrige el cliente activo antes de abrir Flotilla.",
+        )
+    access = gas_accesses[0] if gas_accesses else {}
     tenant_id = str(access.get("tenant_id") or "").strip()
     if not tenant_id:
         raise HTTPException(403, "Tu usuario no tiene un tenant activo de Gas LP.")
@@ -404,8 +418,10 @@ def fleet_session(
             company_rows = (
                 get_supabase_admin().table("perfiles_empresa").select("id,nombre,rfc")
                 .eq("tenant_id", ctx["tenant_id"]).eq("activo", True)
-                .limit(1).execute().data or []
+                .limit(2).execute().data or []
             )
+            if len(company_rows) != 1:
+                company_rows = []
         except Exception:
             company_rows = []
     company = company_rows[0] if company_rows else {}
