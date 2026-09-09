@@ -8,7 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from services.motive import MotiveAPIError, motive_get, motive_get_all_pages, motive_get_all_pages_flexible
+from services.motive import MotiveAPIError, motive_get, motive_get_all_pages, motive_get_all_pages_flexible, motive_iter_pages
+from services.motive_contracts import motive_endpoint
 from services.fleet_alerts import create_sync_alerts
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,111 @@ def normalize_vehicle(item: Any, *, integration_id: int, tenant_id: str) -> dict
         "raw_metadata": {"ifta": bool(vehicle.get("ifta")), "metric_units": vehicle.get("metric_units")},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def normalize_hos_driver(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
+    hos = _inner(item, "hours_of_service")
+    driver = hos.get("driver") if isinstance(hos.get("driver"), dict) else {}
+    motive_id = driver.get("id")
+    if motive_id is None:
+        raise ValueError("Registro HOS de Motive sin chofer.")
+    name = " ".join(filter(None, [driver.get("first_name"), driver.get("last_name")])).strip()
+    status = str(driver.get("status") or "unknown").lower()
+    if status not in {"active", "inactive"}:
+        status = "unknown"
+    observed = _iso(hos.get("date")) or datetime.now(timezone.utc).isoformat()
+    return {
+        "integration_id": integration_id, "tenant_id": tenant_id,
+        "motive_id": int(motive_id),
+        "display_name": name or str(driver.get("username") or ""),
+        "status": status, "first_seen_at": observed, "last_seen_at": observed,
+        "deactivated_at": observed if status == "inactive" else None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _link_period_drivers(sb: Any, periods: list[dict[str, Any]], *, integration_id: int, tenant_id: str) -> None:
+    snapshots: dict[int, dict[str, Any]] = {}
+    for period in periods:
+        motive_driver_id = period.get("motive_driver_id")
+        if motive_driver_id is None:
+            continue
+        driver_id = int(motive_driver_id)
+        observed = period.get("ended_at") or period.get("started_at")
+        row = snapshots.setdefault(driver_id, {
+            "integration_id": integration_id, "tenant_id": tenant_id,
+            "motive_id": driver_id, "display_name": period.get("driver_name") or "",
+            "status": "unknown", "first_seen_at": period.get("started_at"),
+            "last_seen_at": observed, "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        row["first_seen_at"] = min(filter(None, [row.get("first_seen_at"), period.get("started_at")]), default=None)
+        row["last_seen_at"] = max(filter(None, [row.get("last_seen_at"), observed]), default=None)
+    if not snapshots:
+        return
+    existing = (
+        sb.table("fleet_drivers").select("id,motive_id,status,first_seen_at,deactivated_at")
+        .eq("integration_id", integration_id).eq("tenant_id", tenant_id).execute().data or []
+    )
+    existing_by_motive = {int(row["motive_id"]): row for row in existing}
+    for motive_id, snapshot in snapshots.items():
+        prior = existing_by_motive.get(motive_id) or {}
+        snapshot["status"] = prior.get("status") or snapshot["status"]
+        snapshot["deactivated_at"] = prior.get("deactivated_at")
+        if prior.get("first_seen_at"):
+            snapshot["first_seen_at"] = min(str(prior["first_seen_at"]), str(snapshot["first_seen_at"]))
+    _upsert(sb, "fleet_drivers", list(snapshots.values()), "integration_id,motive_id")
+    stored = (
+        sb.table("fleet_drivers").select("id,motive_id")
+        .eq("integration_id", integration_id).eq("tenant_id", tenant_id).execute().data or []
+    )
+    ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
+    for period in periods:
+        if period.get("motive_driver_id") is not None:
+            period["driver_id"] = ids.get(int(period["motive_driver_id"]))
+
+
+def _sync_current_assignments(
+    sb: Any, vehicles: list[dict[str, Any]], *, integration_id: int,
+    tenant_id: str, vehicle_ids: dict[int, int],
+) -> int:
+    drivers = (
+        sb.table("fleet_drivers").select("id,motive_id")
+        .eq("integration_id", integration_id).eq("tenant_id", tenant_id).execute().data or []
+    )
+    driver_ids = {int(row["motive_id"]): int(row["id"]) for row in drivers}
+    desired: dict[int, int | None] = {}
+    for vehicle in vehicles:
+        local_vehicle_id = vehicle_ids.get(int(vehicle["motive_id"]))
+        if local_vehicle_id is None:
+            continue
+        motive_driver_id = vehicle.get("current_driver_id")
+        desired[local_vehicle_id] = driver_ids.get(int(motive_driver_id)) if motive_driver_id is not None else None
+    open_rows = (
+        sb.table("fleet_driver_vehicle_assignments").select("id,driver_id,vehicle_id")
+        .eq("integration_id", integration_id).eq("tenant_id", tenant_id)
+        .is_("valid_to", "null").execute().data or []
+    )
+    open_by_vehicle = {int(row["vehicle_id"]): row for row in open_rows}
+    now = datetime.now(timezone.utc).isoformat()
+    created: list[dict[str, Any]] = []
+    for vehicle_id, driver_id in desired.items():
+        prior = open_by_vehicle.get(vehicle_id)
+        if prior and int(prior["driver_id"]) == int(driver_id or 0):
+            continue
+        if prior:
+            sb.table("fleet_driver_vehicle_assignments").update({
+                "valid_to": now, "updated_at": now,
+            }).eq("id", prior["id"]).eq("tenant_id", tenant_id).execute()
+        if driver_id is not None:
+            created.append({
+                "integration_id": integration_id, "tenant_id": tenant_id,
+                "driver_id": driver_id, "vehicle_id": vehicle_id,
+                "valid_from": now, "source": "motive_current_assignment",
+                "updated_at": now,
+            })
+    if created:
+        sb.table("fleet_driver_vehicle_assignments").insert(created).execute()
+    return len(created)
 
 
 def normalize_fuel_purchase(item: Any, *, integration_id: int, tenant_id: str) -> dict[str, Any]:
@@ -475,6 +581,16 @@ def _optional_pages(datasets: dict[str, Any], name: str, path: str, collection_k
         return []
 
 
+def _contract_pages(name: str, *, params: dict[str, Any] | None = None, **kwargs: Any) -> list[Any]:
+    endpoint = motive_endpoint(name)
+    if endpoint.pagination != "page":
+        raise ValueError(f"{endpoint.path} no admite paginación page_no/per_page.")
+    return motive_get_all_pages(
+        endpoint.path, collection_key=endpoint.collection,
+        params=endpoint.validate(params), **kwargs,
+    )
+
+
 def _optional_group_vehicles(
     datasets: dict[str, Any], name: str, group_id: int,
     *, progress: Any = None,
@@ -485,7 +601,8 @@ def _optional_group_vehicles(
     completa y ese endpoint rechaza ``page_no``/``per_page`` con HTTP 400.
     """
     try:
-        payload = motive_get(f"/v1/groups/{group_id}/vehicles")
+        endpoint = motive_endpoint("group_vehicles", id=group_id)
+        payload = motive_get(endpoint.path)
         members = payload.get("vehicles") or []
         if not isinstance(members, list):
             raise MotiveAPIError(502, "Motive devolvió vehicles en un formato inesperado.")
@@ -778,6 +895,38 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
     try:
         stored = sb.table("fleet_vehicles").select("id,motive_id").eq("integration_id", integration_id).execute().data or []
         vehicle_ids = {int(row["motive_id"]): int(row["id"]) for row in stored}
+
+        observed_at = datetime.now(timezone.utc).isoformat()
+        assigned_drivers = [{
+            "integration_id": integration_id, "tenant_id": tenant_id,
+            "motive_id": int(vehicle["current_driver_id"]),
+            "display_name": vehicle.get("current_driver_name") or "",
+            "status": "active", "first_seen_at": observed_at,
+            "last_seen_at": observed_at, "deactivated_at": None,
+            "updated_at": observed_at,
+        } for vehicle in vehicles if vehicle.get("current_driver_id") is not None]
+        if assigned_drivers:
+            _upsert(sb, "fleet_drivers", assigned_drivers, "integration_id,motive_id")
+
+        # Current directory status is separate from vehicle assignment and is
+        # the authoritative source for active/inactive driver lifecycle.
+        today = date.today().isoformat()
+        try:
+            hos_items = _contract_pages(
+                "hours_of_service", params={"start_date": today, "end_date": today},
+                progress=page_progress("Directorio de choferes"),
+            )
+            hos_drivers = [
+                normalize_hos_driver(item, integration_id=integration_id, tenant_id=tenant_id)
+                for item in hos_items
+            ]
+            datasets["drivers"] = _upsert(sb, "fleet_drivers", hos_drivers, "integration_id,motive_id")
+        except (MotiveAPIError, ValueError) as exc:
+            datasets["drivers"] = {"status": "unavailable", "detail": str(exc)[:120]}
+        datasets["assignments_opened"] = _sync_current_assignments(
+            sb, vehicles, integration_id=integration_id, tenant_id=tenant_id,
+            vehicle_ids=vehicle_ids,
+        )
         event_start_date, event_end_date = _event_lookback_dates(False)
 
         def event_progress(page: int, records: int, total: int | None) -> None:
@@ -925,6 +1074,12 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
             details = "; ".join(str(datasets[name].get("detail") or name) for name in unavailable)
             raise MotiveAPIError(502, f"Motive no permitió actualizar los datos de flotilla: {details[:220]}")
 
+        final_state = (
+            sb.table("fleet_sync_runs").select("status,cancel_requested_at")
+            .eq("id", run_id).eq("tenant_id", tenant_id).limit(1).execute().data or []
+        )
+        if final_state and final_state[0].get("cancel_requested_at"):
+            raise MotiveAPIError(409, "La sincronización fue cancelada.")
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
         sb.table("fleet_sync_runs").update({
@@ -937,18 +1092,20 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
         }).eq("id", integration_id).execute()
         return {"run_id": run_id, "status": "succeeded", "datasets": datasets, "records_processed": total}
     except Exception as exc:
-        error_code = "motive_api" if isinstance(exc, MotiveAPIError) else "sync_error"
+        cancelled = isinstance(exc, MotiveAPIError) and exc.status_code == 409
+        error_code = "cancelled_by_user" if cancelled else ("motive_api" if isinstance(exc, MotiveAPIError) else "sync_error")
         finished = datetime.now(timezone.utc).isoformat()
         message = str(exc)[:300] or "Error al actualizar seguridad desde Motive."
         sb.table("fleet_sync_runs").update({
-            "status": "failed", "finished_at": finished, "heartbeat_at": finished,
+            "status": "cancelled" if cancelled else "failed", "finished_at": finished, "heartbeat_at": finished,
             "datasets": datasets, "error_code": error_code, "error_message": message,
         }).eq("id", run_id).execute()
-        sb.table("fleet_integrations").update({
-            "last_error_at": finished, "last_error_code": error_code, "updated_at": finished,
-        }).eq("id", integration_id).execute()
+        if not cancelled:
+            sb.table("fleet_integrations").update({
+                "last_error_at": finished, "last_error_code": error_code, "updated_at": finished,
+            }).eq("id", integration_id).execute()
         logger.warning("motive_safety_sync_failed tenant=%s run=%s code=%s", tenant_id, run_id, error_code)
-        return {"run_id": run_id, "status": "failed", "error_code": error_code, "error_message": message}
+        return {"run_id": run_id, "status": "cancelled" if cancelled else "failed", "error_code": error_code, "error_message": message}
 
 
 def sync_motive_tenant(
@@ -1086,9 +1243,8 @@ def sync_motive_tenant(
             else _incremental_lookback_dates(integrations[0].get("last_success_at"))
         )
         phase("Cargas de combustible")
-        fuel_items = motive_get_all_pages(
-            "/v1/fuel_purchases", collection_key="fuel_purchases",
-            params={"start_date": start_date, "end_date": end_date},
+        fuel_items = _contract_pages(
+            "fuel_purchases", params={"start_date": start_date, "end_date": end_date},
             progress=page_progress("Cargas de combustible"),
         )
         fuels = [normalize_fuel_purchase(item, integration_id=integration_id, tenant_id=tenant_id) for item in fuel_items]
@@ -1098,9 +1254,8 @@ def sync_motive_tenant(
         pulse()
 
         phase("Inspecciones y defectos")
-        inspection_items = motive_get_all_pages(
-            "/v2/inspection_reports", collection_key="inspection_reports",
-            params=_inspection_query_params(full),
+        inspection_items = _contract_pages(
+            "inspections", params=_inspection_query_params(full),
             progress=page_progress("Inspecciones y defectos"),
         )
         normalized = [normalize_inspection(item, integration_id=integration_id, tenant_id=tenant_id) for item in inspection_items]
@@ -1150,18 +1305,55 @@ def sync_motive_tenant(
         pulse()
 
         phase("Recorridos y actividad diaria")
-        period_items = _optional_pages(
-            datasets, "driving_periods", "/v1/driving_periods", "driving_periods",
-            params={"start_date": start_date, "end_date": end_date},
-            progress=page_progress("Recorridos y actividad diaria"),
-        )
-        periods = [normalize_driving_period(item, integration_id=integration_id, tenant_id=tenant_id) for item in period_items]
-        for row in periods:
-            row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
-        if periods:
-            datasets["driving_periods"] = _upsert(sb, "fleet_driving_periods", periods, "integration_id,motive_id")
-        elif "driving_periods" not in datasets:
-            datasets["driving_periods"] = 0
+        periods: list[dict[str, Any]] = []
+        endpoint = motive_endpoint("driving_periods")
+        try:
+            for raw_page, page_no, total_records in motive_iter_pages(
+                endpoint.path, collection_key=endpoint.collection,
+                params=endpoint.validate({"start_date": start_date, "end_date": end_date}),
+            ):
+                run_state = (
+                    sb.table("fleet_sync_runs").select("status,cancel_requested_at")
+                    .eq("id", run_id).eq("tenant_id", tenant_id).limit(1).execute().data or []
+                )
+                if (
+                    not run_state
+                    or str(run_state[0].get("status") or "") not in {"queued", "running"}
+                    or run_state[0].get("cancel_requested_at")
+                ):
+                    raise MotiveAPIError(409, "La sincronización fue cancelada antes de procesar otra página.")
+                page_rows = [
+                    normalize_driving_period(item, integration_id=integration_id, tenant_id=tenant_id)
+                    for item in raw_page
+                ]
+                for row in page_rows:
+                    row["vehicle_id"] = vehicle_ids.get(int(row["motive_vehicle_id"])) if row.get("motive_vehicle_id") is not None else None
+                if page_rows:
+                    _link_period_drivers(
+                        sb, page_rows, integration_id=integration_id, tenant_id=tenant_id,
+                    )
+                    _upsert(sb, "fleet_driving_periods", page_rows, "integration_id,motive_id")
+                    periods.extend(page_rows)
+                total_pages = ((total_records + 99) // 100) if total_records is not None else None
+                now = datetime.now(timezone.utc).isoformat()
+                datasets["sync_progress"] = {
+                    "phase": "Recorridos y actividad diaria", "pages_done": page_no,
+                    "total_pages": total_pages, "records_seen": len(periods),
+                }
+                sb.table("fleet_sync_runs").update({
+                    "heartbeat_at": now, "current_stage": "driving_periods",
+                    "pages_processed": page_no, "records_processed": len(periods),
+                    "stage_cursor": {"driving_periods": {
+                        "page": page_no, "start_date": start_date, "end_date": end_date,
+                        "records": len(periods), "completed": bool(total_records is not None and len(periods) >= total_records),
+                    }},
+                    "datasets": datasets,
+                }).eq("id", run_id).eq("tenant_id", tenant_id).execute()
+            datasets["driving_periods"] = len(periods)
+        except MotiveAPIError as exc:
+            if exc.status_code == 409:
+                raise
+            datasets["driving_periods"] = {"status": "unavailable", "detail": str(exc)[:120]}
         pulse()
 
         phase("Utilización de unidades")
@@ -1238,6 +1430,12 @@ def sync_motive_tenant(
             driver_events=driver_events, faults=faults, defects=defects,
         )
 
+        final_state = (
+            sb.table("fleet_sync_runs").select("status,cancel_requested_at")
+            .eq("id", run_id).eq("tenant_id", tenant_id).limit(1).execute().data or []
+        )
+        if final_state and final_state[0].get("cancel_requested_at"):
+            raise MotiveAPIError(409, "La sincronización fue cancelada.")
         finished = datetime.now(timezone.utc).isoformat()
         total = sum(int(value) for value in datasets.values() if isinstance(value, int))
         sb.table("fleet_sync_runs").update({"status": "succeeded", "finished_at": finished, "heartbeat_at": finished, "records_processed": total, "datasets": datasets}).eq("id", run_id).execute()
@@ -1245,10 +1443,12 @@ def sync_motive_tenant(
         sb.table("fleet_integrations").update({sync_field: finished, "last_success_at": finished, "last_error_code": None, "updated_at": finished}).eq("id", integration_id).execute()
         return {"run_id": run_id, "status": "succeeded", "datasets": datasets, "records_processed": total}
     except Exception as exc:
-        error_code = "motive_api" if isinstance(exc, MotiveAPIError) else "sync_error"
+        cancelled = isinstance(exc, MotiveAPIError) and exc.status_code == 409
+        error_code = "cancelled_by_user" if cancelled else ("motive_api" if isinstance(exc, MotiveAPIError) else "sync_error")
         message = str(exc)[:300] or "Error de sincronización."
         finished = datetime.now(timezone.utc).isoformat()
-        sb.table("fleet_sync_runs").update({"status": "failed", "finished_at": finished, "heartbeat_at": finished, "datasets": datasets, "error_code": error_code, "error_message": message}).eq("id", run_id).execute()
-        sb.table("fleet_integrations").update({"last_error_at": finished, "last_error_code": error_code, "updated_at": finished}).eq("id", integration_id).execute()
+        sb.table("fleet_sync_runs").update({"status": "cancelled" if cancelled else "failed", "finished_at": finished, "heartbeat_at": finished, "datasets": datasets, "error_code": error_code, "error_message": message}).eq("id", run_id).execute()
+        if not cancelled:
+            sb.table("fleet_integrations").update({"last_error_at": finished, "last_error_code": error_code, "updated_at": finished}).eq("id", integration_id).execute()
         logger.warning("motive_sync_failed tenant=%s run=%s code=%s", tenant_id, run_id, error_code)
         raise

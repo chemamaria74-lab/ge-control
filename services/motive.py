@@ -6,7 +6,7 @@ import time
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import requests
 
@@ -114,8 +114,32 @@ def motive_get_all_pages(
 ) -> list[Any]:
     """Recorre paginación page_no/per_page sin asumir que una página contiene todo."""
     records: list[Any] = []
+    for batch, _page_no, total in motive_iter_pages(
+        path, collection_key=collection_key, params=params, per_page=per_page,
+        max_pages=max_pages, page_param=page_param, timezone_header=timezone_header,
+        progress=progress,
+    ):
+        records.extend(batch)
+        if total is not None and len(records) >= total:
+            return records[:total]
+    return records
+
+
+def motive_iter_pages(
+    path: str,
+    *,
+    collection_key: str,
+    params: dict[str, Any] | None = None,
+    per_page: int = 100,
+    max_pages: int = 1000,
+    page_param: str = "page_no",
+    timezone_header: str = "America/Mexico_City",
+    progress: Callable[[int, int, int | None], None] | None = None,
+) -> Iterator[tuple[list[Any], int, int | None]]:
+    """Yield validated pages so callers can persist checkpoints incrementally."""
     base_params = dict(params or {})
     page_no = 1
+    records_seen = 0
     seen_pages: set[str] = set()
     while page_no <= max_pages:
         request_kwargs: dict[str, Any] = {
@@ -133,10 +157,10 @@ def motive_get_all_pages(
             json.dumps(batch, sort_keys=True, ensure_ascii=False, default=str).encode()
         ).hexdigest()
         if batch and signature in seen_pages:
-            return records
+            return
         if batch:
             seen_pages.add(signature)
-        records.extend(batch)
+        records_seen += len(batch)
         pagination = page.get("pagination") if isinstance(page.get("pagination"), dict) else {}
         total_raw = page.get("total") or pagination.get("total") or pagination.get("total_count")
         try:
@@ -144,11 +168,12 @@ def motive_get_all_pages(
         except (TypeError, ValueError):
             total = None
         if progress:
-            progress(page_no, len(records), total)
-        if total is not None and len(records) >= total:
-            return records[:total]
+            progress(page_no, records_seen, total)
+        yield batch, page_no, total
+        if total is not None and records_seen >= total:
+            return
         if len(batch) < per_page:
-            return records
+            return
         page_no += 1
     raise MotiveAPIError(502, "La paginación de Motive excedió el límite de seguridad.")
 
