@@ -44,7 +44,7 @@ from supabase_config import get_supabase_admin
 
 router = APIRouter()
 SYNC_COOLDOWN_MINUTES = 10
-SYNC_STALE_MINUTES = 5
+SYNC_STALE_MINUTES = 2
 
 
 def _sync_is_stale(row: dict[str, Any], *, now: datetime | None = None) -> bool:
@@ -696,7 +696,20 @@ def sync_status(
     rows = ctx["sb"].table("fleet_sync_runs").select("id,status,sync_type,started_at,finished_at,heartbeat_at,pages_processed,records_processed,datasets,error_code,error_message").eq("tenant_id", ctx["tenant_id"]).eq("id", run_id).limit(1).execute().data or []
     if not rows:
         raise HTTPException(404, "Sincronización no encontrada.")
-    return _visible_sync(rows[0])
+    visible = _visible_sync(rows[0])
+    if visible and visible.get("error_code") == "stale_worker":
+        now = datetime.now(timezone.utc).isoformat()
+        # Persist the terminal state so every portal stops presenting the same
+        # stalled tenant-wide run as active and a new retry can be requested.
+        try:
+            get_supabase_admin().table("fleet_sync_runs").update({
+                "status": "failed", "finished_at": now, "heartbeat_at": now,
+                "error_code": "stale_worker",
+                "error_message": "La sincronización no avanzó durante 2 minutos y fue cerrada automáticamente.",
+            }).eq("tenant_id", ctx["tenant_id"]).eq("id", run_id).in_("status", ["queued", "running"]).execute()
+        except Exception:
+            pass
+    return visible
 
 
 def _between(query: Any, column: str, start: date, end: date) -> Any:
