@@ -267,6 +267,61 @@ def send_gas_lp_invoice_email(
 
 
 @measure_external("email")
+def send_general_schedule_failure_email(
+    *, to_email: str | None, issuer_name: str, schedule_name: str,
+    customer_name: str, serie_folio: str, attempted_at: str, error: str,
+    idempotency_key: str,
+) -> EmailDeliveryResult:
+    """Alert the issuer when an automatic invoice could not be stamped."""
+    recipient = _clean_email(to_email)
+    if not recipient:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Emisor sin correo de notificaciones.")
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    from_email = os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip()
+    if not api_key or not from_email:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Correo de salida no configurado.")
+    safe_issuer = html.escape(issuer_name or "Empresa")
+    safe_schedule = html.escape(schedule_name or "Factura programada")
+    safe_customer = html.escape(customer_name or "Cliente")
+    safe_folio = html.escape(serie_folio or "Pendiente de asignar")
+    safe_attempted_at = html.escape(attempted_at or "")
+    safe_error = html.escape(error or "Error no especificado")
+    payload = {
+        "from": from_email,
+        "to": [recipient],
+        "subject": f"Acción requerida: falló la factura programada · {safe_schedule}",
+        "html": (
+            f"<p>Hola {safe_issuer},</p>"
+            "<p><b>GE Control no pudo timbrar una factura programada.</b> "
+            "La factura no fue enviada al cliente.</p>"
+            f"<p><b>Programación:</b> {safe_schedule}<br>"
+            f"<b>Cliente:</b> {safe_customer}<br>"
+            f"<b>Serie / folio:</b> {safe_folio}<br>"
+            f"<b>Intento:</b> {safe_attempted_at}</p>"
+            f"<p><b>Motivo:</b><br>{safe_error}</p>"
+            "<p>Entra a GE Control → Facturación → Programadas para revisar los datos y reintentar.</p>"
+        ),
+    }
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": idempotency_key[:256],
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            return EmailDeliveryResult(ok=False, error=response.text[:500])
+        data = response.json() if response.content else {}
+        return EmailDeliveryResult(ok=True, message_id=str(data.get("id") or ""))
+    except Exception as exc:
+        return EmailDeliveryResult(ok=False, error=str(exc)[:500])
+
+
+@measure_external("email")
 def send_gas_lp_payment_complement_email(
     *,
     to_email: str | None,

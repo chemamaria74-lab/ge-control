@@ -28,6 +28,42 @@ class PacStampPersistenceError(RuntimeError):
     """El PAC timbró; nunca debe convertirse esta ejecución en reintentable."""
 
 
+def _notify_schedule_failure(sb, schedule: dict, execution_id: object, error: str, now: datetime) -> dict:
+    """Send one idempotent failure alert to the issuer configured for this company."""
+    from services.email_delivery import send_general_schedule_failure_email
+
+    config_rows = (
+        sb.table(CONFIG).select("nombre_razon_social,email_envio")
+        .eq("tenant_id", schedule.get("tenant_id"))
+        .eq("perfil_id", schedule["perfil_id"]).eq("activo", True)
+        .order("updated_at", desc=True).limit(1).execute().data or []
+    )
+    config = config_rows[0] if config_rows else {}
+    cfdi = schedule.get("payload_json") if isinstance(schedule.get("payload_json"), dict) else {}
+    receptor = cfdi.get("Receptor") if isinstance(cfdi.get("Receptor"), dict) else {}
+    result = send_general_schedule_failure_email(
+        to_email=config.get("email_envio"),
+        issuer_name=str(config.get("nombre_razon_social") or "Empresa"),
+        schedule_name=str(schedule.get("nombre") or f"Programación {schedule.get('id') or ''}"),
+        customer_name=str(receptor.get("Nombre") or receptor.get("Rfc") or "Cliente"),
+        serie_folio=" ".join(filter(None, (str(cfdi.get("Serie") or ""), str(cfdi.get("Folio") or "")))),
+        attempted_at=now.isoformat(),
+        error=str(error)[:1000],
+        idempotency_key=f"general-schedule-failure:{execution_id}",
+    )
+    metadata = {**result.as_metadata(), "recipient": str(config.get("email_envio") or ""), "attempted_at": now.isoformat()}
+    if execution_id:
+        sb.table(EJECUCIONES).update({"email_delivery": {"failure_notification": metadata}}).eq("id", execution_id).execute()
+    return metadata
+
+
+def _try_notify_schedule_failure(sb, schedule: dict, execution_id: object, error: str, now: datetime) -> None:
+    try:
+        _notify_schedule_failure(sb, schedule, execution_id, error, now)
+    except Exception:
+        logger.exception("No se pudo avisar el fallo de programación id=%s", schedule.get("id"))
+
+
 def _json_safe(value):
     """Normaliza valores de PostgREST antes de enviarlos al PAC o guardarlos."""
     if isinstance(value, Decimal):
@@ -368,6 +404,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "proxima_ejecucion_at": next_at,
             "updated_at": now.isoformat(),
         }).eq("id", schedule["id"]).execute()
+        _try_notify_schedule_failure(sb, schedule, execution["id"], "No se timbró: el turno siguió ocupado durante 5 minutos.", now)
         return {"ok": False, "skipped": True,
                 "error": "El turno siguió ocupado durante 5 minutos; puedes reintentar manualmente."}
     try:
@@ -397,6 +434,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "proxima_ejecucion_at": next_at,
             "updated_at": now.isoformat(),
         }).eq("id", schedule["id"]).execute()
+        _try_notify_schedule_failure(sb, schedule, execution["id"], error, now)
         return {"ok": False, "skipped": True, "error": error, "ejecucion": execution}
 
     result = emitir_timbrar_json(cfdi)
@@ -404,6 +442,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         error = result.get("error") or "SW Sapien rechazó el CFDI."
         sb.table(EJECUCIONES).update({"status": "rechazada", "error": error, "updated_at": now.isoformat()}).eq("id", execution["id"]).execute()
         sb.table(PROGRAMACIONES).update({"ultima_ejecucion_at": now.isoformat(), "proxima_ejecucion_at": next_at, "updated_at": now.isoformat()}).eq("id", schedule["id"]).execute()
+        _try_notify_schedule_failure(sb, schedule, execution["id"], error, now)
         return {"ok": False, "reused": False, "error": error, "ejecucion": execution}
 
     data = result.get("data") or {}
@@ -562,6 +601,7 @@ def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
                     get_supabase_admin().table(EJECUCIONES).update({
                         "status": "error", "error": str(exc)[:500], "updated_at": now.isoformat()
                     }).eq("id", pending[0]["id"]).execute()
+                    _try_notify_schedule_failure(get_supabase_admin(), schedule, pending[0]["id"], str(exc), now)
             except Exception:
                 logger.exception("No se pudo registrar el error de programación id=%s", schedule.get("id"))
             results.append({"programacion_id": schedule.get("id"), "ok": False, "error": str(exc)[:500]})
