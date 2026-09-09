@@ -49,6 +49,7 @@ SW_ALLOW_REAL_TIMBRADO=true
 GAS_LP_HYP_MODE=disabled
 SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4
 RESEND_API_KEY=
+RESEND_WEBHOOK_SECRET=
 GE_INVOICE_EMAIL_FROM="GE Control <facturacion@gecontrol.mx>"
 GE_INVOICE_EMAIL_REPLY_TO=pagos@grupoemurcia.com.mx
 ```
@@ -232,6 +233,7 @@ SW_ALLOW_REAL_IN_STAGING=false
 SW_XML_ISSUE_URL=https://services.sw.com.mx/cfdi33/issue/v4
 GAS_LP_HYP_MODE=disabled
 RESEND_API_KEY=
+RESEND_WEBHOOK_SECRET=
 GE_INVOICE_EMAIL_FROM="GE Control <facturacion@gecontrol.mx>"
 GE_INVOICE_EMAIL_REPLY_TO=pagos@grupoemurcia.com.mx
 ```

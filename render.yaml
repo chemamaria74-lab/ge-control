@@ -36,6 +36,8 @@ services:
         sync: false
       - key: SW_PASSWORD
         sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
       - key: SW_SAPIEN_URL
         sync: false
       - key: PYTHON_VERSION
