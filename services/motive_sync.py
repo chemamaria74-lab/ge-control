@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from services.motive import MotiveAPIError, motive_get_all_pages, motive_get_all_pages_flexible
+from services.motive import MotiveAPIError, motive_get, motive_get_all_pages, motive_get_all_pages_flexible
 from services.fleet_alerts import create_sync_alerts
 
 logger = logging.getLogger(__name__)
@@ -469,6 +469,29 @@ def normalize_card_expense(item: Any, *, integration_id: int, tenant_id: str) ->
 def _optional_pages(datasets: dict[str, Any], name: str, path: str, collection_key: str, **kwargs: Any) -> list[Any]:
     try:
         return motive_get_all_pages(path, collection_key=collection_key, **kwargs)
+    except MotiveAPIError as exc:
+        datasets[name] = {"status": "unavailable", "detail": str(exc)[:120]}
+        logger.info("motive_optional_dataset_unavailable dataset=%s", name)
+        return []
+
+
+def _optional_group_vehicles(
+    datasets: dict[str, Any], name: str, group_id: int,
+    *, progress: Any = None,
+) -> list[Any]:
+    """Consulta las unidades de un grupo sin parámetros de paginación.
+
+    Motive documenta ``GET /v1/groups/{id}/vehicles`` como una colección
+    completa y ese endpoint rechaza ``page_no``/``per_page`` con HTTP 400.
+    """
+    try:
+        payload = motive_get(f"/v1/groups/{group_id}/vehicles")
+        members = payload.get("vehicles") or []
+        if not isinstance(members, list):
+            raise MotiveAPIError(502, "Motive devolvió vehicles en un formato inesperado.")
+        if progress:
+            progress(1, len(members), len(members))
+        return members
     except MotiveAPIError as exc:
         datasets[name] = {"status": "unavailable", "detail": str(exc)[:120]}
         logger.info("motive_optional_dataset_unavailable dataset=%s", name)
@@ -1017,8 +1040,8 @@ def sync_motive_tenant(
                 }
                 pulse()
                 dataset_name = f"group_{group['motive_id']}_vehicles"
-                members = _optional_pages(
-                    datasets, dataset_name, f"/v1/groups/{group['motive_id']}/vehicles", "vehicles",
+                members = _optional_group_vehicles(
+                    datasets, dataset_name, group["motive_id"],
                     progress=page_progress(f"Asignaciones de zona {group_index} de {len(groups)}"),
                 )
                 if isinstance(datasets.get(dataset_name), dict):
