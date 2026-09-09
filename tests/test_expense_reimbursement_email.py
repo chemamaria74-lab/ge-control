@@ -81,3 +81,21 @@ def test_scheduled_invoice_failure_alert_goes_to_issuer_with_sat_error(monkeypat
     assert captured["json"]["to"] == ["emisor@example.com"]
     assert "CFDI40147" in captured["json"]["html"]
     assert "La factura no fue enviada al cliente" in captured["json"]["html"]
+
+
+def test_retrieves_historical_delivery_status_from_resend(monkeypatch):
+    class Response:
+        status_code = 200
+        content = b'{"last_event":"delivered"}'
+
+        @staticmethod
+        def json():
+            return {"id": "mail-1", "last_event": "delivered", "created_at": "2026-09-03T11:50:00Z"}
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    monkeypatch.setattr(email_delivery.requests, "get", lambda *_args, **_kwargs: Response())
+
+    result = email_delivery.retrieve_resend_email_status("mail-1")
+
+    assert result["status"] == "entregado"
+    assert result["provider_event"] == "email.delivered"

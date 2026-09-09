@@ -203,6 +203,15 @@ def test_email_delivery_is_visible_and_recovered_invoices_are_not_claimed_as_sen
     assert "No enviado" in FRONTEND
 
 
+def test_invoice_list_reconciles_processing_email_with_resend():
+    endpoint = SOURCE.split("async def listar_facturas_generales", 1)[1].split("@router.post", 1)[0]
+
+    assert "retrieve_resend_email_status" in endpoint
+    assert '{"procesando", "enviado"}' in endpoint
+    assert "[:25]" in endpoint
+    assert 'provider.get("status") == "entregado"' in endpoint
+
+
 def test_recovered_invoice_pdf_uses_current_company_logo_without_duplicating_it():
     assert "def _invoice_pdf_branding" in SOURCE
     assert "selected_general_logo(config" in SOURCE
