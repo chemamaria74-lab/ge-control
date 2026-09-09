@@ -8,7 +8,7 @@
   const REPORT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const REPORT_CACHE_VERSION = 20;
   const $ = id => document.getElementById(id);
-  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncEtaPhase:null, syncSnapshot:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
+  const state = {page:1, perPage:25, total:0, debounce:null, syncPoll:null, syncTick:null, syncEtaSeconds:null, syncEtaDeadline:null, syncLastDone:null, syncEtaPhase:null, syncSnapshot:null, syncRunId:null, identity:null, inventoryView:'charts', inventoryData:null, inspectionView:'all'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fmt = value => new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(value||0));
   const money = (value,currency) => new Intl.NumberFormat('es-MX',{style:'currency',currency:currency||'MXN',maximumFractionDigits:2}).format(Number(value||0));
@@ -55,7 +55,7 @@
       state.identity=data;
       $('fleetUser').textContent=data.display_name||localStorage.getItem('sat_display_name')||localStorage.getItem('sat_email')||'Usuario GE Control';
       $('managerCompanyName').textContent=data.company?.name||'Empresa asignada';
-      $('managerCompanyRfc').textContent=data.company?.rfc?`RFC ${data.company.rfc}`:'RFC no registrado';
+      $('managerCompanyRfc').textContent=data.company?.scope==='tenant'?'Todas las empresas del cliente':(data.company?.rfc?`RFC ${data.company.rfc}`:'RFC no registrado');
       const internal=data.identity_type==='internal';
       document.title=internal?'GE CONTROL | Portal de Gerentes':'GE CONTROL | Supervisión de Flotilla';
       document.body.classList.toggle('manager-fixed-zone',internal);
@@ -66,8 +66,8 @@
       if(!internal){
         $('fleetPortalTitle').textContent='Supervisión · Flotilla';
         $('fleetWorkspaceTitle').textContent='Supervisión de Flotilla';
-        $('fleetWorkspaceDescription').textContent='El mismo tablero operativo de Gerentes, con acceso a todas las zonas de la empresa.';
-        $('fleetCompanyLabel').textContent='Empresa supervisada';
+        $('fleetWorkspaceDescription').textContent='Control integral de todas las zonas, unidades y choferes del cliente.';
+        $('fleetCompanyLabel').textContent='Cliente supervisado';
         $('managerHomeLink').hidden=true;
         $('managerExpensesLink').hidden=true;
         $('fleetBack').hidden=false;
@@ -207,6 +207,7 @@
       const data=await api(`/overview?${params()}`); const k=data.kpis||{};
       if(!data.configured) setSync('error','Motive sin configurar','Falta la clave API en el servidor.');
       else if(data.sync?.status==='running'||data.sync?.status==='queued') setSync('warn','Actualizando desde Motive…',syncProgressText(data.sync));
+      else if(data.sync?.status==='cancelled') setSync('error','Actualización cancelada','Los últimos datos confirmados se conservaron. Puedes iniciar una actualización nueva.');
       else if(data.sync?.status==='failed'&&data.sync?.error_code==='stale_worker') setSync('error','Actualización interrumpida','La actualización dejó de responder. Presiona “Actualizar desde Motive” para reintentar.');
       else if(data.connected) setSync('ok','Motive conectado',`Última actualización: ${dateText(data.integration.last_success_at)}`);
       else if(data.integration?.last_error_at) setSync('error','Conexión pendiente',`Último intento: ${dateText(data.integration.last_error_at)}`);
@@ -260,6 +261,7 @@
         $('dataStatus').innerHTML='<strong>Sincronización en curso.</strong> Conservamos el último análisis válido mientras Motive termina de entregar las fuentes.';
       }
       const runId=Number(data.run_id||data.sync?.id||0);
+      state.syncRunId=runId||null;$('cancelSyncButton').hidden=!state.syncRunId;
       clearTimeout(state.syncPoll);
       const poll=async()=>{
         try{
@@ -274,10 +276,16 @@
           }
           await loadOverview();
           $('syncButton').disabled=false;
+          state.syncRunId=null;$('cancelSyncButton').hidden=true;
           stopSyncCountdown();
           state.syncEtaSeconds=null;
           if(sync.status==='failed'){
             notice(`Motive no pudo actualizarse: ${sync.error_message||'la integración devolvió un error.'} Tu sesión y el análisis guardado se conservaron.`,'error');
+            return;
+          }
+          if(sync.status==='cancelled'){
+            setSync('error','Actualización cancelada','Los últimos datos confirmados se conservaron.');
+            notice('La actualización fue cancelada. Puedes iniciar una nueva cuando lo necesites.','error');
             return;
           }
           setSync('ok','Actualización completada',`Unidades, zonas, recorridos, inspecciones, seguridad y gastos Motive: ${dateText(sync.finished_at)}`);
@@ -302,6 +310,17 @@
       };
       state.syncPoll=setTimeout(poll,2000);
     }catch(error){ stopSyncCountdown();notice(error.message,'error'); $('syncButton').disabled=false; }
+  }
+  async function cancelSync(){
+    if(!state.syncRunId)return;
+    $('cancelSyncButton').disabled=true;
+    try{
+      await api(`/sync/${state.syncRunId}/cancel`,{method:'POST'});
+      clearTimeout(state.syncPoll);stopSyncCountdown();state.syncRunId=null;
+      $('cancelSyncButton').hidden=true;$('syncButton').disabled=false;
+      notice('La actualización fue cancelada. Los últimos datos confirmados se conservaron.','error');
+      await loadOverview();
+    }catch(error){notice(error.message,'error');$('cancelSyncButton').disabled=false;}
   }
 
   async function loadReportCatalog({prepare=true,scroll=true}={}){
@@ -404,12 +423,13 @@
     const isSunday=day=>new Date(`${day}T12:00:00Z`).getUTCDay()===0;
     const countedDays=days.filter(day=>!isSunday(day));
     const isOperational=record=>Number(record?.distance_km||0)>=MIN_OPERATIONAL_DISTANCE_KM;
-    const missingDays=driver=>countedDays.filter(day=>{const record=driver.days?.[day]||{};return record.observed===true&&!isOperational(record);}).length;
-    const unknownDays=driver=>countedDays.filter(day=>driver.days?.[day]?.observed!==true).length;
+    const exempt=record=>record?.inactive===true||record?.not_assigned===true;
+    const missingDays=driver=>countedDays.filter(day=>{const record=driver.days?.[day]||{};return !exempt(record)&&record.observed===true&&!isOperational(record);}).length;
+    const unknownDays=driver=>countedDays.filter(day=>{const record=driver.days?.[day]||{};return !exempt(record)&&record.observed!==true;}).length;
     const reviewDrivers=drivers.filter(driver=>missingDays(driver)>0).sort((a,b)=>missingDays(b)-missingDays(a)||String(a.driver_name).localeCompare(String(b.driver_name),'es'));
     const incompleteDrivers=drivers.filter(driver=>missingDays(driver)===0&&unknownDays(driver)>0).sort((a,b)=>unknownDays(b)-unknownDays(a)||String(a.driver_name).localeCompare(String(b.driver_name),'es'));
     const completeDrivers=drivers.filter(driver=>missingDays(driver)===0&&unknownDays(driver)===0).sort((a,b)=>String(a.driver_name).localeCompare(String(b.driver_name),'es'));
-    const driverSummary=driver=>{const used=driver.vehicle_numbers||[],current=driver.current_vehicle_numbers||[];if(used.length)return `${used.length} unidad${used.length===1?'':'es'} en la semana`;if(current.length)return `Actual: ${current.join(', ')} · sin trayectos en la semana`;return 'Sin unidad identificada';};
+    const driverSummary=driver=>{const used=driver.vehicle_numbers||[],current=driver.current_vehicle_numbers||[];if(driver.status==='inactive')return `Baja${driver.deactivated_at?' · '+String(driver.deactivated_at).slice(0,10):''}`;if(used.length)return `${used.length} unidad${used.length===1?'':'es'} en la semana`;if(current.length)return `Actual: ${current.join(', ')} · sin trayectos en la semana`;return 'Sin unidad identificada';};
     const clock=value=>value?new Intl.DateTimeFormat('es-MX',{hour:'2-digit',minute:'2-digit',timeZone:'America/Monterrey'}).format(new Date(value)):'—';
     const duration=value=>{const minutes=Number(value||0);return minutes>=60?`${Math.floor(minutes/60)} h ${minutes%60} min`:`${minutes} min`;};
     const driverStopBaseline=driver=>{const values=countedDays.map(day=>Number(driver.days?.[day]?.stops||0)).filter(value=>value>0).sort((a,b)=>a-b);if(!values.length)return 0;const middle=Math.floor(values.length/2);return values.length%2?values[middle]:(values[middle-1]+values[middle])/2;};
@@ -426,7 +446,7 @@
       panel.querySelector('[data-close-activity-detail]')?.addEventListener('click',()=>{panel.hidden=true;panel.innerHTML='';});
       panel.scrollIntoView({behavior:'smooth',block:'nearest'});
     };
-    const matrix=rows=>`<div class="activity-matrix-wrap activity-desktop"><table class="activity-matrix"><thead><tr><th>Chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(driver=>`<tr><td><span class="activity-unit"><b>${esc(driver.driver_name)}</b><small>${esc(driverSummary(driver))}${missingDays(driver)?` · ${fmt(missingDays(driver))} día${missingDays(driver)===1?'':'s'} con actividad baja`:''}</small></span></td>${days.map(day=>{const rest=isSunday(day),record=driver.days?.[day]||{},distance=Number(record.distance_km||0),trips=Number(record.trips||0),stops=Number(record.stops||0),observed=record.observed===true,worked=observed&&isOperational(record),minor=observed&&!worked&&distance>0,tone=rest?'rest':!observed?'unknown':worked?'worked':minor?'minor':'idle',symbol=rest?'D':!observed?'?':worked?'✓':minor?'!':'—',detail=rest?'Domingo: descanso, no cuenta para revisión':!observed?'Sin trayectos registrados para este chofer':`${fmt(distance)} km · ${fmt(trips)} recorridos · ${fmt(stops)} paradas`;return `<td><button type="button" class="activity-day ${tone}" data-activity-driver="${esc(driver.driver_key)}" data-activity-day="${esc(day)}" title="${esc(`${day}: ${detail}`)}" ${rest||!observed?'disabled':''}>${dayCellContent(driver,day,record,symbol,rest,observed)}</button></td>`;}).join('')}</tr>`).join('')}</tbody></table></div><div class="activity-mobile">${rows.map(driver=>`<article class="activity-mobile-unit"><div><b>${esc(driver.driver_name)}</b><small>${esc(driverSummary(driver))}</small></div><div class="activity-mobile-days">${days.map(day=>{const rest=isSunday(day),record=driver.days?.[day]||{},observed=record.observed===true,distance=Number(record.distance_km||0),worked=observed&&isOperational(record),minor=observed&&!worked&&distance>0,tone=rest?'rest':!observed?'unknown':worked?'worked':minor?'minor':'idle',symbol=rest?'D':!observed?'?':worked?'✓':minor?'!':'—';return `<span><small>${esc(dayLabel(day))}</small><button type="button" class="activity-day ${tone}" data-activity-driver="${esc(driver.driver_key)}" data-activity-day="${esc(day)}" title="${esc(`${day}: ${fmt(distance)} km`)}" ${rest||!observed?'disabled':''}>${dayCellContent(driver,day,record,symbol,rest,observed)}</button></span>`;}).join('')}</div></article>`).join('')}</div>`;
+    const matrix=rows=>`<div class="activity-matrix-wrap activity-desktop"><table class="activity-matrix"><thead><tr><th>Chofer</th>${days.map(day=>`<th>${esc(dayLabel(day))}</th>`).join('')}</tr></thead><tbody>${rows.map(driver=>`<tr><td><span class="activity-unit"><b>${esc(driver.driver_name)}</b><small>${esc(driverSummary(driver))}${missingDays(driver)?` · ${fmt(missingDays(driver))} día${missingDays(driver)===1?'':'s'} con actividad baja`:''}</small></span></td>${days.map(day=>{const rest=isSunday(day),record=driver.days?.[day]||{},inactive=record.inactive===true,notAssigned=record.not_assigned===true,distance=Number(record.distance_km||0),trips=Number(record.trips||0),stops=Number(record.stops||0),observed=record.observed===true,worked=observed&&isOperational(record),minor=observed&&!worked&&distance>0,tone=rest?'rest':inactive?'inactive':notAssigned?'not-assigned':!observed?'unknown':worked?'worked':minor?'minor':'idle',symbol=rest?'D':inactive?'B':notAssigned?'—':!observed?'?':worked?'✓':minor?'!':'—',detail=rest?'Domingo: descanso, no cuenta para revisión':inactive?'Chofer dado de baja; no cuenta para revisión':notAssigned?'Aún no estaba asignado':!observed?'Sin trayectos registrados para este chofer':`${fmt(distance)} km · ${fmt(trips)} recorridos · ${fmt(stops)} paradas`;return `<td><button type="button" class="activity-day ${tone}" data-activity-driver="${esc(driver.driver_key)}" data-activity-day="${esc(day)}" title="${esc(`${day}: ${detail}`)}" ${rest||inactive||notAssigned||!observed?'disabled':''}>${dayCellContent(driver,day,record,symbol,rest,inactive||notAssigned?false:observed)}</button></td>`;}).join('')}</tr>`).join('')}</tbody></table></div><div class="activity-mobile">${rows.map(driver=>`<article class="activity-mobile-unit"><div><b>${esc(driver.driver_name)}</b><small>${esc(driverSummary(driver))}</small></div><div class="activity-mobile-days">${days.map(day=>{const rest=isSunday(day),record=driver.days?.[day]||{},inactive=record.inactive===true,notAssigned=record.not_assigned===true,observed=record.observed===true,distance=Number(record.distance_km||0),worked=observed&&isOperational(record),minor=observed&&!worked&&distance>0,tone=rest?'rest':inactive?'inactive':notAssigned?'not-assigned':!observed?'unknown':worked?'worked':minor?'minor':'idle',symbol=rest?'D':inactive?'B':notAssigned?'—':!observed?'?':worked?'✓':minor?'!':'—';return `<span><small>${esc(dayLabel(day))}</small><button type="button" class="activity-day ${tone}" data-activity-driver="${esc(driver.driver_key)}" data-activity-day="${esc(day)}" title="${esc(`${day}: ${inactive?'Baja':notAssigned?'No asignado':fmt(distance)+' km'}`)}" ${rest||inactive||notAssigned||!observed?'disabled':''}>${dayCellContent(driver,day,record,symbol,rest,inactive||notAssigned?false:observed)}</button></span>`;}).join('')}</div></article>`).join('')}</div>`;
     host.innerHTML=`<div class="activity-period-note">Cada fila corresponde al chofer registrado por Motive en los trayectos de ese día. La unidad utilizada aparece dentro de cada jornada; si manejó más de una, toca el día para ver el desglose.</div><div class="activity-group-title"><span>Requieren revisión</span><span>${fmt(reviewDrivers.length)} choferes</span></div>${reviewDrivers.length?matrix(reviewDrivers):'<div class="empty">No hay choferes con actividad menor a 10 km.</div>'}${incompleteDrivers.length?`<details class="activity-complete" open><summary>Actividad parcial en el periodo (${fmt(incompleteDrivers.length)})</summary>${matrix(incompleteDrivers)}</details>`:''}${completeDrivers.length?`<details class="activity-complete" open><summary>Con jornada GPS todos los días laborables (${fmt(completeDrivers.length)})</summary>${matrix(completeDrivers)}</details>`:''}<div id="activityDayDetail" class="activity-day-detail" hidden></div><div class="activity-legend"><span><b>✓ Jornada GPS (10 km o más)</b></span><span><b style="color:#a61b2b">! Menos de 10 km: revisar</b></span><span><i class="fa-solid fa-truck"></i> Unidad registrada en el trayecto</span><span>D Domingo: descanso</span><span>? Sin trayectos para ese chofer</span><span>“Sin chofer identificado” concentra los recorridos que Motive no atribuyó a una persona.</span></div>`;
     host.querySelectorAll('[data-activity-driver][data-activity-day]').forEach(button=>button.addEventListener('click',()=>{const driver=drivers.find(item=>String(item.driver_key)===button.dataset.activityDriver);if(driver)showDayDetail(driver,button.dataset.activityDay);}));
   }
@@ -687,7 +707,7 @@
     }catch(error){notice(error.message,'error');}
   }
   initializeDates();
-  $('fleetBack').onclick=()=>{if(state.identity?.identity_type==='official'){clearPortalAccess();clearOfficialSession();location.replace('/gas-lp/conciliacion?area=flotilla');return}location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync;
+  $('fleetBack').onclick=()=>{if(state.identity?.identity_type==='official'){clearPortalAccess();clearOfficialSession();location.replace('/gas-lp/conciliacion?area=flotilla');return}location.href='/modulo/gas-lp/roles';}; $('fleetLogout').onclick=logout; $('syncButton').onclick=requestSync; $('cancelSyncButton').onclick=cancelSync;
   $('fleetAuthRetry').onclick=()=>validatePortalSession().then(ok=>{if(ok){loadOverview();loadGroups();}});
   $('drawerClose').onclick=closeDrawer; $('drawerBackdrop').onclick=closeDrawer; $('prevPage').onclick=()=>{if(state.page>1){state.page--;loadVehicles();}}; $('nextPage').onclick=()=>{if(state.page*state.perPage<state.total){state.page++;loadVehicles();}};
   $('searchVehicle').onclick=()=>{state.page=1;loadVehicles();};
