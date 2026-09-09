@@ -42,10 +42,24 @@ class FakeSupabase:
 
 def test_context_rejects_user_without_tenant(monkeypatch):
     monkeypatch.setattr(flotilla, "verify_token", lambda token: "user-1")
-    monkeypatch.setattr(flotilla, "obtener_acceso_modulo", lambda *args, **kwargs: {"section": "gas_lp"})
+    monkeypatch.setattr(flotilla, "obtener_accesos_usuario", lambda *args, **kwargs: [{"section": "gas_lp"}])
     with pytest.raises(HTTPException) as error:
         flotilla._identity_context("Bearer valid")
     assert error.value.status_code == 403
+
+
+def test_context_fails_closed_when_user_has_multiple_client_tenants(monkeypatch):
+    monkeypatch.setattr(flotilla, "verify_token", lambda token: "user-1")
+    monkeypatch.setattr(flotilla, "obtener_accesos_usuario", lambda *args, **kwargs: [
+        {"section": "gas_lp", "tenant_id": "tenant-gas-lux", "role": "admin"},
+        {"section": "gas_lp", "tenant_id": "tenant-other-client", "role": "admin"},
+    ])
+
+    with pytest.raises(HTTPException) as error:
+        flotilla._identity_context("Bearer valid")
+
+    assert error.value.status_code == 409
+    assert "más de un cliente" in error.value.detail
 
 
 def test_context_rejects_missing_portal_grant_without_bypassing_identity(monkeypatch):

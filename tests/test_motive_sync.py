@@ -1,11 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
-    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _inspection_lookback_dates, _inspection_query_params, _lookback_dates,
+    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _incremental_lookback_dates, _inspection_lookback_dates, _inspection_query_params, _lookback_dates,
     _daily_metrics, _merge_motive_events, _official_requester_uuid, normalize_currency,
     _optional_group_vehicles,
 )
@@ -51,6 +51,19 @@ def test_incremental_operational_window_covers_manager_report(monkeypatch):
     monkeypatch.delenv("MOTIVE_INCREMENTAL_LOOKBACK_DAYS", raising=False)
     start, end = _lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 30
+
+
+def test_incremental_sync_resumes_with_two_day_overlap(monkeypatch):
+    monkeypatch.delenv("MOTIVE_INCREMENTAL_LOOKBACK_DAYS", raising=False)
+    last_success = date.today() - timedelta(days=1)
+    start, end = _incremental_lookback_dates(f"{last_success.isoformat()}T18:30:00+00:00")
+    assert start == (last_success - timedelta(days=2)).isoformat()
+    assert end == date.today().isoformat()
+
+
+def test_incremental_sync_never_exceeds_configured_window(monkeypatch):
+    monkeypatch.setenv("MOTIVE_INCREMENTAL_LOOKBACK_DAYS", "30")
+    assert _incremental_lookback_dates("2020-01-01T00:00:00Z") == _lookback_dates(False)
 
 
 def test_incremental_inspection_window_rechecks_late_repairs(monkeypatch):
