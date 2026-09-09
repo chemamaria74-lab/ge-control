@@ -512,6 +512,19 @@ def _lookback_dates(full: bool) -> tuple[str, str]:
     return (today - timedelta(days=days)).isoformat(), today.isoformat()
 
 
+def _incremental_lookback_dates(last_success_at: Any) -> tuple[str, str]:
+    """Resume near the last successful sync while rechecking a small overlap."""
+    fallback_start, end = _lookback_dates(False)
+    if not last_success_at:
+        return fallback_start, end
+    try:
+        last_success = datetime.fromisoformat(str(last_success_at).replace("Z", "+00:00")).date()
+    except (TypeError, ValueError):
+        return fallback_start, end
+    overlap_start = (last_success - timedelta(days=2)).isoformat()
+    return max(fallback_start, overlap_start), end
+
+
 def _event_lookback_dates(full: bool) -> tuple[str, str]:
     """Revisa una ventana mayor para eventos que Motive clasifica o descarta tarde."""
     if full:
@@ -1061,7 +1074,11 @@ def sync_motive_tenant(
             datasets["vehicle_groups"] = _upsert(sb, "fleet_vehicle_groups", memberships, "group_id,vehicle_id")
         pulse()
 
-        start_date, end_date = _lookback_dates(full)
+        start_date, end_date = (
+            _lookback_dates(True)
+            if full
+            else _incremental_lookback_dates(integrations[0].get("last_success_at"))
+        )
         phase("Cargas de combustible")
         fuel_items = motive_get_all_pages(
             "/v1/fuel_purchases", collection_key="fuel_purchases",
