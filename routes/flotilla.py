@@ -396,12 +396,24 @@ def fleet_session(
                 )
             except Exception:
                 company_rows = []
+    if not company_rows and ctx.get("identity_type") == "official":
+        # Un acceso administrativo puede haber conservado el tenant aunque la
+        # fila activa de user_sections no incluya perfil_id. Recuperar sólo una
+        # empresa perteneciente a ese mismo tenant evita la cabecera genérica.
+        try:
+            company_rows = (
+                get_supabase_admin().table("perfiles_empresa").select("id,nombre,rfc")
+                .eq("tenant_id", ctx["tenant_id"]).eq("activo", True)
+                .limit(1).execute().data or []
+            )
+        except Exception:
+            company_rows = []
     company = company_rows[0] if company_rows else {}
     return {
         "authenticated": True,
         "user_id": ctx["user_id"],
         "tenant_id": ctx["tenant_id"],
-        "perfil_id": ctx.get("perfil_id"),
+        "perfil_id": ctx.get("perfil_id") or company.get("id"),
         "role": ctx.get("role") or "user",
         "display_name": ctx.get("display_name") or "",
         "identity_type": ctx.get("identity_type"),
@@ -1164,27 +1176,42 @@ def report_catalog(
             } for defect in open_defects],
         })
     activity_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)][-7:]
-    activity_by_unit: dict[str, dict[str, dict[str, float | int]]] = {}
-    for vehicle in data["vehicles"]:
-        number = str(vehicle.get("vehicle_number") or "Sin número")
-        activity_by_unit[number] = {
+    def empty_driver_days() -> dict[str, dict[str, Any]]:
+        return {
             day.isoformat(): {
                 "distance_km": 0.0, "trips": 0, "stops": 0,
-                "drive_minutes": 0, "trip_distance_km": 0.0,
-                "observed": False, "trip_details": [],
+                "drive_minutes": 0, "observed": False,
+                "vehicle_numbers": [], "trip_details": [],
             } for day in activity_days
         }
-    for metric in data.get("metrics", []):
-        number, day = str(metric.get("vehicle_number") or ""), str(metric.get("metric_date") or "")[:10]
-        if number in activity_by_unit and day in activity_by_unit[number]:
-            activity_by_unit[number][day]["observed"] = True
-            activity_by_unit[number][day]["distance_km"] = max(
-                float(activity_by_unit[number][day]["distance_km"]), float(metric.get("distance_km") or 0)
-            )
+
+    driver_rows: dict[str, dict[str, Any]] = {}
+
+    def driver_row(name: str) -> dict[str, Any]:
+        display_name = str(name or "").strip() or "Sin chofer identificado"
+        key = display_name.casefold()
+        if key not in driver_rows:
+            driver_rows[key] = {
+                "driver_name": display_name, "days": empty_driver_days(),
+                "vehicle_numbers": set(), "current_vehicle_numbers": set(),
+            }
+        return driver_rows[key]
+
+    # Conserva en la tabla a los choferes actualmente asignados aunque durante
+    # la semana no tengan recorridos. La atribución de cada día, sin embargo,
+    # siempre proviene del chofer guardado por Motive en el trayecto.
+    for vehicle in data["vehicles"]:
+        current_driver = str(vehicle.get("current_driver_name") or "").strip()
+        if current_driver:
+            driver_row(current_driver)["current_vehicle_numbers"].add(str(vehicle.get("vehicle_number") or "Sin número"))
+
     for trip in data.get("activity", []):
-        number, day = str(trip.get("vehicle_number") or ""), str(trip.get("started_at") or "")[:10]
-        if number in activity_by_unit and day in activity_by_unit[number]:
-            daily = activity_by_unit[number][day]
+        number = str(trip.get("vehicle_number") or "Sin número").strip() or "Sin número"
+        day = str(trip.get("started_at") or "")[:10]
+        row = driver_row(str(trip.get("driver_name") or ""))
+        if day in row["days"]:
+            row["vehicle_numbers"].add(number)
+            daily = row["days"][day]
             daily["observed"] = True
             daily["trips"] = int(daily["trips"]) + 1
             if trip.get("ended_at"):
@@ -1198,28 +1225,25 @@ def report_catalog(
                 pass
             daily["drive_minutes"] = int(daily["drive_minutes"]) + duration_minutes
             trip_distance = float(trip.get("distance_km") or 0)
-            daily["trip_distance_km"] = float(daily["trip_distance_km"]) + trip_distance
+            daily["distance_km"] = round(float(daily["distance_km"]) + trip_distance, 3)
+            if number not in daily["vehicle_numbers"]:
+                daily["vehicle_numbers"].append(number)
             daily["trip_details"].append({
                 "started_at": trip.get("started_at"), "ended_at": trip.get("ended_at"),
                 "origin": trip.get("origin") or "", "destination": trip.get("destination") or "",
                 "distance_km": trip_distance, "duration_minutes": duration_minutes,
+                "vehicle_number": number,
             })
-    for unit_days in activity_by_unit.values():
-        for daily in unit_days.values():
-            if not daily["distance_km"]:
-                daily["distance_km"] = round(float(daily["trip_distance_km"]), 3)
-            daily.pop("trip_distance_km", None)
     activity_calendar = {
         "days": [day.isoformat() for day in activity_days],
-        "units": [{
-            "vehicle_number": str(vehicle.get("vehicle_number") or "Sin número"),
-            "driver_name": str(vehicle.get("current_driver_name") or vehicle.get("last_known_driver_name") or ""),
-            "driver_context": "Chofer asignado" if vehicle.get("current_driver_name") else (
-                "Último chofer visto" if vehicle.get("last_known_driver_name") else "Sin chofer identificado en Motive"
-            ),
-            "status": str(vehicle.get("availability_status") or vehicle.get("status") or ""),
-            "days": activity_by_unit[str(vehicle.get("vehicle_number") or "Sin número")],
-        } for vehicle in data["vehicles"]],
+        "grouped_by": "driver",
+        "drivers": [{
+            "driver_key": key,
+            "driver_name": row["driver_name"],
+            "vehicle_numbers": sorted(row["vehicle_numbers"]),
+            "current_vehicle_numbers": sorted(row["current_vehicle_numbers"]),
+            "days": row["days"],
+        } for key, row in sorted(driver_rows.items(), key=lambda item: (item[1]["driver_name"] == "Sin chofer identificado", item[1]["driver_name"]))],
     }
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
