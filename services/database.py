@@ -660,7 +660,10 @@ def reopen_reports(user_id: str, periodo: str,
     """Reabre explícitamente un cierre para corrección administrativa."""
     try:
         q = (get_supabase_admin().table("reports")
-             .update({"status": "reopened", "closed_at": None})
+             # La restricción reports_status_check sólo admite draft/closed.
+             # Un cierre reabierto vuelve a ser un borrador editable; closed_at
+             # conserva la distinción frente a un reporte que sigue cerrado.
+             .update({"status": "draft", "closed_at": None})
              .eq("user_id", user_id).eq("periodo", periodo))
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
