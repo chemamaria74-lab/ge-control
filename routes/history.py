@@ -1351,7 +1351,7 @@ async def reopen_month_report(
         raise HTTPException(409, "El mes seleccionado no está cerrado.")
     if not reopen_reports(data_user_id, periodo, facility_id, perfil_id):
         raise HTTPException(500, "No fue posible reabrir el mes.")
-    return JSONResponse(content={"ok": True, "periodo": periodo, "status": "reopened"})
+    return JSONResponse(content={"ok": True, "periodo": periodo, "status": "draft"})
 
 
 @router.get("/history/{periodo}/download/{fmt}")
