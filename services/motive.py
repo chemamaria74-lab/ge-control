@@ -87,7 +87,11 @@ def motive_get(
     if response.status_code == 429:
         raise MotiveAPIError(503, "Motive limitó temporalmente las solicitudes.")
     if not response.ok:
-        raise MotiveAPIError(502, f"Motive respondió con estado {response.status_code}.")
+        # Only expose our fixed relative route, never Motive's body or credentials.
+        raise MotiveAPIError(
+            502,
+            f"Motive respondió con estado {response.status_code} al consultar {path}.",
+        )
     try:
         payload = response.json()
     except ValueError as exc:

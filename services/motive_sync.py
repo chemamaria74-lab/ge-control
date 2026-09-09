@@ -536,6 +536,12 @@ def _inspection_lookback_dates(full: bool) -> tuple[str, str]:
     return (today - timedelta(days=days)).isoformat(), today.isoformat()
 
 
+def _inspection_query_params(full: bool) -> dict[str, str]:
+    """Build filters accepted by Motive's v2 inspection reports endpoint."""
+    start_date, _ = _inspection_lookback_dates(full)
+    return {"updated_after": start_date}
+
+
 def _merge_motive_events(*collections: list[Any]) -> list[Any]:
     """Une eventos por ID; la colección más reciente prevalece."""
     merged: dict[int, Any] = {}
@@ -836,10 +842,9 @@ def sync_motive_safety(tenant_id: str, *, queued_run_id: int) -> dict[str, Any]:
                 "datasets": datasets,
             }).eq("id", run_id).execute()
 
-        inspection_start_date, inspection_end_date = _inspection_lookback_dates(False)
         inspection_items = _optional_pages(
             datasets, "inspections", "/v2/inspection_reports", "inspection_reports",
-            params={"start_date": inspection_start_date, "end_date": inspection_end_date},
+            params=_inspection_query_params(False),
             progress=inspection_progress,
         )
         normalized_inspections = [
@@ -1070,10 +1075,9 @@ def sync_motive_tenant(
         pulse()
 
         phase("Inspecciones y defectos")
-        inspection_start_date, inspection_end_date = _inspection_lookback_dates(full)
         inspection_items = motive_get_all_pages(
             "/v2/inspection_reports", collection_key="inspection_reports",
-            params={"start_date": inspection_start_date, "end_date": inspection_end_date},
+            params=_inspection_query_params(full),
             progress=page_progress("Inspecciones y defectos"),
         )
         normalized = [normalize_inspection(item, integration_id=integration_id, tenant_id=tenant_id) for item in inspection_items]
