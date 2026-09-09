@@ -376,12 +376,26 @@ def fleet_session(
     """Validate the official GE Control session before revealing the portal."""
     ctx = _context(authorization, x_flotilla_access)
     company_rows = []
-    if ctx.get("sb") is not None:
-        company_rows = (
-            ctx["sb"].table("perfiles_empresa").select("nombre,rfc")
-            .eq("id", ctx.get("perfil_id")).eq("tenant_id", ctx["tenant_id"])
-            .limit(1).execute().data or []
-        )
+    profile_id = ctx.get("perfil_id")
+    if profile_id is not None and ctx.get("sb") is not None:
+        try:
+            company_rows = (
+                ctx["sb"].table("perfiles_empresa").select("nombre,rfc")
+                .eq("id", profile_id).eq("tenant_id", ctx["tenant_id"])
+                .limit(1).execute().data or []
+            )
+        except Exception:
+            # El contexto y el permiso de Flotilla ya quedaron validados. La
+            # lectura del nombre/RFC es únicamente descriptiva y una política
+            # RLS desactualizada no debe impedir que un administrador entre.
+            try:
+                company_rows = (
+                    get_supabase_admin().table("perfiles_empresa").select("nombre,rfc")
+                    .eq("id", profile_id).eq("tenant_id", ctx["tenant_id"])
+                    .limit(1).execute().data or []
+                )
+            except Exception:
+                company_rows = []
     company = company_rows[0] if company_rows else {}
     return {
         "authenticated": True,
