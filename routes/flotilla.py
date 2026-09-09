@@ -391,7 +391,20 @@ def fleet_session(
     ctx = _context(authorization, x_flotilla_access)
     company_rows = []
     profile_id = ctx.get("perfil_id")
-    if profile_id is not None and ctx.get("sb") is not None:
+    if ctx.get("identity_type") == "official":
+        # Supervisión operates at tenant scope because the Motive integration,
+        # zones and cached telemetry belong to the tenant, not to one RFC
+        # profile. Showing an arbitrary perfiles_empresa row was misleading.
+        try:
+            company_rows = (
+                get_supabase_admin().table("tenants").select("name")
+                .eq("id", ctx["tenant_id"]).limit(1).execute().data or []
+            )
+            if company_rows:
+                company_rows[0] = {"nombre": company_rows[0].get("name"), "rfc": ""}
+        except Exception:
+            company_rows = []
+    elif profile_id is not None and ctx.get("sb") is not None:
         try:
             company_rows = (
                 ctx["sb"].table("perfiles_empresa").select("nombre,rfc")
@@ -410,32 +423,22 @@ def fleet_session(
                 )
             except Exception:
                 company_rows = []
-    if not company_rows and ctx.get("identity_type") == "official":
-        # Un acceso administrativo puede haber conservado el tenant aunque la
-        # fila activa de user_sections no incluya perfil_id. Recuperar sólo una
-        # empresa perteneciente a ese mismo tenant evita la cabecera genérica.
-        try:
-            company_rows = (
-                get_supabase_admin().table("perfiles_empresa").select("id,nombre,rfc")
-                .eq("tenant_id", ctx["tenant_id"]).eq("activo", True)
-                .limit(2).execute().data or []
-            )
-            if len(company_rows) != 1:
-                company_rows = []
-        except Exception:
-            company_rows = []
     company = company_rows[0] if company_rows else {}
     return {
         "authenticated": True,
         "user_id": ctx["user_id"],
         "tenant_id": ctx["tenant_id"],
-        "perfil_id": ctx.get("perfil_id") or company.get("id"),
+        "perfil_id": ctx.get("perfil_id"),
         "role": ctx.get("role") or "user",
         "display_name": ctx.get("display_name") or "",
         "identity_type": ctx.get("identity_type"),
         "fleet_access_level": ctx.get("fleet_access_level"),
         "allowed_group_ids": ctx.get("allowed_group_ids"),
-        "company": {"name": company.get("nombre") or "Empresa asignada", "rfc": company.get("rfc") or ""},
+        "company": {
+            "name": company.get("nombre") or ("Cliente activo" if ctx.get("identity_type") == "official" else "Empresa asignada"),
+            "rfc": company.get("rfc") or "",
+            "scope": "tenant" if ctx.get("identity_type") == "official" else "profile",
+        },
     }
 
 
@@ -710,6 +713,28 @@ def sync_status(
         except Exception:
             pass
     return visible
+
+
+@router.post("/flotilla/sync/{run_id}/cancel")
+def cancel_sync(
+    run_id: int,
+    authorization: str = Header(default=""),
+    x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+):
+    ctx = _context(authorization, x_flotilla_access)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = (
+        get_supabase_admin().table("fleet_sync_runs").update({
+            "status": "cancelled", "cancel_requested_at": now,
+            "finished_at": now, "heartbeat_at": now,
+            "error_code": "cancelled_by_user",
+            "error_message": "La actualización fue cancelada por el usuario.",
+        }).eq("tenant_id", ctx["tenant_id"]).eq("id", run_id)
+        .in_("status", ["queued", "running"]).execute().data or []
+    )
+    if not rows:
+        raise HTTPException(409, "La sincronización ya terminó o no pertenece al cliente activo.")
+    return {"cancelled": True, "run_id": run_id}
 
 
 def _between(query: Any, column: str, start: date, end: date) -> Any:
@@ -1205,6 +1230,18 @@ def report_catalog(
             } for defect in open_defects],
         })
     activity_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)][-7:]
+    try:
+        lifecycle_rows = (
+            ctx["sb"].table("fleet_drivers")
+            .select("display_name,status,first_seen_at,last_seen_at,deactivated_at")
+            .eq("tenant_id", ctx["tenant_id"]).execute().data or []
+        )
+    except Exception:
+        lifecycle_rows = []
+    lifecycle_by_name = {
+        str(row.get("display_name") or "").strip().casefold(): row
+        for row in lifecycle_rows if str(row.get("display_name") or "").strip()
+    }
     def empty_driver_days() -> dict[str, dict[str, Any]]:
         return {
             day.isoformat(): {
@@ -1220,9 +1257,13 @@ def report_catalog(
         display_name = str(name or "").strip() or "Sin chofer identificado"
         key = display_name.casefold()
         if key not in driver_rows:
+            lifecycle = lifecycle_by_name.get(key) or {}
             driver_rows[key] = {
                 "driver_name": display_name, "days": empty_driver_days(),
                 "vehicle_numbers": set(), "current_vehicle_numbers": set(),
+                "status": lifecycle.get("status") or "unknown",
+                "first_seen_at": lifecycle.get("first_seen_at"),
+                "deactivated_at": lifecycle.get("deactivated_at"),
             }
         return driver_rows[key]
 
@@ -1263,6 +1304,14 @@ def report_catalog(
                 "distance_km": trip_distance, "duration_minutes": duration_minutes,
                 "vehicle_number": number,
             })
+    for row in driver_rows.values():
+        first_seen = str(row.get("first_seen_at") or "")[:10]
+        deactivated = str(row.get("deactivated_at") or "")[:10]
+        for day, daily in row["days"].items():
+            if first_seen and day < first_seen:
+                daily["not_assigned"] = True
+            if deactivated and day > deactivated:
+                daily["inactive"] = True
     activity_calendar = {
         "days": [day.isoformat() for day in activity_days],
         "grouped_by": "driver",
@@ -1271,6 +1320,9 @@ def report_catalog(
             "driver_name": row["driver_name"],
             "vehicle_numbers": sorted(row["vehicle_numbers"]),
             "current_vehicle_numbers": sorted(row["current_vehicle_numbers"]),
+            "status": row["status"],
+            "first_seen_at": row["first_seen_at"],
+            "deactivated_at": row["deactivated_at"],
             "days": row["days"],
         } for key, row in sorted(driver_rows.items(), key=lambda item: (item[1]["driver_name"] == "Sin chofer identificado", item[1]["driver_name"]))],
     }
