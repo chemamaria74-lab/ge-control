@@ -497,7 +497,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             email = {"ok": False, "skipped": False, "error": str(exc)[:500]}
     email = {
         **email,
-        "status": "enviado" if email.get("ok") else ("no_enviado" if email.get("skipped") else "error"),
+        "status": "procesando" if email.get("ok") else ("no_enviado" if email.get("skipped") else "error"),
         "recipient": destination_email,
         "attempted_at": datetime.now(timezone.utc).isoformat(),
     }
