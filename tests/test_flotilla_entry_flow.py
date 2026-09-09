@@ -204,6 +204,9 @@ def test_manager_portal_has_compact_gps_and_inventory_tabs():
     assert 'id="loadOfficeExpenses"' in template
     assert 'id="managerCompanyName"' in template
     assert 'id="managerCompanyRfc"' in template
+    assert 'id="fleetWorkspaceTitle"' in template
+    assert "El mismo tablero operativo de Gerentes, con acceso a todas las zonas" in frontend
+    assert "$('fleetCompanyLabel').textContent='Empresa supervisada'" in frontend
     assert 'data-inventory-view="charts"' in template
     assert 'data-inventory-view="physical"' in template
     assert "loadManagerInventory" in frontend
@@ -299,18 +302,19 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert "Desglose del día" in frontend
     assert "Recorridos" in frontend and "Paradas" in frontend
     assert "dayCellContent" in frontend and "activity-load" in frontend
-    assert "unitStopBaseline" in frontend and "previousStops" in frontend
+    assert "driverStopBaseline" in frontend and "previousStops" in frontend
     assert "Ritmo habitual" in frontend
     assert '"trip_details": []' in backend
     assert 'daily["stops"]' in backend
-    assert "Los domingos son descanso y no cuentan para revisión" in frontend
     assert "const countedDays=days.filter(day=>!isSunday(day))" in frontend
-    assert "Datos diarios pendientes de confirmar" in frontend
+    assert "Actividad parcial en el periodo" in frontend
     assert 'class="activity-complete" open' in frontend
-    assert "La tabla muestra los últimos siete días" in frontend
+    assert "Cada fila corresponde al chofer registrado por Motive" in frontend
     assert "record.observed===true" in frontend
     assert "activity-mobile-unit" in frontend
     assert '"observed": False' in backend
+    assert '"grouped_by": "driver"' in backend
+    assert '"vehicle_number": number' in backend
     assert "Desglose de traspasos" in template
 
 

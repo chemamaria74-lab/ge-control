@@ -109,6 +109,24 @@ def test_session_gate_does_not_fail_when_company_label_query_is_blocked(monkeypa
     assert result["company"] == {"name": "Empresa asignada", "rfc": ""}
 
 
+def test_official_session_resolves_company_from_tenant_when_profile_is_missing(monkeypatch):
+    admin = FakeSupabase({
+        "perfiles_empresa": [{"id": 77, "nombre": "GAS LUX", "rfc": "GLU760309457"}],
+    })
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "user_id": "user-1", "tenant_id": "tenant-safe", "perfil_id": None,
+        "role": "admin", "identity_type": "official", "fleet_access_level": "direction",
+        "allowed_group_ids": None, "display_name": "", "sb": FakeSupabase({}),
+    })
+    monkeypatch.setattr(flotilla, "get_supabase_admin", lambda: admin)
+
+    result = flotilla.fleet_session(authorization="Bearer valid", x_flotilla_access="grant")
+
+    assert result["perfil_id"] == 77
+    assert result["company"] == {"name": "GAS LUX", "rfc": "GLU760309457"}
+    assert ("eq", "tenant_id", "tenant-safe") in admin.calls
+
+
 def test_period_rejects_inverted_and_oversized_ranges():
     with pytest.raises(HTTPException) as inverted:
         flotilla._dates(date(2026, 7, 2), date(2026, 7, 1))
