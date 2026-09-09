@@ -5,7 +5,7 @@ from pathlib import Path
 from services.motive_sync import (
     GALLONS_TO_LITERS, normalize_driver_event, normalize_fault, normalize_fuel_purchase,
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
-    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _inspection_lookback_dates, _lookback_dates,
+    normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _inspection_lookback_dates, _inspection_query_params, _lookback_dates,
     _daily_metrics, _merge_motive_events, _official_requester_uuid, normalize_currency,
     _optional_group_vehicles,
 )
@@ -57,6 +57,13 @@ def test_incremental_inspection_window_rechecks_late_repairs(monkeypatch):
     monkeypatch.delenv("MOTIVE_INSPECTION_LOOKBACK_DAYS", raising=False)
     start, end = _inspection_lookback_dates(False)
     assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 365
+
+
+def test_inspection_filter_uses_only_supported_updated_after(monkeypatch):
+    monkeypatch.delenv("MOTIVE_INSPECTION_LOOKBACK_DAYS", raising=False)
+    params = _inspection_query_params(False)
+    assert set(params) == {"updated_after"}
+    assert date.fromisoformat(params["updated_after"]) < date.today()
 
 
 def test_daily_metrics_seed_confirmed_zero_days_after_complete_trip_sync():

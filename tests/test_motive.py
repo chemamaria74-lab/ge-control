@@ -73,6 +73,22 @@ def test_rejected_key_does_not_echo_upstream_body(monkeypatch):
     assert "bad-secret" not in error.value.message
 
 
+def test_bad_request_identifies_safe_endpoint_without_echoing_body(monkeypatch):
+    monkeypatch.setenv("MOTIVE_API_KEY", "secret-value")
+    monkeypatch.setattr(
+        motive.requests,
+        "get",
+        lambda *args, **kwargs: FakeResponse(400, {"error": "private upstream detail"}),
+    )
+    with pytest.raises(motive.MotiveAPIError) as error:
+        motive.motive_get("/v2/inspection_reports", params={"updated_after": "2026-01-01"})
+    assert error.value.message == (
+        "Motive respondió con estado 400 al consultar /v2/inspection_reports."
+    )
+    assert "private upstream detail" not in error.value.message
+    assert "secret-value" not in error.value.message
+
+
 def test_pagination_collects_every_page(monkeypatch):
     calls = []
 
