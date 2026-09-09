@@ -7,8 +7,32 @@ from services.motive_sync import (
     normalize_inspection, normalize_speeding_event, normalize_vehicle,
     normalize_vehicle_mileage, normalize_vehicle_utilization, _event_lookback_dates, _inspection_lookback_dates, _lookback_dates,
     _daily_metrics, _merge_motive_events, _official_requester_uuid, normalize_currency,
+    _optional_group_vehicles,
 )
 from services.motive import motive_get_all_pages_flexible
+
+
+def test_group_vehicle_memberships_do_not_send_unsupported_pagination(monkeypatch):
+    captured = {}
+
+    def fake_get(path, *, params=None):
+        captured["path"] = path
+        captured["params"] = params
+        return {"vehicles": [{"vehicle": {"id": 10}}, {"vehicle": {"id": 11}}]}
+
+    monkeypatch.setattr("services.motive_sync.motive_get", fake_get)
+    progress = []
+    datasets = {}
+
+    rows = _optional_group_vehicles(
+        datasets, "group_7_vehicles", 7,
+        progress=lambda page, records, total: progress.append((page, records, total)),
+    )
+
+    assert captured == {"path": "/v1/groups/7/vehicles", "params": None}
+    assert len(rows) == 2
+    assert progress == [(1, 2, 2)]
+    assert datasets == {}
 
 
 def test_incremental_event_window_rechecks_late_motive_changes(monkeypatch):

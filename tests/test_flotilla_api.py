@@ -84,6 +84,31 @@ def test_session_gate_returns_resolved_server_context(monkeypatch):
     }
 
 
+def test_session_gate_does_not_fail_when_company_label_query_is_blocked(monkeypatch):
+    class BlockedSupabase:
+        def table(self, _name):
+            raise RuntimeError("RLS cache unavailable")
+
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "user_id": "user-1",
+        "tenant_id": "tenant-safe",
+        "perfil_id": 42,
+        "role": "admin",
+        "identity_type": "official",
+        "fleet_access_level": "direction",
+        "allowed_group_ids": None,
+        "display_name": "",
+        "sb": BlockedSupabase(),
+    })
+    monkeypatch.setattr(flotilla, "get_supabase_admin", lambda: BlockedSupabase())
+
+    result = flotilla.fleet_session(authorization="Bearer valid", x_flotilla_access="grant")
+
+    assert result["authenticated"] is True
+    assert result["identity_type"] == "official"
+    assert result["company"] == {"name": "Empresa asignada", "rfc": ""}
+
+
 def test_period_rejects_inverted_and_oversized_ranges():
     with pytest.raises(HTTPException) as inverted:
         flotilla._dates(date(2026, 7, 2), date(2026, 7, 1))
