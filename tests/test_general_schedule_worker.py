@@ -225,6 +225,17 @@ def test_pre_pac_failures_are_made_retryable_instead_of_staying_processing():
     assert '"status": "omitida"' in before_pac
 
 
+def test_terminal_scheduled_failures_notify_the_issuer_without_blocking_the_worker():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+
+    assert 'select("nombre_razon_social,email_envio")' in source
+    assert "send_general_schedule_failure_email" in source
+    assert 'idempotency_key=f"general-schedule-failure:{execution_id}"' in source
+    assert source.count("_try_notify_schedule_failure(sb, schedule, execution[\"id\"]") >= 3
+    helper = source.split("def _try_notify_schedule_failure", 1)[1].split("def ", 1)[0]
+    assert "except Exception:" in helper
+
+
 def test_manual_retry_is_limited_to_attempts_known_not_to_have_stamped():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]

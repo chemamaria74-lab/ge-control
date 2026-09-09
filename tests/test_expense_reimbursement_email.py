@@ -44,3 +44,40 @@ def test_reimbursement_email_names_supplier_and_concept(monkeypatch):
     assert "SEPSA" in captured["html"]
     assert "Gasolina" in captured["html"]
     assert "Monto total reembolsado" in captured["html"]
+
+
+def test_scheduled_invoice_failure_alert_goes_to_issuer_with_sat_error(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b'{"id":"alert-1"}'
+
+        @staticmethod
+        def json():
+            return {"id": "alert-1"}
+
+    def fake_post(_url, **kwargs):
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    monkeypatch.setenv("GE_INVOICE_EMAIL_FROM", "facturacion@example.com")
+    monkeypatch.setattr(email_delivery.requests, "post", fake_post)
+
+    result = email_delivery.send_general_schedule_failure_email(
+        to_email="emisor@example.com",
+        issuer_name="Empresa emisora",
+        schedule_name="Suscripción mensual · AURE GAS",
+        customer_name="AURE GAS",
+        serie_folio="F 18",
+        attempted_at="2026-09-09T13:35:00-06:00",
+        error="CFDI40147 · DomicilioFiscalReceptor incorrecto",
+        idempotency_key="general-schedule-failure:99",
+    )
+
+    assert result.ok is True
+    assert captured["headers"]["Idempotency-Key"] == "general-schedule-failure:99"
+    assert captured["json"]["to"] == ["emisor@example.com"]
+    assert "CFDI40147" in captured["json"]["html"]
+    assert "La factura no fue enviada al cliente" in captured["json"]["html"]
