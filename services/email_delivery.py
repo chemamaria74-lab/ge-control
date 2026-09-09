@@ -28,6 +28,33 @@ class EmailDeliveryResult:
         }
 
 
+def retrieve_resend_email_status(message_id: str) -> dict[str, Any]:
+    """Retrieve the current provider state, including emails sent before webhooks existed."""
+    email_id = str(message_id or "").strip()
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not email_id or not api_key:
+        return {}
+    try:
+        response = requests.get(
+            f"https://api.resend.com/emails/{email_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if response.status_code >= 400:
+            return {}
+        data = response.json() if response.content else {}
+        event = str(data.get("last_event") or "").lower()
+        status = {
+            "delivered": "entregado", "opened": "entregado", "clicked": "entregado",
+            "bounced": "rebotado", "failed": "error", "suppressed": "suprimido",
+            "complained": "spam", "delivery_delayed": "demorado", "sent": "procesando",
+            "queued": "procesando", "scheduled": "procesando",
+        }.get(event)
+        return {"status": status, "provider_event": f"email.{event}", "provider_event_at": str(data.get("created_at") or "")} if status else {}
+    except Exception:
+        return {}
+
+
 def _clean_email(value: str | None) -> str:
     email = str(value or "").strip().lower()
     if not email or "@" not in email or " " in email:
