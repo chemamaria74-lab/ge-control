@@ -205,8 +205,8 @@ def test_manager_portal_has_compact_gps_and_inventory_tabs():
     assert 'id="managerCompanyName"' in template
     assert 'id="managerCompanyRfc"' in template
     assert 'id="fleetWorkspaceTitle"' in template
-    assert "El mismo tablero operativo de Gerentes, con acceso a todas las zonas" in frontend
-    assert "$('fleetCompanyLabel').textContent='Empresa supervisada'" in frontend
+    assert "Control integral de todas las zonas, unidades y choferes del cliente" in frontend
+    assert "$('fleetCompanyLabel').textContent='Cliente supervisado'" in frontend
     assert 'data-inventory-view="charts"' in template
     assert 'data-inventory-view="physical"' in template
     assert "loadManagerInventory" in frontend

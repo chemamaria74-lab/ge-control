@@ -94,7 +94,7 @@ def test_session_gate_returns_resolved_server_context(monkeypatch):
         "fleet_access_level": None,
         "display_name": "",
         "allowed_group_ids": None,
-        "company": {"name": "Empresa asignada", "rfc": ""},
+        "company": {"name": "Empresa asignada", "rfc": "", "scope": "profile"},
     }
 
 
@@ -120,12 +120,12 @@ def test_session_gate_does_not_fail_when_company_label_query_is_blocked(monkeypa
 
     assert result["authenticated"] is True
     assert result["identity_type"] == "official"
-    assert result["company"] == {"name": "Empresa asignada", "rfc": ""}
+    assert result["company"] == {"name": "Cliente activo", "rfc": "", "scope": "tenant"}
 
 
-def test_official_session_resolves_company_from_tenant_when_profile_is_missing(monkeypatch):
+def test_official_session_uses_tenant_identity_not_arbitrary_profile(monkeypatch):
     admin = FakeSupabase({
-        "perfiles_empresa": [{"id": 77, "nombre": "GAS LUX", "rfc": "GLU760309457"}],
+        "tenants": [{"id": "tenant-safe", "name": "GRUPO EMURCIA"}],
     })
     monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
         "user_id": "user-1", "tenant_id": "tenant-safe", "perfil_id": None,
@@ -136,9 +136,9 @@ def test_official_session_resolves_company_from_tenant_when_profile_is_missing(m
 
     result = flotilla.fleet_session(authorization="Bearer valid", x_flotilla_access="grant")
 
-    assert result["perfil_id"] == 77
-    assert result["company"] == {"name": "GAS LUX", "rfc": "GLU760309457"}
-    assert ("eq", "tenant_id", "tenant-safe") in admin.calls
+    assert result["perfil_id"] is None
+    assert result["company"] == {"name": "GRUPO EMURCIA", "rfc": "", "scope": "tenant"}
+    assert ("eq", "id", "tenant-safe") in admin.calls
 
 
 def test_period_rejects_inverted_and_oversized_ranges():
@@ -190,6 +190,21 @@ def test_sync_status_is_tenant_scoped(monkeypatch):
     assert result["id"] == 12
     assert ("eq", "tenant_id", "tenant-safe") in sb.calls
     assert ("eq", "id", 12) in sb.calls
+
+
+def test_cancel_sync_is_tenant_scoped_and_terminal(monkeypatch):
+    admin = FakeSupabase({"fleet_sync_runs": [{"id": 12, "status": "cancelled"}]})
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "tenant_id": "tenant-safe", "sb": FakeSupabase({}),
+    })
+    monkeypatch.setattr(flotilla, "get_supabase_admin", lambda: admin)
+
+    result = flotilla.cancel_sync(12, authorization="Bearer x", x_flotilla_access="grant")
+
+    assert result == {"cancelled": True, "run_id": 12}
+    assert ("eq", "tenant_id", "tenant-safe") in admin.calls
+    assert ("eq", "id", 12) in admin.calls
+    assert any(call[0] == "update" and call[1]["status"] == "cancelled" for call in admin.calls)
 
 
 def test_stale_sync_uses_started_at_when_heartbeat_is_missing():

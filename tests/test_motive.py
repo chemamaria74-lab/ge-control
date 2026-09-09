@@ -128,3 +128,19 @@ def test_pagination_stops_before_adding_a_repeated_page(monkeypatch):
     rows = motive.motive_get_all_pages("/v1/vehicles", collection_key="vehicles", per_page=2)
     assert [row["id"] for row in rows] == [1, 2]
     assert calls == [1, 2]
+
+
+def test_page_iterator_yields_batches_without_waiting_for_complete_dataset(monkeypatch):
+    calls = []
+
+    def fake_page(path, *, params):
+        calls.append(params["page_no"])
+        return {"vehicles": [{"id": params["page_no"]}], "pagination": {"total": 2}}
+
+    monkeypatch.setattr(motive, "motive_get", fake_page)
+    iterator = motive.motive_iter_pages("/v1/vehicles", collection_key="vehicles", per_page=1)
+    first = next(iterator)
+
+    assert first == ([{"id": 1}], 1, 2)
+    assert calls == [1]
+    assert list(iterator) == [([{"id": 2}], 2, 2)]
