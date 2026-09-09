@@ -132,6 +132,40 @@ def test_past_month_does_not_close_automatically():
     ) is False
 
 
+def test_reopen_month_uses_allowed_draft_status(monkeypatch):
+    import services.database as database
+
+    updates = []
+
+    class Query:
+        def update(self, values):
+            updates.append(values)
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": []})()
+
+    class Supabase:
+        def table(self, name):
+            assert name == "reports"
+            return Query()
+
+    monkeypatch.setattr(database, "get_supabase_admin", lambda: Supabase())
+    monkeypatch.setattr(
+        database,
+        "get_reports",
+        lambda *_args, **_kwargs: [
+            {"periodo": "2026-08", "status": "draft", "closed_at": None},
+        ],
+    )
+
+    assert database.reopen_reports("user-1", "2026-08", 10, 20) is True
+    assert updates == [{"status": "draft", "closed_at": None}]
+
+
 def test_history_deduplicates_assistant_uuid_case_insensitively():
     stored = {
         "entradas": [],
