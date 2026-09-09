@@ -205,10 +205,33 @@ def test_recent_sync_without_heartbeat_is_still_active():
     assert flotilla._sync_is_stale(row, now=now) is False
 
 
-def test_sync_without_heartbeat_is_released_after_five_minutes():
+def test_sync_without_heartbeat_is_released_after_two_minutes():
     now = datetime(2026, 8, 12, 12, 0, tzinfo=timezone.utc)
     row = {"status": "running", "started_at": (now - timedelta(minutes=6)).isoformat(), "heartbeat_at": None}
     assert flotilla._sync_is_stale(row, now=now) is True
+
+
+def test_sync_status_persists_stalled_run_as_failed(monkeypatch):
+    stale = datetime.now(timezone.utc) - timedelta(minutes=3)
+    sb = FakeSupabase({"fleet_sync_runs": [{
+        "id": 12, "status": "running", "started_at": stale.isoformat(),
+        "heartbeat_at": stale.isoformat(),
+    }]})
+    admin = FakeSupabase({"fleet_sync_runs": []})
+    monkeypatch.setattr(flotilla, "_context", lambda authorization, grant: {
+        "tenant_id": "tenant-safe", "sb": sb,
+    })
+    monkeypatch.setattr(flotilla, "get_supabase_admin", lambda: admin)
+
+    result = flotilla.sync_status(12, authorization="Bearer x", x_flotilla_access="grant")
+
+    assert result["error_code"] == "stale_worker"
+    assert ("update", {
+        "status": "failed", "finished_at": result.get("finished_at"),
+        "heartbeat_at": result.get("heartbeat_at"), "error_code": "stale_worker",
+        "error_message": "La sincronización no avanzó durante 2 minutos y fue cerrada automáticamente.",
+    }) not in admin.calls
+    assert any(call[0] == "update" and call[1]["status"] == "failed" for call in admin.calls)
 
 
 def test_incremental_button_dispatches_full_dataset_incremental_sync(monkeypatch):
