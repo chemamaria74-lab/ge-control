@@ -215,8 +215,20 @@ function trv2BuildCvMovements() {
 
   const tripsById = new Map((TRV2_TRIPS || []).map(row => [Number(row.id), row]));
   const systemMovements = (TRV2_CV_INTERNAL_INGRESOS || []).map(ingreso => {
-    const baseRow = (ingreso.viaje_ids || []).map(id => tripsById.get(Number(id))).find(Boolean);
-    if (!baseRow) return null;
+    // El XML timbrado es la fuente fiscal del reporte. El listado general de
+    // viajes sólo conserva los 100 más recientes, por lo que una Carta Ingreso
+    // válida no debe desaparecer si su viaje ya no está en ese caché del UI.
+    const linkedTrip = (ingreso.viaje_ids || []).map(id => tripsById.get(Number(id))).find(Boolean);
+    const baseRow = linkedTrip || {
+      id: ingreso.viaje_ids?.[0] || null,
+      num_permiso_cne: ingreso.num_permiso_cne || '',
+      nombre_origen: ingreso.nombre_origen || '',
+      nombre_destino: ingreso.nombre_destino || '',
+      fecha_hora_salida: ingreso.fecha_hora_salida || '',
+      fecha_hora_llegada: ingreso.fecha_hora_llegada || '',
+      productos_json: JSON.stringify(ingreso.productos || []),
+      metadata: {},
+    };
     const row = {
       ...baseRow,
       productos_json: Array.isArray(ingreso.productos) ? JSON.stringify(ingreso.productos) : baseRow.productos_json,
