@@ -6505,37 +6505,25 @@ def _covol_movements_from_ingreso_xml(
     return movements
 
 
-def _covol_ingreso_invoices_for_permit(sb: Any, uid: str, perfil_id: int, permit_number: str) -> list[dict[str, Any]]:
-    """Load active income CFDIs by permit without constraining the trip month."""
+def _covol_ingreso_invoices_for_permit(
+    sb: Any, uid: str, perfil_id: int, permit_number: str, periodo: str,
+) -> list[dict[str, Any]]:
+    """Load Carta Ingreso from its canonical fiscal period and permit."""
     invoices = (
         sb.table(TBL_FACT_SERV)
-        .select("id,status,uuid_carta_ingreso,uuid_sat,xml_content,metadata,viaje_ids,cfdi_relacionados")
+        .select("id,status,uuid_carta_ingreso,uuid_sat,xml_content,metadata,viaje_ids,cfdi_relacionados,num_permiso_cne,fecha_carta_ingreso,periodo_carta_ingreso")
         .eq("user_id", uid).eq("perfil_id", perfil_id)
+        .eq("tipo", "carta_ingreso")
+        .eq("num_permiso_cne", permit_number)
+        .eq("periodo_carta_ingreso", periodo)
         .order("created_at", desc=True).limit(5000).execute().data or []
     )
     active = [row for row in invoices if not _status_cancelado(row.get("status"))]
-    invoice_by_id = {
-        int(row["id"]): row for row in active if row.get("id") is not None
-    }
-    if invoice_by_id:
-        links = (
-            sb.table(TBL_FACT_SERV_CARTAS).select("factura_servicio_id,viaje_id")
-            .eq("user_id", uid).eq("perfil_id", perfil_id)
-            .in_("factura_servicio_id", sorted(invoice_by_id)).execute().data or []
-        )
-        for link in links:
-            try:
-                invoice = invoice_by_id[int(link.get("factura_servicio_id"))]
-            except (KeyError, TypeError, ValueError):
-                continue
-            invoice.setdefault("_covol_linked_viaje_ids", []).append(link.get("viaje_id"))
-    trip_ids: set[int] = set()
     for invoice in active:
         stored_ids = invoice.get("viaje_ids") or []
         if not isinstance(stored_ids, list):
             stored_ids = [stored_ids]
-        raw_ids = [*stored_ids, *(invoice.get("_covol_linked_viaje_ids") or [])]
-        raw_ids = [*raw_ids, *[
+        raw_ids = [*stored_ids, *[
             rel.get("viaje_id") for rel in (invoice.get("cfdi_relacionados") or []) if isinstance(rel, dict)
         ]]
         normalized = []
@@ -6546,33 +6534,8 @@ def _covol_ingreso_invoices_for_permit(sb: Any, uid: str, perfil_id: int, permit
                 continue
             if trip_id and trip_id not in normalized:
                 normalized.append(trip_id)
-                trip_ids.add(trip_id)
         invoice["_covol_viaje_ids"] = normalized
-    trip_permits: dict[int, str] = {}
-    if trip_ids:
-        trips = (
-            sb.table(TBL_VIAJES).select("id,num_permiso_cne,metadata")
-            .eq("user_id", uid).eq("perfil_id", perfil_id).in_("id", sorted(trip_ids))
-            .execute().data or []
-        )
-        for trip in trips:
-            meta = _meta(trip)
-            trip_permits[int(trip["id"])] = _first_text(
-                trip.get("num_permiso_cne"), meta.get("num_permiso_cne"), meta.get("permiso_transportista")
-            )
-    result = []
-    for invoice in active:
-        meta = _meta(invoice)
-        permits = {
-            value for value in [
-                _first_text(meta.get("num_permiso_cne"), meta.get("permiso_transportista")),
-                *[trip_permits.get(trip_id, "") for trip_id in invoice.get("_covol_viaje_ids", [])],
-            ] if value
-        }
-        if permit_number not in permits:
-            continue
-        result.append(invoice)
-    return result
+    return active
 
 
 def _covol_permit_identity(permit_number: str) -> tuple[str, str, str]:
@@ -6653,7 +6616,7 @@ async def transporte_v2_listar_covol_cartas_ingreso(
         .eq("permiso_cre", selected_permiso).limit(1).execute().data or []
     )
     selected_permit = _normalize_permiso_row(permit_rows[0]) if permit_rows else {}
-    invoices = _covol_ingreso_invoices_for_permit(sb, uid, pid, selected_permiso)
+    invoices = _covol_ingreso_invoices_for_permit(sb, uid, pid, selected_permiso, selected_periodo)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for invoice in invoices:
@@ -6988,7 +6951,7 @@ async def transporte_v2_generar_control_volumetrico(
     viajes_para_covol: list[dict[str, Any]] = []
     seen_movements: set[tuple[str, str]] = set()
     try:
-        invoice_rows = _covol_ingreso_invoices_for_permit(sb, uid, pid, selected_permiso)
+        invoice_rows = _covol_ingreso_invoices_for_permit(sb, uid, pid, selected_permiso, periodo)
         if invoice_rows:
             for invoice in invoice_rows:
                 xml_content = invoice.get("xml_content") or ""
