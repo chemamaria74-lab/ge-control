@@ -1475,7 +1475,10 @@ async function trv2LoadServiceInvoices(options = {}) {
   }
   if (loads.length) await Promise.all(loads);
   await trv2LoadServiceTariffs({force: Boolean(options.force)});
-  const invoices = await trv2Api('GET', '/api/tr-v2/facturas-servicio', undefined, {silent: true, allowError: true, force: Boolean(options.force)});
+  const invoicePath = TRV2_SERVICE_MONTH
+    ? `/api/tr-v2/facturas-servicio?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}`
+    : '/api/tr-v2/facturas-servicio';
+  const invoices = await trv2Api('GET', invoicePath, undefined, {silent: true, allowError: true, force: Boolean(options.force)});
   trv2WriteServiceInvoices(invoices?.facturas_servicio || []);
   TRV2_SERVICE_LOADED = true;
   trv2RenderServiceInvoices();
