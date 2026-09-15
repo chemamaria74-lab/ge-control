@@ -603,7 +603,7 @@ def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calc
         cp_receptor=payload.cp_receptor,
         regimen_fiscal_receptor=payload.regimen_fiscal,
         uso_cfdi=payload.uso_cfdi,
-        num_permiso_cne=_first_text(
+        num_permiso_cne=_fact_serv_canonical_permit(
             viaje_expanded.get("num_permiso_cne"),
             meta.get("num_permiso_cne"),
             (permiso_transportista or {}).get("permiso_cre"),
@@ -626,7 +626,7 @@ def _insert_factura_servicio_tolerant(sb, row: dict):
     except Exception as exc:
         fallback = dict(row)
         metadata = dict(fallback.get("metadata") or {})
-        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path"):
+        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path", "num_permiso_cne", "fecha_carta_ingreso", "periodo_carta_ingreso"):
             if key in fallback:
                 metadata[key] = fallback.pop(key)
         fallback["metadata"] = metadata
@@ -673,6 +673,20 @@ def _fact_serv_trip_meta(row: dict) -> dict:
         except Exception:
             return {}
     return meta if isinstance(meta, dict) else {}
+
+
+def _fact_serv_canonical_permit(*values) -> str:
+    """Return only a permit number; never serialize a catalog object."""
+    pending = list(values)
+    while pending:
+        value = pending.pop(0)
+        if isinstance(value, dict):
+            pending[:0] = [value.get("permiso_cre"), value.get("num_permiso_cne"), value.get("permiso")]
+            continue
+        text = str(value or "").strip().upper()
+        if re.fullmatch(r"[A-Z]{1,4}/[A-Z0-9]+(?:/[A-Z0-9]+)+", text):
+            return text
+    return ""
 
 
 def _fact_serv_trip_period(row: dict) -> str:
@@ -1251,6 +1265,12 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "pdf_url":         sw_data.get("pdfUrl", ""),
         "status":          "timbrada",
         "tipo":            tipo_registro,
+        "num_permiso_cne": _fact_serv_canonical_permit(
+            viaje_obj.num_permiso_cne if tipo_registro == "carta_ingreso" else "",
+            product_metadata.get("num_permiso_cne"),
+        ) if tipo_registro == "carta_ingreso" else None,
+        "fecha_carta_ingreso": fecha_cfdi if tipo_registro == "carta_ingreso" else None,
+        "periodo_carta_ingreso": fecha_cfdi[:7] if tipo_registro == "carta_ingreso" else None,
         "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
         "uuid_carta_porte_base": ",".join(base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes),
         "status_timbrado": "timbrada",
