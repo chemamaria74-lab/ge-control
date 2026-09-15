@@ -83,6 +83,17 @@ def test_carta_ingreso_view_exposes_carta_porte_relationship_and_date_mode():
     assert 'row.get("cfdi_relacionados")' in dashboard
 
 
+def test_carta_ingreso_dashboard_and_sat_report_share_canonical_period():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    dashboard = (ROOT / "routes/facturas_mod/facturas_servicio_dashboard.py").read_text(encoding="utf-8")
+    shell = (ROOT / "templates/transporte_v2.html").read_text(encoding="utf-8")
+
+    assert 'q = q.eq("periodo_carta_ingreso", periodo)' in dashboard
+    assert 'row.get("fecha_carta_ingreso")' in dashboard
+    assert '/api/tr-v2/facturas-servicio?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}' in frontend
+    assert "carta-ingreso-canonical-period-20260915" in shell
+
+
 def test_carta_porte_filters_wait_for_search_button():
     frontend = (ROOT / "static/js/transporte_v2/50_carta_porte.js").read_text(encoding="utf-8")
     template = (ROOT / "templates/transporte_v2/_body.html").read_text(encoding="utf-8")
@@ -147,7 +158,7 @@ def test_carta_ingreso_folio_sequence_works_without_optional_schema_columns():
     assert "(max_num + 1) if max_num else (max_row_id + 1)" in folio_helper
     assert "function trv2ServiceInvoiceFiscalFolio" in frontend
     assert "`${folio} · Reg. ${Number(item.id)}`" in frontend
-    assert "carta-ingreso-trip-link-20260810" in shell
+    assert "carta-ingreso-canonical-period-20260915" in shell
 
 
 def test_destination_permission_belongs_only_to_installation():
