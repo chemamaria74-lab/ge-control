@@ -610,7 +610,7 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
     assert 'data-payment-config-nav hidden style="display:none"' in template
     assert shell.count("transport-ondemand-20260729b") == 1
     assert shell.count("transport-multiclient-audit-20260729a") == 2
-    assert shell.count("transport-sat-download-cachefix-20260810") == 1
+    assert shell.count("transport-sat-stamped-income-20260915") == 1
     assert "transport-payroll-catalogs-20260729f" in shell
 
 
@@ -645,3 +645,18 @@ def test_sat_zip_download_does_not_close_or_require_closed_month():
     assert "cerrar-mes" not in frontend
     generate_body = backend.split("async def transporte_v2_generar_control_volumetrico", 1)[1]
     assert "Primero cierra el mes" not in generate_body
+
+
+def test_sat_review_keeps_stamped_income_when_linked_trip_is_outside_ui_cache():
+    root = Path(__file__).parents[1]
+    frontend = (root / "static/js/transporte_v2/70_control_volumetrico.js").read_text(encoding="utf-8")
+    backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
+
+    movement_builder = frontend.split("function trv2BuildCvMovements", 1)[1].split(
+        "function trv2CvMovementPermit", 1
+    )[0]
+    assert "const linkedTrip =" in movement_builder
+    assert "const baseRow = linkedTrip ||" in movement_builder
+    assert "if (!baseRow) return null" not in movement_builder
+    assert '"fecha_hora_llegada": movements[1].get("fecha_hora_salida")' in backend
+    assert '"num_permiso_cne": selected_permiso' in backend
