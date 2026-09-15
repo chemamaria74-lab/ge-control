@@ -569,6 +569,12 @@ async function trv2LoadControlVolumetrico(options = {}) {
     trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true}),
     trv2Api('GET', `/api/tr-v2/control-volumetrico/cartas-ingreso?periodo=${encodeURIComponent(periodo)}&num_permiso_cne=${encodeURIComponent(trv2CvSelectedPermitValue())}`, undefined, {silent: true, allowError: true}),
   ]);
+  if (!internal?.ok) {
+    const message = trv2MessageText(internal?.detail || internal?.message || 'No se pudieron consultar las Cartas Ingreso timbradas.');
+    trv2ResetCvResults(message);
+    trv2Toast(message, 'error');
+    return;
+  }
   TRV2_CV_EXTERNAL = external?.movimientos || [];
   TRV2_CV_INTERNAL_INGRESOS = internal?.cartas_ingreso || [];
   TRV2_CV_MOVEMENTS = trv2BuildCvMovements();
