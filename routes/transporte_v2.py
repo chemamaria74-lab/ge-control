@@ -6679,7 +6679,11 @@ async def transporte_v2_listar_covol_cartas_ingreso(
             "factura_servicio_id": invoice.get("id"),
             "uuid_carta_ingreso": parsed_uuid,
             "viaje_ids": invoice.get("_covol_viaje_ids", []),
+            "num_permiso_cne": selected_permiso,
             "fecha_hora_salida": movements[0].get("fecha_hora_salida") or "",
+            "fecha_hora_llegada": movements[1].get("fecha_hora_salida") or "",
+            "nombre_origen": movements[0].get("nombre_receptor") or "",
+            "nombre_destino": movements[1].get("nombre_receptor") or "",
             "productos": movements[0].get("productos") or [],
         })
     return {"ok": True, "cartas_ingreso": result, "total": len(result)}
