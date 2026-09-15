@@ -28,8 +28,10 @@ async def listar_facturas_servicio(
         pid = _perfil_autorizado(uid, token, perfil_id, x_perfil_id)
         q = _sb(token).table(_TBL_FACT_SERV).select("*").eq("user_id", uid).order("created_at", desc=True)
         if periodo:
-            ini, fin = _periodo_bounds(periodo)
-            q = q.gte("created_at", ini).lt("created_at", fin)
+            # Cartas Ingreso y Reportes SAT deben compartir la misma fuente
+            # fiscal. No se filtra por created_at ni por la fecha del viaje.
+            _periodo_bounds(periodo)  # valida YYYY-MM
+            q = q.eq("periodo_carta_ingreso", periodo)
         if pid:
             q = q.eq("perfil_id", pid)
         res = q.execute()
@@ -116,8 +118,8 @@ def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: l
             "no_carta_porte": row.get("no_carta_porte") or merged_meta.get("no_carta_porte"),
             "serie_folio": row.get("serie_folio") or serie_folio,
             "folio_cfdi": row.get("folio_cfdi") or serie_folio,
-            "fecha_emision": row.get("fecha_emision") or merged_meta.get("fecha_emision") or merged_meta.get("fecha_cfdi"),
-            "fecha_cfdi": row.get("fecha_cfdi") or merged_meta.get("fecha_cfdi") or merged_meta.get("fecha_emision"),
+            "fecha_emision": row.get("fecha_carta_ingreso") or row.get("fecha_emision") or merged_meta.get("fecha_emision") or merged_meta.get("fecha_cfdi"),
+            "fecha_cfdi": row.get("fecha_carta_ingreso") or row.get("fecha_cfdi") or merged_meta.get("fecha_cfdi") or merged_meta.get("fecha_emision"),
         })
     return enriched
 
