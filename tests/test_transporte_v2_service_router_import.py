@@ -21,6 +21,15 @@ def test_service_invoice_request_models_are_explicit():
     assert "CancelacionViajeRequest as CancelacionFacturaServicioRequest" in dashboard_source
 
 
+def test_carta_ingreso_persists_canonical_period_and_permit_columns():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+
+    assert '"periodo_carta_ingreso": fecha_cfdi[:7]' in backend
+    assert '"fecha_carta_ingreso": fecha_cfdi' in backend
+    assert '"num_permiso_cne": _fact_serv_canonical_permit(' in backend
+    assert 'value.get("permiso_cre")' in backend
+
+
 def test_carta_porte_timbradas_keeps_light_trip_enrichment():
     source = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
 

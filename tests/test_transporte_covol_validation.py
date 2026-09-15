@@ -159,7 +159,7 @@ def test_covol_report_uses_ingreso_issue_month_not_trip_dates():
     assert august[0]["fecha_hora_salida"].startswith("2026-07-30")
 
 
-def test_covol_ingreso_lookup_keeps_august_invoice_linked_to_july_trip():
+def test_covol_ingreso_lookup_keeps_canonical_invoice_trip_ids():
     class Query:
         def __init__(self, table):
             self.table = table
@@ -171,16 +171,11 @@ def test_covol_ingreso_lookup_keeps_august_invoice_linked_to_july_trip():
             if self.table == transporte_v2.TBL_FACT_SERV:
                 data = [{
                     "id": 90, "status": "timbrada", "uuid_carta_ingreso": UUID,
-                    "xml_content": "<xml/>", "metadata": {}, "viaje_ids": [],
+                    "xml_content": "<xml/>", "metadata": {}, "viaje_ids": [148],
                     "cfdi_relacionados": [],
                 }]
-            elif self.table == transporte_v2.TBL_FACT_SERV_CARTAS:
-                data = [{"factura_servicio_id": 90, "viaje_id": 148}]
             else:
-                data = [{
-                    "id": 148, "num_permiso_cne": PETROL_PERMIT["permiso_cre"],
-                    "metadata": {},
-                }]
+                data = []
             return type("Response", (), {"data": data})()
 
     class Supabase:
@@ -188,7 +183,38 @@ def test_covol_ingreso_lookup_keeps_august_invoice_linked_to_july_trip():
             return Query(name)
 
     invoices = transporte_v2._covol_ingreso_invoices_for_permit(
-        Supabase(), "user", 1, PETROL_PERMIT["permiso_cre"],
+        Supabase(), "user", 1, PETROL_PERMIT["permiso_cre"], "2026-08",
     )
     assert [row["id"] for row in invoices] == [90]
     assert invoices[0]["_covol_viaje_ids"] == [148]
+
+
+def test_covol_ingreso_lookup_uses_canonical_invoice_fields_without_auxiliary_links():
+    class Query:
+        def __init__(self, table):
+            self.table = table
+
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: self
+
+        def execute(self):
+            if self.table == transporte_v2.TBL_FACT_SERV:
+                data = [{
+                    "id": 91, "status": "timbrada", "uuid_carta_ingreso": UUID,
+                    "xml_content": "<xml/>", "metadata": {},
+                    "num_permiso_cne": PETROL_PERMIT["permiso_cre"],
+                    "periodo_carta_ingreso": "2026-08",
+                    "viaje_ids": [], "cfdi_relacionados": [],
+                }]
+            else:
+                data = []
+            return type("Response", (), {"data": data})()
+
+    class Supabase:
+        def table(self, name):
+            return Query(name)
+
+    invoices = transporte_v2._covol_ingreso_invoices_for_permit(
+        Supabase(), "user", 1, PETROL_PERMIT["permiso_cre"], "2026-08",
+    )
+    assert [row["id"] for row in invoices] == [91]
