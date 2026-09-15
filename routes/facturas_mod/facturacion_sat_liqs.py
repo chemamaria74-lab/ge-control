@@ -626,7 +626,7 @@ def _insert_factura_servicio_tolerant(sb, row: dict):
     except Exception as exc:
         fallback = dict(row)
         metadata = dict(fallback.get("metadata") or {})
-        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path", "num_permiso_cne", "fecha_carta_ingreso", "periodo_carta_ingreso"):
+        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path"):
             if key in fallback:
                 metadata[key] = fallback.pop(key)
         fallback["metadata"] = metadata
@@ -1193,6 +1193,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         except ValueError as exc:
             raise HTTPException(400, f"Faltan datos obligatorios Carta Porte 3.1 para Carta Ingreso: {exc}") from exc
         tipo_registro = "carta_ingreso"
+    carta_ingreso_permit = _fact_serv_canonical_permit(
+        viaje_obj.num_permiso_cne if tipo_registro == "carta_ingreso" else "",
+    )
+    if tipo_registro == "carta_ingreso" and not carta_ingreso_permit:
+        raise HTTPException(400, "La Carta Ingreso no tiene un permiso CRE/CNE transportista válido.")
     if tipo_registro == "carta_ingreso":
         xml_pre_timbrado = build_cfdi_transporte_xml(cfdi_dict)
         sw_xml = timbrar_cfdi(xml_pre_timbrado)
@@ -1265,10 +1270,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "pdf_url":         sw_data.get("pdfUrl", ""),
         "status":          "timbrada",
         "tipo":            tipo_registro,
-        "num_permiso_cne": _fact_serv_canonical_permit(
-            viaje_obj.num_permiso_cne if tipo_registro == "carta_ingreso" else "",
-            product_metadata.get("num_permiso_cne"),
-        ) if tipo_registro == "carta_ingreso" else None,
+        "num_permiso_cne": carta_ingreso_permit if tipo_registro == "carta_ingreso" else None,
         "fecha_carta_ingreso": fecha_cfdi if tipo_registro == "carta_ingreso" else None,
         "periodo_carta_ingreso": fecha_cfdi[:7] if tipo_registro == "carta_ingreso" else None,
         "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
