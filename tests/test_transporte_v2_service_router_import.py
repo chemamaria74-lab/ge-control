@@ -26,8 +26,15 @@ def test_carta_ingreso_persists_canonical_period_and_permit_columns():
 
     assert '"periodo_carta_ingreso": fecha_cfdi[:7]' in backend
     assert '"fecha_carta_ingreso": fecha_cfdi' in backend
-    assert '"num_permiso_cne": _fact_serv_canonical_permit(' in backend
+    assert '"num_permiso_cne": carta_ingreso_permit' in backend
     assert 'value.get("permiso_cre")' in backend
+    assert "and not carta_ingreso_permit" in backend
+    assert "no tiene un permiso CRE/CNE transportista válido" in backend
+    tolerant = backend.split("def _insert_factura_servicio_tolerant", 1)[1].split(
+        "def _service_invoice_payment_defaults", 1
+    )[0]
+    assert '"num_permiso_cne"' not in tolerant
+    assert '"periodo_carta_ingreso"' not in tolerant
 
 
 def test_carta_porte_timbradas_keeps_light_trip_enrichment():
