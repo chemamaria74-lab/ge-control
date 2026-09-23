@@ -184,7 +184,7 @@ class ReimbursementAccountInput(BaseModel):
 
 class ReimbursementRecipientCreate(BaseModel):
     name: str = Field(min_length=2, max_length=180)
-    email: str = Field(min_length=5, max_length=180)
+    email: str = Field(default="", max_length=180)
     accounts: list[ReimbursementAccountInput] = Field(default_factory=list, max_length=8)
 
 
