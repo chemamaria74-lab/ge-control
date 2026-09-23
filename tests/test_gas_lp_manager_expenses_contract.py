@@ -565,6 +565,16 @@ def test_supplier_payment_email_is_optional_for_reimbursements():
     assert "[x.legal_name,x.rfc,x.payment_email].filter(Boolean)" in script
 
 
+def test_reimbursement_recipient_email_is_optional():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    assert 'email: str = Field(default="", max_length=180)' in route
+    assert 'Correo (opcional)' in html
+    assert 'id="recipientEmail" type="email" required' not in html
+    assert "Si lo dejas vacío, el reembolso se registra sin enviar correo." in html
+
+
 def test_recipients_and_concepts_have_search_edit_and_real_delete_actions():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
