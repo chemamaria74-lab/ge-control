@@ -3,6 +3,7 @@ const TRV2_SERVICE_INVOICE_KEY = 'trv2_service_invoices';
 let TRV2_SERVICE_TAB = 'pendientes';
 let TRV2_SERVICE_TARIFFS = [];
 let TRV2_SERVICE_INVOICES = [];
+let TRV2_SERVICE_BILLED_TRIP_IDS = new Set();
 let TRV2_SERVICE_INVOICE_BUSY = false;
 let TRV2_SERVICE_MONTH = trv2ServiceDefaultMonth();
 let TRV2_SERVICE_MONTH_MODE = 'invoice';
@@ -67,6 +68,10 @@ function trv2ReadServiceInvoices() {
 
 function trv2WriteServiceInvoices(items) {
   TRV2_SERVICE_INVOICES = items || [];
+}
+
+function trv2WriteServiceBilledTripIds(items) {
+  TRV2_SERVICE_BILLED_TRIP_IDS = new Set((items || []).map(Number).filter(Boolean));
 }
 
 function trv2ServiceNorm(value) {
@@ -830,11 +835,7 @@ function trv2ServiceTariffMatchForRow(row = {}, tariffs = trv2ReadServiceTariffs
 }
 
 function trv2ServicePendingRows() {
-  const invoices = trv2ReadServiceInvoices();
-  const activeInvoices = invoices.filter(item => !trv2ServiceInvoiceIsCancelled(item));
-  const billedTrips = new Set(activeInvoices.flatMap(item => (
-    Array.isArray(item.viaje_ids) ? item.viaje_ids : [item.viaje_id]
-  )).map(Number).filter(Boolean));
+  const billedTrips = TRV2_SERVICE_BILLED_TRIP_IDS;
   return (TRV2_TRIPS || []).filter(row => (
     trv2ServiceIsStamped(row)
     && !trv2ServiceIsCancelled(row)
@@ -1480,6 +1481,7 @@ async function trv2LoadServiceInvoices(options = {}) {
     : '/api/tr-v2/facturas-servicio';
   const invoices = await trv2Api('GET', invoicePath, undefined, {silent: true, allowError: true, force: Boolean(options.force)});
   trv2WriteServiceInvoices(invoices?.facturas_servicio || []);
+  trv2WriteServiceBilledTripIds(invoices?.viaje_ids_facturados || []);
   TRV2_SERVICE_LOADED = true;
   trv2RenderServiceInvoices();
 }
