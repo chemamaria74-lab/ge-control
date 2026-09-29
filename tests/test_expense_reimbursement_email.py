@@ -131,3 +131,39 @@ def test_customer_invoice_email_has_discreet_ge_control_website_footer(monkeypat
     assert "Este CFDI fue enviado mediante <b>GE Control</b>" in captured["html"]
     assert "href='https://gecontrol.mx/'" in captured["html"]
     assert ">gecontrol.mx</a>" in captured["html"]
+
+
+def test_scheduled_invoice_success_tells_issuer_where_customer_email_was_sent(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b'{"id":"success-alert-1"}'
+
+        @staticmethod
+        def json():
+            return {"id": "success-alert-1"}
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    monkeypatch.setenv("GE_INVOICE_EMAIL_FROM", "facturacion@example.com")
+    monkeypatch.setattr(email_delivery.requests, "post", lambda _url, **kwargs: captured.update(kwargs) or Response())
+
+    result = email_delivery.send_general_schedule_success_email(
+        to_email="emisor@example.com",
+        issuer_name="Todo Logi Control",
+        schedule_name="Suscripción mensual · ALFA GAS",
+        customer_name="ALFA GAS",
+        customer_email="pagos@alfagas.example",
+        serie_folio="F 21",
+        uuid_sat="uuid-vigente",
+        total="3248.00",
+        customer_delivery_status="procesando",
+        idempotency_key="general-schedule-success:21",
+    )
+
+    assert result.ok is True
+    assert captured["json"]["to"] == ["emisor@example.com"]
+    assert captured["headers"]["Idempotency-Key"] == "general-schedule-success:21"
+    assert "se encuentra <b>vigente</b>" in captured["json"]["html"]
+    assert "pagos@alfagas.example" in captured["json"]["html"]
+    assert "Envío aceptado" in captured["json"]["html"]

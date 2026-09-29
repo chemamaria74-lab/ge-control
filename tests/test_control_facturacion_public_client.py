@@ -196,3 +196,15 @@ def test_facturation_bootstrap_is_single_and_static_javascript_is_revalidated():
     assert 'request.url.path.startswith("/static/js/")' in main
     assert 'response.headers["Cache-Control"] = "no-cache, must-revalidate"' in main
     assert 'src="/static/js/control_facturacion.js"' in TEMPLATE
+
+
+def test_visible_invoice_delivery_status_refreshes_without_manual_search():
+    refresh = SOURCE.split("function refreshVisibleData()", 1)[1].split("async function init()", 1)[0]
+    init = SOURCE.split("async function init()", 1)[1].split("function scheduleCatalogPayload", 1)[0]
+
+    assert "active==='invoices'" in refresh
+    assert "reloadPart('invoices')" in refresh
+    assert "active==='schedules'" in refresh
+    assert "visibilitychange" in init
+    assert "window.addEventListener('focus',refreshVisibleData)" in init
+    assert "setInterval(refreshVisibleData,15000)" in init

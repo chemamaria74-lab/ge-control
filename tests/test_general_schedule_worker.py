@@ -236,6 +236,18 @@ def test_terminal_scheduled_failures_notify_the_issuer_without_blocking_the_work
     assert "except Exception:" in helper
 
 
+def test_successful_scheduled_invoice_notifies_issuer_with_customer_delivery_state():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    success = source.split('email = {', 1)[1].split("def _parse_timestamp", 1)[0]
+
+    assert "send_general_schedule_success_email(" in success
+    assert 'to_email=config.get("email_envio")' in success
+    assert "customer_email=destination_email" in success
+    assert 'customer_delivery_status=str(email.get("status") or "")' in success
+    assert 'idempotency_key=f"general-schedule-success:{execution[\'id\']}"' in success
+    assert '"issuer_notification": issuer_notice' in success
+
+
 def test_manual_retry_is_limited_to_attempts_known_not_to_have_stamped():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
