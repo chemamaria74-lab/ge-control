@@ -96,7 +96,7 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert "state.config&&state.config!==previous" in disclosure
     assert "syncConfigDisclosure()" in disclosure
     assert "syncConfig任选Disclosure" not in SOURCE
-    assert "control_facturacion.js?v=clear-action-icons-20260903" in TEMPLATE
+    assert 'src="/static/js/control_facturacion.js"' in TEMPLATE
 
 
 def test_invoice_documents_are_named_with_issuer_and_invoice_number():
@@ -185,3 +185,14 @@ def test_products_catalog_has_no_business_specific_cleaning_importer():
     assert "importCleaningProducts" not in TEMPLATE
     assert "importCleaningProducts" not in SOURCE
     assert "Catálogo de limpieza agregado" not in SOURCE
+
+
+def test_facturation_bootstrap_is_single_and_static_javascript_is_revalidated():
+    main = (Path(__file__).parents[1] / "main.py").read_text(encoding="utf-8")
+
+    assert SOURCE.count("async function init()") == 1
+    assert "if(invoiceGlobal)" in SOURCE
+    assert "if(stampPayment)" in SOURCE
+    assert 'request.url.path.startswith("/static/js/")' in main
+    assert 'response.headers["Cache-Control"] = "no-cache, must-revalidate"' in main
+    assert 'src="/static/js/control_facturacion.js"' in TEMPLATE
