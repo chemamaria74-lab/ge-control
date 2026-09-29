@@ -62,6 +62,22 @@ def _clean_email(value: str | None) -> str:
     return email
 
 
+def _ge_control_marketing_footer() -> str:
+    """Pie discreto para correos fiscales dirigidos a clientes."""
+    url = html.escape(
+        os.environ.get("GE_CONTROL_MARKETING_URL", "https://gecontrol.mx/").strip()
+        or "https://gecontrol.mx/",
+        quote=True,
+    )
+    return (
+        "<div style='margin-top:24px;padding-top:16px;border-top:1px solid #eadfe1;"
+        "color:#6f6668;font-size:13px;line-height:1.5'>"
+        "Este CFDI fue enviado mediante <b>GE Control</b>. "
+        f"Conoce la plataforma en <a href='{url}' style='color:#7a1e2c;font-weight:700'>gecontrol.mx</a>."
+        "</div>"
+    )
+
+
 @measure_external("email")
 def send_gas_lp_expense_payment_email(
     *, to_email: str | None, supplier_name: str, company_name: str,
@@ -260,6 +276,7 @@ def send_gas_lp_invoice_email(
             f"{physical_html}"
             "<p>El XML y PDF fiscal se incluyen como archivos adjuntos.</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
+            f"{_ge_control_marketing_footer()}"
         ),
         "attachments": [
             {
@@ -393,6 +410,7 @@ def send_gas_lp_payment_complement_email(
             f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}<br><b>Monto pagado:</b> ${safe_total}</p>"
             "<p>El XML y PDF fiscal del complemento se incluyen como archivos adjuntos.</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
+            f"{_ge_control_marketing_footer()}"
         ),
         "attachments": [
             {
