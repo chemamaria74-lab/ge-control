@@ -11,6 +11,7 @@ from .facturacion_sat_liqs import (
     _require_admin_transporte,
     _sb,
     _fact_serv_product_metadata,
+    _fact_serv_invoice_cancelada,
     _settings_transporte,
 )
 from models.transport_schemas import CancelacionViajeRequest as CancelacionFacturaServicioRequest
@@ -35,12 +36,63 @@ async def listar_facturas_servicio(
         if pid:
             q = q.eq("perfil_id", pid)
         res = q.execute()
-        rows = _enrich_facturas_servicio_with_trip_data(sb=_sb(token), uid=uid, perfil_id=pid, rows=res.data or [])
-        return JSONResponse({"ok": True, "facturas_servicio": rows})
+        sb = _sb(token)
+        rows = _enrich_facturas_servicio_with_trip_data(sb=sb, uid=uid, perfil_id=pid, rows=res.data or [])
+        return JSONResponse({
+            "ok": True,
+            "facturas_servicio": rows,
+            # Fuente canonica para decidir pendientes. No depende del periodo
+            # solicitado ni del estado denormalizado guardado en tr_viajes.
+            "viaje_ids_facturados": _active_service_invoice_trip_ids(
+                sb=sb,
+                uid=uid,
+                perfil_id=pid,
+            ),
+        })
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Error al listar Cartas Ingreso: {e}")
+
+
+def _active_service_invoice_trip_ids(*, sb, uid: str, perfil_id) -> list[int]:
+    """Viajes cubiertos por cualquier Carta Ingreso activa, sin corte mensual."""
+    invoice_q = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid)
+    if perfil_id:
+        invoice_q = invoice_q.eq("perfil_id", perfil_id)
+    invoices = invoice_q.execute().data or []
+
+    active_invoice_ids: set[int] = set()
+    billed_trip_ids: set[int] = set()
+    for invoice in invoices:
+        if _fact_serv_invoice_cancelada(invoice):
+            continue
+        invoice_id = int(invoice.get("id") or 0)
+        if invoice_id:
+            active_invoice_ids.add(invoice_id)
+        billed_trip_ids.update(_factura_servicio_viaje_ids(invoice))
+
+    if active_invoice_ids:
+        try:
+            link_q = (
+                sb.table(_TBL_FACT_SERV_CARTAS)
+                .select("factura_servicio_id,viaje_id")
+                .eq("user_id", uid)
+                .in_("factura_servicio_id", sorted(active_invoice_ids))
+            )
+            if perfil_id:
+                link_q = link_q.eq("perfil_id", perfil_id)
+            for link in link_q.execute().data or []:
+                try:
+                    billed_trip_ids.add(int(link.get("viaje_id") or 0))
+                except (TypeError, ValueError):
+                    continue
+        except Exception as exc:
+            # viaje_ids/cfdi_relacionados en la factura siguen siendo la
+            # relacion canonica compatible cuando falta la tabla auxiliar.
+            logger.info("No se pudo completar indice auxiliar de Cartas Ingreso: %s", exc)
+
+    return sorted(value for value in billed_trip_ids if value > 0)
 
 
 def _enrich_facturas_servicio_with_trip_data(*, sb, uid: str, perfil_id, rows: list[dict]) -> list[dict]:

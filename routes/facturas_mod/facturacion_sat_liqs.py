@@ -1032,7 +1032,11 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         facturas_activas = set()
         facturas_canceladas = set()
         if factura_ids:
-            fq = sb.table(_TBL_FACT_SERV).select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata").eq("user_id", uid).in_("id", factura_ids)
+            # Algunas instalaciones productivas todavia no tienen todas las
+            # columnas opcionales de cancelacion. select("*") mantiene este
+            # chequeo compatible: _fact_serv_invoice_cancelada ya tolera que
+            # cualquiera de esos campos no exista en el registro.
+            fq = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).in_("id", factura_ids)
             if perfil_factura:
                 fq = fq.eq("perfil_id", perfil_factura)
             for r in (fq.execute().data or []):
@@ -1059,7 +1063,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         raise
     except Exception:
         # Compatibilidad con bases que aun no tienen la tabla de control.
-        existentes = sb.table(_TBL_FACT_SERV).select("viaje_ids,status,estatus,cancelacion_status,cancelacion_resultado,metadata").eq("user_id", uid).execute().data or []
+        # Este fallback se ejecuta precisamente cuando el esquema no coincide
+        # con el mas reciente. No debe volver a pedir por nombre las columnas
+        # opcionales que pudieron causar el primer error.
+        existentes = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).execute().data or []
         usados = set()
         for f in existentes:
             if _fact_serv_invoice_cancelada(f):
