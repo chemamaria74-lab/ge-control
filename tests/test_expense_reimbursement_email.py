@@ -158,6 +158,9 @@ def test_scheduled_invoice_success_tells_issuer_where_customer_email_was_sent(mo
         uuid_sat="uuid-vigente",
         total="3248.00",
         customer_delivery_status="procesando",
+        xml_content="<cfdi>timbrado</cfdi>",
+        pdf_bytes=b"pdf-timbrado",
+        pdf_filename="factura_F22.pdf",
         idempotency_key="general-schedule-success:21",
     )
 
@@ -167,3 +170,8 @@ def test_scheduled_invoice_success_tells_issuer_where_customer_email_was_sent(mo
     assert "se encuentra <b>vigente</b>" in captured["json"]["html"]
     assert "pagos@alfagas.example" in captured["json"]["html"]
     assert "Envío aceptado" in captured["json"]["html"]
+    assert [item["filename"] for item in captured["json"]["attachments"]] == [
+        "factura_F22.pdf", "factura_F22.xml",
+    ]
+    assert captured["json"]["attachments"][0]["content"] == "cGRmLXRpbWJyYWRv"
+    assert captured["json"]["attachments"][1]["content"] == "PGNmZGk+dGltYnJhZG88L2NmZGk+"
