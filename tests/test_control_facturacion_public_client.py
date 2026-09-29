@@ -164,3 +164,24 @@ def test_schedule_editor_shows_the_client_specific_final_total_before_stamping()
     assert "client.retencion_iva" in schedule_ui
     assert "Total estimado para" in schedule_ui
     assert "bindScheduleFiscalPreview" in schedule_ui
+
+
+def test_client_edits_refresh_linked_schedule_taxes_and_schedule_views_use_current_catalogs():
+    backend = (Path(__file__).parents[1] / "routes/general_facturacion.py").read_text(encoding="utf-8")
+    client_update = backend.split("async def update_general_client", 1)[1].split("@router.delete", 1)[0]
+    schedule_list = backend.split("async def listar_programaciones", 1)[1].split("@router.post(\"/programaciones\")", 1)[0]
+    preview = backend.split("async def vista_previa_programacion_pdf", 1)[1].split("@router.post(\"/programaciones/{programacion_id}/ejecutar\")", 1)[0]
+
+    assert "_schedule_cfdi_from_catalogs(" in client_update
+    assert '"payload_json": cfdi' in client_update
+    assert "_schedule_cfdi_from_catalogs(" in schedule_list
+    assert 'schedule["payload_json"] = cfdi' in schedule_list
+    assert "_schedule_cfdi_from_catalogs(" in preview
+    assert 'preview_schedule = {**schedule, "payload_json": current_cfdi}' in preview
+
+
+def test_products_catalog_has_no_business_specific_cleaning_importer():
+    assert "Agregar catálogo de limpieza" not in TEMPLATE
+    assert "importCleaningProducts" not in TEMPLATE
+    assert "importCleaningProducts" not in SOURCE
+    assert "Catálogo de limpieza agregado" not in SOURCE
