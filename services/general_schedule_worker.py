@@ -516,9 +516,16 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     )[0]
 
     email = {"ok": False, "skipped": True, "error": "Sin correo de destino o XML timbrado."}
-    if data.get("cfdi") and destination_email:
+    pdf = b""
+    pdf_filename = f"factura_{data.get('uuid') or schedule['id']}.pdf"
+    if data.get("cfdi"):
         try:
             pdf = generar_pdf_ingreso_desde_xml(data["cfdi"], logo_data_url=logo_data, pdf_theme={key: config.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")})
+        except Exception as exc:
+            logger.exception("No se pudo generar el PDF de la programación id=%s", schedule.get("id"))
+            email = {"ok": False, "skipped": False, "error": str(exc)[:500]}
+    if data.get("cfdi") and pdf and destination_email:
+        try:
             email = send_gas_lp_invoice_email(
                 to_email=destination_email,
                 issuer_name=(cfdi.get("Emisor") or {}).get("Nombre") or "Empresa",
@@ -527,7 +534,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
                 total=cfdi.get("Total") or "0",
                 xml_content=data["cfdi"],
                 pdf_bytes=pdf,
-                pdf_filename=f"factura_{data.get('uuid') or schedule['id']}.pdf",
+                pdf_filename=pdf_filename,
                 serie_folio=f"{cfdi.get('Serie') or ''}{cfdi.get('Folio') or ''}",
                 quantity=sum(Decimal(str(item.get("Cantidad") or 0)) for item in (cfdi.get("Conceptos") or [])),
                 unit_label=(cfdi.get("Conceptos") or [{}])[0].get("Unidad") or (cfdi.get("Conceptos") or [{}])[0].get("ClaveUnidad") or "Unidad",
@@ -551,6 +558,9 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             uuid_sat=str(data.get("uuid") or ""),
             total=cfdi.get("Total") or "0",
             customer_delivery_status=str(email.get("status") or ""),
+            xml_content=str(data.get("cfdi") or ""),
+            pdf_bytes=pdf,
+            pdf_filename=pdf_filename,
             customer_delivery_error=str(email.get("error") or ""),
             idempotency_key=f"general-schedule-success:{execution['id']}",
         )
