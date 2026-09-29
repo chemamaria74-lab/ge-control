@@ -99,3 +99,35 @@ def test_retrieves_historical_delivery_status_from_resend(monkeypatch):
 
     assert result["status"] == "entregado"
     assert result["provider_event"] == "email.delivered"
+
+
+def test_customer_invoice_email_has_discreet_ge_control_website_footer(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b'{"id":"invoice-mail-1"}'
+
+        @staticmethod
+        def json():
+            return {"id": "invoice-mail-1"}
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    monkeypatch.setenv("GE_INVOICE_EMAIL_FROM", "facturacion@example.com")
+    monkeypatch.setattr(email_delivery.requests, "post", lambda _url, **kwargs: captured.update(kwargs["json"]) or Response())
+
+    result = email_delivery.send_gas_lp_invoice_email(
+        to_email="cliente@example.com",
+        issuer_name="Todo Logi Control",
+        customer_name="Cliente",
+        uuid_sat="uuid",
+        total="3248.00",
+        xml_content="<cfdi/>",
+        pdf_bytes=b"pdf",
+        pdf_filename="factura.pdf",
+    )
+
+    assert result.ok is True
+    assert "Este CFDI fue enviado mediante <b>GE Control</b>" in captured["html"]
+    assert "href='https://gecontrol.mx/'" in captured["html"]
+    assert ">gecontrol.mx</a>" in captured["html"]
