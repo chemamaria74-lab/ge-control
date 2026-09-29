@@ -269,7 +269,7 @@ def _is_unique_execution_conflict(exc: Exception) -> bool:
 
 def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry_omitted: bool = False) -> dict:
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
-    from services.email_delivery import send_gas_lp_invoice_email
+    from services.email_delivery import send_gas_lp_invoice_email, send_general_schedule_success_email
     from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
     from services.sw_sapien import emitir_timbrar_json
     from supabase_config import get_supabase_admin
@@ -540,6 +540,29 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         "recipient": destination_email,
         "attempted_at": datetime.now(timezone.utc).isoformat(),
     }
+    try:
+        issuer_notice_result = send_general_schedule_success_email(
+            to_email=config.get("email_envio"),
+            issuer_name=str(config.get("nombre_razon_social") or (cfdi.get("Emisor") or {}).get("Nombre") or "Empresa"),
+            schedule_name=str(schedule.get("nombre") or f"Programación {schedule.get('id') or ''}"),
+            customer_name=str((cfdi.get("Receptor") or {}).get("Nombre") or "Cliente"),
+            customer_email=destination_email,
+            serie_folio=" ".join(filter(None, (str(cfdi.get("Serie") or ""), str(cfdi.get("Folio") or "")))),
+            uuid_sat=str(data.get("uuid") or ""),
+            total=cfdi.get("Total") or "0",
+            customer_delivery_status=str(email.get("status") or ""),
+            customer_delivery_error=str(email.get("error") or ""),
+            idempotency_key=f"general-schedule-success:{execution['id']}",
+        )
+        issuer_notice = {
+            **issuer_notice_result.as_metadata(),
+            "recipient": str(config.get("email_envio") or ""),
+            "attempted_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.exception("No se pudo confirmar al emisor la programación id=%s", schedule.get("id"))
+        issuer_notice = {"ok": False, "skipped": False, "error": str(exc)[:500]}
+    execution_email = {**email, "issuer_notification": issuer_notice}
     sb.table(FACTURAS).update({
         "email_delivery": email, "updated_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", factura["id"]).execute()
@@ -547,7 +570,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     sb.table(EJECUCIONES).update({
         "status": "completada",
         "factura_id": factura["id"],
-        "email_delivery": email,
+        "email_delivery": execution_email,
         "error": "",
         "updated_at": now.isoformat(),
     }).eq("id", execution["id"]).execute()
@@ -557,7 +580,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         "proxima_ejecucion_at": next_at,
         "updated_at": now.isoformat(),
     }).eq("id", schedule["id"]).execute()
-    return {"ok": True, "reused": False, "factura": factura, "ejecucion": execution, "email_delivery": email}
+    return {"ok": True, "reused": False, "factura": factura, "ejecucion": execution, "email_delivery": execution_email}
 
 
 def _parse_timestamp(value: object) -> datetime:

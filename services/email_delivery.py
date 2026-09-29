@@ -366,6 +366,72 @@ def send_general_schedule_failure_email(
 
 
 @measure_external("email")
+def send_general_schedule_success_email(
+    *, to_email: str | None, issuer_name: str, schedule_name: str,
+    customer_name: str, customer_email: str, serie_folio: str, uuid_sat: str,
+    total: float | int | str, customer_delivery_status: str,
+    customer_delivery_error: str = "", idempotency_key: str,
+) -> EmailDeliveryResult:
+    """Confirma al emisor el timbrado y el resultado real del envío al cliente."""
+    recipient = _clean_email(to_email)
+    if not recipient:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Emisor sin correo de notificaciones.")
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    from_email = os.environ.get("GE_INVOICE_EMAIL_FROM", "").strip()
+    if not api_key or not from_email:
+        return EmailDeliveryResult(ok=False, skipped=True, error="Correo de salida no configurado.")
+    safe = lambda value: html.escape(str(value or ""))
+    delivery_status = str(customer_delivery_status or "").strip().lower()
+    if delivery_status in {"procesando", "enviado", "entregado"}:
+        delivery_text = "Envío aceptado; la entrega al destinatario está en seguimiento."
+        delivery_color = "#16744a"
+    elif delivery_status == "no_enviado":
+        delivery_text = "No se envió porque el cliente no tiene un correo fiscal disponible."
+        delivery_color = "#a96308"
+    else:
+        delivery_text = "El CFDI quedó vigente, pero el correo al cliente presentó un error."
+        delivery_color = "#b4232f"
+    error_html = (
+        f"<br><b>Detalle:</b> {safe(customer_delivery_error)}"
+        if customer_delivery_error else ""
+    )
+    payload = {
+        "from": from_email,
+        "to": [recipient],
+        "subject": f"Factura programada vigente · {safe(schedule_name)}",
+        "html": (
+            f"<p>Hola {safe(issuer_name or 'Empresa')},</p>"
+            "<p>Tu factura programada fue timbrada correctamente y se encuentra <b>vigente</b>.</p>"
+            f"<p><b>Programación:</b> {safe(schedule_name)}<br>"
+            f"<b>Cliente:</b> {safe(customer_name)}<br>"
+            f"<b>Correo del cliente:</b> {safe(customer_email) or 'Sin correo registrado'}<br>"
+            f"<b>Serie / folio:</b> {safe(serie_folio) or '—'}<br>"
+            f"<b>UUID:</b> {safe(uuid_sat)}<br>"
+            f"<b>Total:</b> ${safe(total)}</p>"
+            f"<p style='color:{delivery_color}'><b>Estado del correo:</b> {delivery_text}{error_html}</p>"
+            "<p>Puedes consultar el CFDI y el seguimiento del correo en GE Control → Facturación → Facturas.</p>"
+        ),
+    }
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": idempotency_key[:256],
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            return EmailDeliveryResult(ok=False, error=response.text[:500])
+        data = response.json() if response.content else {}
+        return EmailDeliveryResult(ok=True, message_id=str(data.get("id") or ""))
+    except Exception as exc:
+        return EmailDeliveryResult(ok=False, error=str(exc)[:500])
+
+
+@measure_external("email")
 def send_gas_lp_payment_complement_email(
     *,
     to_email: str | None,
