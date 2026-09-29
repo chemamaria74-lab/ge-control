@@ -269,6 +269,31 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         raise HTTPException(409, "Configura el RFC emisor antes de sincronizar con el PAC.")
     schedules = _profile_table_query(PROGRAMACIONES, scope).order("created_at", desc=True).execute().data or []
     scheduled_signatures = {_pac_recovery_signature(item.get("payload_json") or {}) for item in schedules}
+    clients = _profile_table_query(CLIENTES, scope, "rfc").execute().data or []
+    client_rfcs = {str(item.get("rfc") or "").strip().upper() for item in clients}
+    products = _profile_table_query(
+        PRODUCTOS, scope, "clave_prod_serv,no_identificacion,descripcion"
+    ).execute().data or []
+    product_signatures = {
+        (
+            str(item.get("clave_prod_serv") or "").strip(),
+            str(item.get("no_identificacion") or "").strip().upper(),
+            _pac_recovery_description(item.get("descripcion")),
+        )
+        for item in products
+    }
+
+    def belongs_to_manual_catalog(cfdi: dict) -> bool:
+        """Reconoce facturas manuales del módulo sin confundir otros timbrados del RFC."""
+        receiver = str(((cfdi.get("Receptor") or {}).get("Rfc") or "")).strip().upper()
+        concepts = cfdi.get("Conceptos") or []
+        if receiver not in client_rfcs or not concepts:
+            return False
+        return all((
+            str(concept.get("ClaveProdServ") or "").strip(),
+            str(concept.get("NoIdentificacion") or "").strip().upper(),
+            _pac_recovery_description(concept.get("Descripcion")),
+        ) in product_signatures for concept in concepts)
 
     requests_rows = (
         sb.table("pac_requests")
@@ -283,7 +308,9 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         cfdi = row.get("request_payload") or {}
         emitter = str(((cfdi.get("Emisor") or {}).get("Rfc") or "")).strip().upper()
         signature = _pac_recovery_signature(cfdi)
-        if emitter == issuer_rfc and signature in scheduled_signatures:
+        if emitter == issuer_rfc and (
+            signature in scheduled_signatures or belongs_to_manual_catalog(cfdi)
+        ):
             matching_requests[int(row["id"])] = row
     if not matching_requests:
         return {"recovered": 0, "existing": 0, "execution_updates": 0}
@@ -655,7 +682,11 @@ async def timbrar_factura_general(
         "estado_pago": "pendiente",
         "fecha_pago": None,
         "fecha_vencimiento": _client_due_date(scope, (cfdi.get("Receptor") or {}).get("Rfc") or ""),
-        "saldo_pendiente": Decimal(str(cfdi.get("Total") or 0)),
+        # Supabase serializa el cuerpo como JSON. Decimal no es serializable y,
+        # si se envía aquí, el PAC ya timbró pero el registro local no llega a
+        # insertarse. Conservamos dos decimales en la base numeric(18,2) y
+        # enviamos un número JSON, igual que en el timbrado programado.
+        "saldo_pendiente": float(Decimal(str(cfdi.get("Total") or 0))),
     }))
     if not row:
         raise HTTPException(500, "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado.")
