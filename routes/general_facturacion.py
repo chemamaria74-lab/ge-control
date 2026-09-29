@@ -495,8 +495,19 @@ async def update_general_client(cliente_id: int, payload: GeneralCliente, author
         raise HTTPException(404, "Cliente no encontrado.")
     for schedule in _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True):
         receptor_rfc = str(((schedule.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "")
-        if receptor_rfc.strip().upper() == payload.rfc.strip().upper():
-            _sb_update(PROGRAMACIONES, schedule["id"], scope, {"email_destino": str(payload.email or "")})
+        same_client = int(schedule.get("cliente_id") or 0) == cliente_id
+        if same_client or receptor_rfc.strip().upper() == payload.rfc.strip().upper():
+            schedule_values = {"email_destino": str(payload.email or "")}
+            if schedule.get("producto_id"):
+                cfdi, email_destino = _schedule_cfdi_from_catalogs(
+                    scope, cliente_id, int(schedule["producto_id"])
+                )
+                schedule_values.update({
+                    "cliente_id": cliente_id,
+                    "payload_json": cfdi,
+                    "email_destino": email_destino,
+                })
+            _sb_update(PROGRAMACIONES, schedule["id"], scope, schedule_values)
     return {"ok": True, "cliente_id": cliente_id}
 
 
@@ -1077,7 +1088,16 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
         if client_email:
             schedule["email_destino"] = client_email
         schedule["correo_cliente"] = client_email
-        if client:
+        if schedule.get("cliente_id") and schedule.get("producto_id"):
+            cfdi, current_email = _schedule_cfdi_from_catalogs(
+                scope, int(schedule["cliente_id"]), int(schedule["producto_id"])
+            )
+            schedule["payload_json"] = cfdi
+            schedule["email_destino"] = current_email
+            schedule["correo_cliente"] = current_email
+        elif client:
+            # Las programaciones heredadas sin referencias todavía muestran los
+            # datos almacenados; se vinculan al guardarlas desde el editor.
             cfdi = copy.deepcopy(schedule.get("payload_json") or {})
             payment_method = str(client.get("metodo_pago_default") or "PUE").upper()
             cfdi["MetodoPago"] = payment_method
@@ -1227,7 +1247,14 @@ async def vista_previa_programacion_pdf(
     year, month = (int(part) for part in periodo.split("-"))
     hour, minute = (int(part) for part in str(schedule.get("hora_local") or "09:00")[:5].split(":"))
     target = datetime(year, month, min(int(schedule.get("dia_mes") or 1), 28), hour, minute, tzinfo=tz)
-    cfdi = cfdi_for_execution(schedule, now=target.astimezone(timezone.utc))
+    if schedule.get("cliente_id") and schedule.get("producto_id"):
+        current_cfdi, _email = _schedule_cfdi_from_catalogs(
+            scope, int(schedule["cliente_id"]), int(schedule["producto_id"])
+        )
+        preview_schedule = {**schedule, "payload_json": current_cfdi}
+    else:
+        preview_schedule = schedule
+    cfdi = cfdi_for_execution(preview_schedule, now=target.astimezone(timezone.utc))
     xml_preview = general_cfdi_preview_xml(cfdi)
     config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
     _logo_name, logo_data = selected_general_logo(config, int(schedule.get("logo_slot") or 1))
