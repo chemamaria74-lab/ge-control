@@ -306,6 +306,11 @@ async def security_headers(request, call_next):
     # operator accepts the privacy notice. Other pages keep geolocation denied.
     geolocation = "(self)" if request.url.path == "/transporte-v2/operador" else "()"
     response.headers.setdefault("Permissions-Policy", f"camera=(), microphone=(), geolocation={geolocation}")
+    # JavaScript cambia junto con sus plantillas. Obligar al navegador a
+    # revalidarlo evita ejecutar un bundle viejo contra un DOM nuevo después
+    # de un despliegue; ETag/Last-Modified conservan respuestas 304 baratas.
+    if request.url.path.startswith("/static/js/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
     public_indexable_paths = {
         "/",
         "/facturacion-recurrente",
