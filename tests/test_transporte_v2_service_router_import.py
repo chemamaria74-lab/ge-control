@@ -37,6 +37,20 @@ def test_carta_ingreso_persists_canonical_period_and_permit_columns():
     assert '"periodo_carta_ingreso"' not in tolerant
 
 
+def test_carta_ingreso_duplicate_check_tolerates_legacy_cancelation_schema():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    endpoint = backend.split("async def crear_factura_servicio", 1)[1].split(
+        '@router.post("/tr/sat-sync/manual-xml")', 1
+    )[0]
+
+    # Las columnas estatus/cancelacion_* no existen en todos los despliegues.
+    # Pedirlas explicitamente hace que PostgREST devuelva 500 antes de llegar
+    # al PAC, especialmente al recuperar Cartas Porte historicas.
+    assert '.select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
+    assert '.select("viaje_ids,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
+    assert endpoint.count('sb.table(_TBL_FACT_SERV).select("*")') >= 2
+
+
 def test_carta_porte_timbradas_keeps_light_trip_enrichment():
     source = (ROOT / "routes/transporte_v2.py").read_text(encoding="utf-8")
 
@@ -98,7 +112,27 @@ def test_carta_ingreso_dashboard_and_sat_report_share_canonical_period():
     assert 'q = q.eq("periodo_carta_ingreso", periodo)' in dashboard
     assert 'row.get("fecha_carta_ingreso")' in dashboard
     assert '/api/tr-v2/facturas-servicio?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}' in frontend
+    assert "trv2ServiceFilterInvoicesByMonth" in frontend
+    assert '"viaje_ids_facturados": _active_service_invoice_trip_ids' in dashboard
+    assert "trv2WriteServiceBilledTripIds(invoices?.viaje_ids_facturados || [])" in frontend
     assert "carta-ingreso-canonical-period-20260915" in shell
+
+
+def test_pending_service_invoices_use_server_canonical_relationships():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    dashboard = (ROOT / "routes/facturas_mod/facturas_servicio_dashboard.py").read_text(encoding="utf-8")
+
+    pending = frontend.split("function trv2ServicePendingRows", 1)[1].split(
+        "function trv2ServiceFilterPendingRowsForView", 1
+    )[0]
+    assert "TRV2_SERVICE_BILLED_TRIP_IDS" in pending
+    assert "activeInvoices.flatMap" not in pending
+    helper = dashboard.split("def _active_service_invoice_trip_ids", 1)[1].split(
+        "def _enrich_facturas_servicio_with_trip_data", 1
+    )[0]
+    assert "_fact_serv_invoice_cancelada(invoice)" in helper
+    assert "_factura_servicio_viaje_ids(invoice)" in helper
+    assert "_TBL_FACT_SERV_CARTAS" in helper
 
 
 def test_carta_porte_filters_wait_for_search_button():

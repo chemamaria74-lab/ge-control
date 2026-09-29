@@ -48,6 +48,13 @@ def test_new_invoices_are_pending_until_collection_is_confirmed():
     assert '"fecha_pago": None' in recovery
 
 
+def test_manual_stamp_persists_a_json_serializable_balance_after_pac_success():
+    stamp = SOURCE.split('data = result.get("data") or {}', 1)[1].split('@router.get("/facturas"', 1)[0]
+
+    assert '"saldo_pendiente": float(Decimal(str(cfdi.get("Total") or 0)))' in stamp
+    assert '"saldo_pendiente": Decimal(' not in stamp
+
+
 def test_dashboard_prioritizes_invoice_count_and_shows_collection_counts():
     template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
 
@@ -80,6 +87,8 @@ def test_pac_recovery_imports_audited_xml_without_stamping_again():
     assert 'table("pac_responses")' in helper
     assert '"idempotency_key": f"pac-recovery:{uuid_sat}"' in helper
     assert "scheduled_signatures" in helper
+    assert "belongs_to_manual_catalog" in helper
+    assert "product_signatures" in helper
     assert "emitir_timbrar_json" not in helper
     assert "_recover_profile_pac_invoices" in endpoint
 
