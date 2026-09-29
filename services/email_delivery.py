@@ -370,6 +370,7 @@ def send_general_schedule_success_email(
     *, to_email: str | None, issuer_name: str, schedule_name: str,
     customer_name: str, customer_email: str, serie_folio: str, uuid_sat: str,
     total: float | int | str, customer_delivery_status: str,
+    xml_content: str, pdf_bytes: bytes, pdf_filename: str,
     customer_delivery_error: str = "", idempotency_key: str,
 ) -> EmailDeliveryResult:
     """Confirma al emisor el timbrado y el resultado real del envío al cliente."""
@@ -411,6 +412,19 @@ def send_general_schedule_success_email(
             f"<p style='color:{delivery_color}'><b>Estado del correo:</b> {delivery_text}{error_html}</p>"
             "<p>Puedes consultar el CFDI y el seguimiento del correo en GE Control → Facturación → Facturas.</p>"
         ),
+        "attachments": [
+            {
+                "filename": pdf_filename,
+                "content": base64.b64encode(pdf_bytes).decode("ascii"),
+            },
+            {
+                "filename": (
+                    pdf_filename.replace(".pdf", ".xml")
+                    if pdf_filename.lower().endswith(".pdf") else "factura.xml"
+                ),
+                "content": base64.b64encode(xml_content.encode("utf-8")).decode("ascii"),
+            },
+        ],
     }
     try:
         response = requests.post(
