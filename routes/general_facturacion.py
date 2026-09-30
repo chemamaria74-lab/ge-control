@@ -271,6 +271,9 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
     scheduled_signatures = {_pac_recovery_signature(item.get("payload_json") or {}) for item in schedules}
     clients = _profile_table_query(CLIENTES, scope, "rfc").execute().data or []
     client_rfcs = {str(item.get("rfc") or "").strip().upper() for item in clients}
+    # Público en General es un receptor virtual y no vive en general_clientes.
+    # Se recupera solo si sus conceptos pertenecen al catálogo de la empresa.
+    client_rfcs.add("XAXX010101000")
     products = _profile_table_query(
         PRODUCTOS, scope, "clave_prod_serv,no_identificacion,descripcion"
     ).execute().data or []
