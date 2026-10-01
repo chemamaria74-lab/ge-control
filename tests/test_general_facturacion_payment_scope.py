@@ -55,6 +55,15 @@ def test_manual_stamp_persists_a_json_serializable_balance_after_pac_success():
     assert '"saldo_pendiente": Decimal(' not in stamp
 
 
+def test_manual_stamp_recovers_the_same_pac_uuid_instead_of_stamping_again():
+    stamp = SOURCE.split('data = result.get("data") or {}', 1)[1].split('@router.get("/facturas"', 1)[0]
+
+    assert "_recover_profile_pac_invoices(scope)" in stamp
+    assert '.eq("uuid_sat", uuid_sat)' in stamp
+    assert '"recovered": True' in stamp
+    assert "emitir_timbrar_json" not in stamp
+
+
 def test_dashboard_prioritizes_invoice_count_and_shows_collection_counts():
     template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
 

@@ -481,6 +481,60 @@ Folio Fiscal: 1D047DD8-73C6-4A19-8F39-0BC8C250EF99
     assert result["detected"]["peso_kg_estimado"] is False
 
 
+def test_pdf_document_analysis_accepts_propane_apache_fop_layout(monkeypatch):
+    text = """
+PROPANE SERVICES
+PSE170512969
+Factura
+I - Ingreso
+Serie Folio
+116014
+Fecha y hora de emisión
+01/10/2026 10:49:46
+601 Régimen General de Ley Personas Morales Lugar de expedición: 64060
+Información del Cliente Uso del CFDI Información adicional
+GAS LUX G01 - Adquisición de mercancias No. de Certificado: 00001000000709900139
+R.F.C.: GLU760309457
+Domicilio Fiscal Receptor: C.P.99300 Moneda: MXN Tipo de Cambio: 1
+Método de Pago: PPD - Pago en parcialidades o diferido
+Forma de Pago: 99 - Por definir
+Régimen Receptor: 601 - General de Ley Personas Morales
+S E C C I Ó N D E C O N C E P T O S D E L C O M P R O B A N T E
+Código Descripción Cantidad Clave Unidad Valor Unitario Importe Descuento
+LP/20740/COM/2017 GAS LP
+Código SAT: 15111510 Unidad: L
+Objeto Impuesto: 02 - Sí objeto de impuesto.
+40761.51
+BaseImp:
+LTR
+$ 248184.850506 $ + 6.09 IVA $ 248,184.85 16 % $ 0.00 $ 39,709.58
+Sub Total + Impuestos Trasladados - Descuento = Total
+$ 248,184.85 Base: $248,184.85 IVA 16 % $ 39,709.58 $ 0.00 $ 287,894.43
+Folio Fiscal
+5cd40dd7-f64d-4a12-a465-af831b0a7b37
+"""
+    monkeypatch.setattr(transporte_v2, "_extract_pdf_text", lambda _content: (text, []))
+
+    result = transporte_v2._detect_pdf_document(b"%PDF")
+    detected = result["detected"]
+
+    assert detected["folio"] == "116014"
+    assert detected["fecha_factura"] == "01/10/2026 10:49:46"
+    assert detected["cliente_nombre"] == "GAS LUX"
+    assert detected["cliente_rfc"] == "GLU760309457"
+    assert detected["cantidad_litros"] == 40761.51
+    assert detected["subtotal"] == 248184.85
+    assert detected["iva"] == 39709.58
+    assert detected["total"] == 287894.43
+    assert detected["importe_carga"] == 287894.43
+    assert detected["permiso"] == "P/20740/COM/2017"
+    assert detected["lugar_expedicion"] == "64060"
+    assert detected["regimen_emisor"] == "601"
+    assert detected["metodo_pago"] == "PPD"
+    assert detected["forma_pago"] == "99"
+    assert detected["uso_cfdi"] == "G01"
+
+
 def test_diesel_defaults_to_clave_sat_15101505_for_stamping():
     internal, subproducto, clave_sat = _stamp_internal_product_keys(
         {"descripcion": "DIESEL", "tipo_producto": "Diésel"},
