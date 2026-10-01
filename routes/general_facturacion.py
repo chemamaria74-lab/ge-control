@@ -692,7 +692,23 @@ async def timbrar_factura_general(
         "saldo_pendiente": float(Decimal(str(cfdi.get("Total") or 0))),
     }))
     if not row:
-        raise HTTPException(500, "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado.")
+        # El PAC ya respondió con UUID/XML; jamás se vuelve a timbrar para
+        # resolver un fallo local. Reconciliamos desde la auditoría del PAC y
+        # devolvemos el mismo comprobante si el segundo guardado tuvo éxito.
+        _recover_profile_pac_invoices(scope)
+        uuid_sat = str(data.get("uuid") or "").strip()
+        recovered = (
+            _profile_invoice_query(scope, "*")
+            .eq("uuid_sat", uuid_sat)
+            .limit(1)
+            .execute().data or []
+        ) if uuid_sat else []
+        if recovered:
+            return {"ok": True, "reused": True, "recovered": True, "factura": recovered[0]}
+        raise HTTPException(500, {
+            "message": "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado. Sincroniza las facturas del PAC; no vuelvas a timbrar.",
+            "uuid_sat": uuid_sat,
+        })
     return {"ok": True, "reused": False, "factura": row}
 
 

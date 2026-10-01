@@ -712,6 +712,25 @@ def _invoice_totals_block(text: str) -> tuple[float, float, float]:
     return _to_float(match.group(1)), _to_float(match.group(2)), _to_float(match.group(3))
 
 
+def _propane_fop_totals_block(text: str) -> tuple[float, float, float]:
+    """Extrae los totales del formato CFDI generado por Apache FOP de Propane.
+
+    Ese formato separa las etiquetas y los importes en posiciones distintas del
+    flujo de texto. Acotamos la búsqueda a la línea de totales para no confundir
+    BaseImp o el valor unitario con el total de la factura.
+    """
+    match = re.search(
+        r"SUB\s+TOTAL\s*\+\s*IMPUESTOS\s+TRASLADADOS\s*-\s*DESCUENTO\s*=\s*TOTAL"
+        r"\s*\$\s*([\d,]+\.\d{2}).*?IVA\s+16\s*%\s*\$\s*([\d,]+\.\d{2})"
+        r"\s*\$\s*[\d,]+\.\d{2}\s*\$\s*([\d,]+\.\d{2})",
+        text,
+        re.I | re.S,
+    )
+    if not match:
+        return 0.0, 0.0, 0.0
+    return _to_float(match.group(1)), _to_float(match.group(2)), _to_float(match.group(3))
+
+
 def _pdf_invoice_total(text: str) -> float:
     patterns = [
         r"TOTAL\s+[\d,]+(?:\.\d+)?\s+L\s+([\d,]+\.\d{2})\s*MXN",
@@ -791,7 +810,13 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     if receptor_rfc and emisor_rfc and receptor_rfc == emisor_rfc and len(rfcs) > 1:
         receptor_rfc = next((rfc for rfc in rfcs if rfc != emisor_rfc), receptor_rfc)
 
+    propane_fop_layout = bool(
+        "PROPANE SERVICES" in upper
+        and re.search(r"SERIE\s+FOLIO\s+\d{3,}", upper, re.I)
+        and "BASEIMP" in upper
+    )
     folio_match = re.search(r"\b(FE)\s+(\d{3,})\b", upper, re.I)
+    propane_folio = _regex_first(r"SERIE\s+FOLIO\s+(\d{3,})\b", upper) if propane_fop_layout else ""
     if not folio_match:
         folio_match = re.search(
             r"FOLIO\s+FISCAL.*?\b([A-Z]{1,6})\s+(\d{3,})\s+FECHA\s+FACTURA",
@@ -802,8 +827,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         folio_match = re.search(r"FACTURA\s+FOLIO.*?\b([A-Z]{1,6})\s+(\d{3,})\b", upper, re.I | re.S)
     if not folio_match:
         folio_match = re.search(r"CADENA\s+ORIGINAL.*?\|\|4\.0\|([A-Z]{1,6})\|(\d{3,})\|", upper, re.I | re.S)
-    serie = folio_match.group(1).strip() if folio_match else _regex_first(r"\b([A-Z]{1,6})\s+\d{3,}\b", upper)
-    folio_numero = folio_match.group(2).strip() if folio_match else _regex_first(r"\b[A-Z]{1,6}\s+(\d{3,})\b", upper)
+    serie = folio_match.group(1).strip() if folio_match else ("" if propane_folio else _regex_first(r"\b([A-Z]{1,6})\s+\d{3,}\b", upper))
+    folio_numero = folio_match.group(2).strip() if folio_match else (propane_folio or _regex_first(r"\b[A-Z]{1,6}\s+(\d{3,})\b", upper))
     folio = f"{serie} {folio_numero}".strip()
 
     concept_match = re.search(
@@ -820,6 +845,18 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         liters = _regex_first(r"CANTIDAD\s+AL\s+NATURAL\s*CANTIDAD\s+A\s+20[°º]?.*?\b[\d,]+(?:\.\d+)?\s+([\d,]+(?:\.\d+)?)\s+RUTH\s+ORNELAS", upper, re.I | re.S)
     if not liters:
         liters = _regex_first(r"TOTAL\s+([\d,]+(?:\.\d+)?)\s+L\b", upper)
+    if not liters and propane_fop_layout:
+        # pypdf coloca Cantidad antes de ``BaseImp``; pdfplumber la conserva
+        # junto a GAS LP. Ambas variantes provienen del mismo PDF.
+        liters = _regex_first(
+            r"OBJETO\s+IMPUESTO:.*?([\d,]+(?:\.\d+)?)\s+BASEIMP\s*:",
+            upper,
+            re.I | re.S,
+        ) or _regex_first(
+            r"LP/\d+/COM/\d{4}\s+GAS\s+L\.?P?\.?\s+([\d,]+(?:\.\d+)?)\s+LTR\b",
+            upper,
+            re.I | re.S,
+        )
     clave_sat = concept_match.group(2) if concept_match else ("15111510" if "15111510" in upper else _regex_first(r"\b(1511\d{4})\b", upper))
     if not clave_sat and "PEMEX MAGNA" in upper:
         clave_sat = "15101514"
@@ -839,6 +876,8 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     )
     total = _pdf_invoice_total(upper)
     block_subtotal, block_iva, block_total = _invoice_totals_block(upper)
+    if propane_fop_layout and not block_total:
+        block_subtotal, block_iva, block_total = _propane_fop_totals_block(upper)
     subtotal = subtotal or block_subtotal
     iva = iva or block_iva
     total = block_total or total
@@ -886,7 +925,12 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     if not receptor_rfc and mgc_rfc:
         receptor_rfc = mgc_rfc
     emisor_nombre = "MGC MEXICO" if emisor_rfc == "MME141110IJ9" or "MGC MEXICO" in upper else ("PROPANE SERVICES" if "PROPANE SERVICES" in upper else _regex_first(r"EMISOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper))
-    receptor_nombre = mgc_cliente or ("DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"SR\.?\s*\(?ES\)?\s*([A-ZÁÉÍÓÚÜÑ& .]{3,80})", upper))
+    propane_cliente = _regex_first(
+        r"INFORMACI[ÓO]N\s+DEL\s+CLIENTE.*?\n\s*([A-ZÁÉÍÓÚÜÑ& .]+?)\s+G0[1-3]\s*-",
+        text,
+        re.I | re.S,
+    ) if propane_fop_layout else ""
+    receptor_nombre = mgc_cliente or propane_cliente or ("DISTRIBUIDORA DE GAS DEL CAÑON" if "DISTRIBUIDORA DE GAS DEL CA" in upper else _regex_first(r"SR\.?\s*\(?ES\)?\s*([A-ZÁÉÍÓÚÜÑ& .]{3,80})", upper))
     if not receptor_nombre:
         receptor_nombre = _regex_first(r"RECEPTOR\D{0,40}([A-ZÁÉÍÓÚÜÑ& .]{5,80})", upper)
     domicilio_receptor = _regex_first(r"DOM\.\s+(.+?C\.P\.?\s*\d{5})", text, re.I | re.S)
@@ -901,16 +945,19 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         if cp_receptor and len(cp_receptor) == 3:
             cp_tail = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{3}\s*(\d{2})", upper)
             cp_receptor = f"{cp_receptor}{cp_tail}" if cp_tail else cp_receptor
-    regimen_emisor = _regex_first(r"REGIMEN\s+FISCAL:\s*(\d{3})", upper)
+    regimen_emisor = _regex_first(r"R[ÉE]GIMEN(?:\s+FISCAL)?\s*:?[ ]*(\d{3})", upper)
+    if not regimen_emisor and propane_fop_layout:
+        regimen_emisor = _regex_first(r"\b(\d{3})\s+R[ÉE]GIMEN\s+GENERAL", upper)
     regimen_receptor = _regex_first(r"DOMICILIO\s+FISCAL:\s*\d{5}\s+REGIMEN\s+FISCAL:\s*(\d{3})", upper)
     regimen_receptor = regimen_receptor or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+DEL\s+RECEPTOR\s+.*?\b(\d{3})\b", upper, re.I | re.S)
     lugar_expedicion = _regex_first(r"LUGAR\s+Y\s+FECHA\s+DE\s+EXP\.?\s*(\d{5})", upper) or _regex_first(r"REGIMEN\s+FISCAL:\s*\d{3}\s+(\d{5})", upper)
+    lugar_expedicion = lugar_expedicion or _regex_first(r"LUGAR\s+DE\s+EXPEDICI[ÓO]N\s*:\s*(\d{5})", upper)
     lugar_expedicion = lugar_expedicion or _regex_first(r"LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+.*?\b(\d{5})\b", upper, re.I | re.S)
-    fecha_factura = mgc_fecha or _regex_first(r"FECHA\s+FACTURA:\s*([0-9T:\-]+)", upper) or _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
+    fecha_factura = mgc_fecha or _regex_first(r"FECHA\s+FACTURA:\s*([0-9T:\-]+)", upper) or _regex_first(r"FECHA\s+Y\s+HORA\s+DE\s+EMISI[ÓO]N\s+(\d{1,2}/\d{1,2}/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I) or _regex_first(r"(\d{1,2}/[A-ZÁÉÍÓÚÜÑ]+/\d{4}\s+\d{2}:\d{2}:\d{2})", text, re.I)
     fecha_certificacion = _regex_first(r"FECHA\s+Y\s+HORA\s+DE\s+CERTIFICACI[ÓO]N:\s*([0-9T:\-]+)", upper)
     forma_pago = _regex_first(r"FORMA\s+DE\s+PAGO:\s*(\d{2})", upper) or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+M[ÉE]TODO\s+DE\s+PAGO\s+FORMA\s+DE\s+PAGO\s+LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+\d{3}\s+[A-Z]{3}\s+(\d{2})", upper)
-    metodo_pago = _regex_first(r"METODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper) or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+M[ÉE]TODO\s+DE\s+PAGO\s+FORMA\s+DE\s+PAGO\s+LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+\d{3}\s+([A-Z]{3})", upper)
-    uso_cfdi = _regex_first(r"USO\s+DE\s+CFDI\s+([A-Z0-9]{3})", upper) or _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
+    metodo_pago = _regex_first(r"M[ÉE]TODO\s+DE\s+PAGO:\s*([A-Z]{3})", upper) or _regex_first(r"R[ÉE]GIMEN\s+FISCAL\s+M[ÉE]TODO\s+DE\s+PAGO\s+FORMA\s+DE\s+PAGO\s+LUGAR\s+DE\s+EXPEDICI[ÓO]N\s+\d{3}\s+([A-Z]{3})", upper)
+    uso_cfdi = _regex_first(r"USO\s+DE(?:L)?\s+CFDI(?:\s+INFORMACI[ÓO]N\s+ADICIONAL)?\s+.*?\b([A-Z]\d{2})\b", upper, re.I | re.S) or _regex_first(r"USO\s+DEL\s+CFDI:\s*([A-Z0-9]{3})", upper)
     tipo_comprobante = _regex_first(r"TIPO\s+DE\s+COMPROBANT\s*E:\s*([A-Z])", upper)
     detected = {
         "emisor_nombre": emisor_nombre,
