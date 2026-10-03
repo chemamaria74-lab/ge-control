@@ -241,18 +241,48 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", "".join(c for c in text if not unicodedata.combining(c))).upper()
 
 
-def _insert_expense_invoices(ctx: dict[str, Any], rows: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Insert invoices while translating the database idempotency guard for the UI."""
-    try:
-        return ctx["sb"].table("gas_lp_expense_invoices").insert(rows).execute().data or []
-    except Exception as exc:
-        detail = str(exc).lower()
-        if "gas_lp_expense_invoices_active_identity_uidx" in detail or "23505" in detail:
-            raise HTTPException(
-                409,
-                "Una o más facturas ya estaban registradas. No se guardó ninguna para evitar duplicados.",
-            ) from exc
-        raise
+def _insert_expense_invoices(
+    ctx: dict[str, Any], rows: dict[str, Any] | list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[bool]]:
+    """Atomically create invoices and identify rejected duplicate attempts.
+
+    ``ignore_duplicates`` becomes ``INSERT ... ON CONFLICT DO NOTHING`` in
+    PostgREST.  Unlike a SELECT-before-INSERT guard, this remains correct when
+    two workers submit the same invoice concurrently and does not emit a 23505
+    error. Rows ignored by Postgres are read back only so the caller can point
+    at the original record while explicitly warning the operator; a duplicate
+    must never be reported as a newly captured payable.
+    """
+    requested = [dict(row) for row in rows] if isinstance(rows, list) else [dict(rows)]
+    inserted = (
+        ctx["sb"].table("gas_lp_expense_invoices")
+        .upsert(rows, ignore_duplicates=True)
+        .execute().data or []
+    )
+    if len(inserted) == len(requested):
+        return inserted, [False] * len(requested)
+
+    def identity(row: dict[str, Any]) -> tuple[int, str, str, float]:
+        return (
+            int(row.get("supplier_id") or 0),
+            _normalize(row.get("invoice_number")),
+            str(row.get("invoice_date") or "")[:10],
+            round(float(row.get("total_mxn") or 0), 2),
+        )
+
+    inserted_keys = {identity(row) for row in inserted}
+    resolved = {identity(row): row for row in inserted}
+    unresolved = {identity(row) for row in requested} - inserted_keys
+    if unresolved:
+        existing = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
+        for row in existing:
+            key = identity(row)
+            if key in unresolved and row.get("status") != "cancelled":
+                resolved[key] = row
+    result = [resolved.get(identity(row)) for row in requested]
+    if any(row is None for row in result):
+        raise HTTPException(500, "No se pudo confirmar la captura idempotente.")
+    return [row for row in result if row is not None], [identity(row) not in inserted_keys for row in requested]
 
 
 def _code(value: str, length: int) -> str:
@@ -1478,10 +1508,21 @@ def create_direct_invoice(payload: DirectInvoiceCreate, token: str = Query(defau
         "status": "sent_to_accountant", "sent_to_accountant_at": _now(),
         "observation": "Alerta: " + " ".join(alerts) if alerts else "",
     }
-    created_rows = _insert_expense_invoices(ctx, row)
+    created_rows, duplicates = _insert_expense_invoices(ctx, row)
     if not created_rows:
         raise HTTPException(500, "No se pudo confirmar la captura.")
     created = created_rows[0]
+    if duplicates[0]:
+        _audit(ctx, "invoice", int(created["id"]), "duplicate_capture_rejected", after={
+            "invoice_number": payload.invoice_number.strip(),
+            "invoice_date": payload.invoice_date.isoformat(),
+            "total_mxn": round(payload.total_mxn, 2),
+        })
+        raise HTTPException(
+            409,
+            f"FACTURA DUPLICADA: el folio {payload.invoice_number.strip()} ya existe y NO se agregó otra vez a pagos. "
+            "Retira y destruye la copia física duplicada; conserva solamente el documento que ya está registrado.",
+        )
     _audit(ctx, "invoice", int(created["id"]), "direct_created", after=created)
     return {"item": created, "alerts": alerts}
 
@@ -1573,11 +1614,29 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
         alerts_by_invoice.append({"invoice_number": line.invoice_number.strip(), "alerts": alerts, "skipped": False})
     if not rows:
         return {"items": [], "count": 0, "alerts": alerts_by_invoice, "skipped_duplicates": skipped_duplicates}
-    # PostgREST executes a multi-row insert as one SQL statement: all rows are
-    # persisted together or none are persisted.
-    created = _insert_expense_invoices(ctx, rows)
+    # The database resolves the whole batch atomically. Conflicting rows are
+    # rejected while independent new invoices from the same batch are kept.
+    resolved, duplicate_flags = _insert_expense_invoices(ctx, rows)
+    created: list[dict[str, Any]] = []
+    for request_row, item, is_duplicate in zip(rows, resolved, duplicate_flags):
+        if is_duplicate:
+            skipped_duplicates.append({
+                "invoice_number": request_row["invoice_number"],
+                "alerts": ["Factura duplicada detectada durante el guardado; no se agregó otra vez a pagos."],
+            })
+            _audit(ctx, "invoice", int(item["id"]), "duplicate_capture_rejected", after={
+                "invoice_number": request_row["invoice_number"],
+                "invoice_date": request_row["invoice_date"],
+                "total_mxn": request_row["total_mxn"],
+            })
+            continue
+        created.append(item)
     if len(created) != len(rows):
-        raise HTTPException(500, "No se pudo confirmar la captura completa.")
+        alerts_by_invoice.extend({
+            "invoice_number": item["invoice_number"], "alerts": item["alerts"], "skipped": True,
+        } for item in skipped_duplicates if not any(
+            alert.get("invoice_number") == item["invoice_number"] for alert in alerts_by_invoice
+        ))
     for item in created:
         _audit(ctx, "invoice", int(item["id"]), "direct_batch_created", after=item)
     return {"items": created, "count": len(created), "alerts": alerts_by_invoice, "skipped_duplicates": skipped_duplicates}
