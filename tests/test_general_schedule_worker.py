@@ -4,8 +4,7 @@ from pathlib import Path
 from services.general_schedule_worker import (_canceled_invoice_linked_to_execution, _schedule_invoice_idempotency_key,
                                                 acquire_general_stamp_slot,
                                                 catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
-                                                reserve_general_folio, selected_general_logo,
-                                                _is_unique_execution_conflict)
+                                                reserve_general_folio, selected_general_logo)
 
 
 def schedule(**overrides):
@@ -191,7 +190,7 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
 
     previous_guard = executor.index("elif previous_row:")
-    execution_insert = executor.index(".insert(_scope_row(schedule", previous_guard)
+    execution_insert = executor.index(".upsert(_scope_row(schedule", previous_guard)
     pac_call = executor.index("result = emitir_timbrar_json(cfdi)")
     assert previous_guard < execution_insert < pac_call
     assert "retry_after_edit" not in executor
@@ -201,19 +200,12 @@ def test_every_schedule_has_exactly_one_attempt_per_period():
     assert "retry_waiting_for_slot" in executor
 
 
-def test_concurrent_execution_unique_conflict_is_recognized_as_idempotent():
-    class DuplicateExecution(Exception):
-        code = "23505"
-
-    assert _is_unique_execution_conflict(DuplicateExecution("duplicate key")) is True
-    assert _is_unique_execution_conflict(Exception("connection failed")) is False
-
+def test_concurrent_execution_claim_is_atomic_and_does_not_raise_unique_errors():
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
-    conflict_handler = executor.split("except Exception as exc:", 1)[1]
-    assert "_is_unique_execution_conflict(exc)" in conflict_handler
-    assert '"in_progress": not completed' in conflict_handler
-    assert '"status": "error"' not in conflict_handler
+    assert ".upsert(_scope_row(schedule" in executor
+    assert "ignore_duplicates=True" in executor
+    assert '"in_progress": not completed' in executor
 
 
 def test_pre_pac_failures_are_made_retryable_instead_of_staying_processing():

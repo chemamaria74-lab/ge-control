@@ -88,6 +88,16 @@ def test_payment_method_is_a_client_preference_not_an_issuer_default():
     assert "Método predeterminado" not in template
 
 
+def test_manual_invoice_inherits_client_retentions_and_payment_defaults():
+    template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text()
+
+    assert "$('invoiceIsr').checked=Boolean(c?.retencion_isr)" in FRONTEND
+    assert "$('invoiceIvaRetention').checked=Boolean(c?.retencion_iva)" in FRONTEND
+    assert "syncInvoicePaymentForMethod(c)" in FRONTEND
+    assert "method==='PPD'?'99':$('invoicePayment').value" in FRONTEND
+    assert "Los cambios aquí aplican solamente a esta factura" in template
+
+
 def test_pac_recovery_imports_audited_xml_without_stamping_again():
     helper = SOURCE.split("def _recover_profile_pac_invoices", 1)[1].split("@router.get", 1)[0]
     endpoint = SOURCE.split("async def sincronizar_facturas_pac", 1)[1].split("@router.patch", 1)[0]

@@ -898,6 +898,9 @@ def test_expense_capture_prevents_duplicate_submissions_and_allocation_checks_us
     assert "Retira y destruye la copia física duplicada" in route
     assert "FACTURAS DUPLICADAS:" in script
     assert "No se agregaron otra vez a la bandeja de pagos" in script
+    assert "_supplier_identity_conflict" in route
+    assert "PROVEEDOR DUPLICADO:" in route
+    assert "PROVEEDOR DUPLICADO:" in script
     assert 'gas_lp_expense_payment_allocations").select("id")' not in route
     assert route.count('gas_lp_expense_payment_allocations").select("payment_id")') >= 2
     assert "Hay folios repetidos dentro de la captura múltiple" in route
