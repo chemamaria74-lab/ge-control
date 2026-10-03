@@ -893,10 +893,13 @@ def test_expense_capture_prevents_duplicate_submissions_and_allocation_checks_us
     assert "if(submit.disabled)return" in script
     assert "submit.disabled=true" in script
     assert "finally{submit.disabled=false}" in script
-    assert "gas_lp_expense_invoices_active_identity_uidx" in route
+    assert ".upsert(rows, ignore_duplicates=True)" in route
+    assert "duplicate_capture_rejected" in route
+    assert "Retira y destruye la copia física duplicada" in route
+    assert "FACTURAS DUPLICADAS:" in script
+    assert "No se agregaron otra vez a la bandeja de pagos" in script
     assert 'gas_lp_expense_payment_allocations").select("id")' not in route
     assert route.count('gas_lp_expense_payment_allocations").select("payment_id")') >= 2
-    assert "insert(rows).execute()" in route
     assert "Hay folios repetidos dentro de la captura múltiple" in route
 
 
