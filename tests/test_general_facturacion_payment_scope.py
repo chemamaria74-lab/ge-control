@@ -2,6 +2,23 @@ from pathlib import Path
 
 
 SOURCE = (Path(__file__).parents[1] / "routes/general_facturacion.py").read_text()
+
+
+def test_manual_stamp_automatically_delivers_saved_invoice_without_retimbrar():
+    stamp_endpoint = SOURCE.split("async def timbrar_factura_general", 1)[1].split("@router.get", 1)[0]
+    assert 'recipient = _client_email(scope' in stamp_endpoint
+    assert '_deliver_general_invoice_email(row, scope, recipient, automatic=True)' in stamp_endpoint
+    assert 'not previous.get("email_delivery")' in stamp_endpoint
+    assert '_deliver_general_invoice_email(\n                previous, scope, recipient, automatic=True,' in stamp_endpoint
+
+
+def test_manual_resend_and_automatic_delivery_share_the_same_delivery_pipeline():
+    email_endpoint = SOURCE.split("async def enviar_factura_general_por_correo", 1)[1].split("@router.post", 1)[0]
+    assert '_deliver_general_invoice_email(factura, scope, str(payload.email))' in email_endpoint
+    delivery_helper = SOURCE.split("def _deliver_general_invoice_email", 1)[1].split("def _pac_recovery_description", 1)[0]
+    assert 'send_gas_lp_invoice_email(' in delivery_helper
+    assert '_profile_update(FACTURAS' in delivery_helper
+    assert '"status": "preparando"' in delivery_helper
 FRONTEND = (Path(__file__).parents[1] / "static/js/control_facturacion.js").read_text()
 
 
