@@ -114,6 +114,14 @@ def _client_due_date(scope: dict, receptor_rfc: str) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+def _client_email(scope: dict, receptor_rfc: str) -> str:
+    """Obtiene el correo fiscal vigente del receptor de una factura manual."""
+    target = str(receptor_rfc or "").strip().upper()
+    client = next((row for row in _sb_list(CLIENTES, scope, active_only=True, order="nombre", desc=False)
+                   if str(row.get("rfc") or "").strip().upper() == target), {})
+    return str(client.get("email") or "").strip()
+
+
 def _document_filename(factura: dict, extension: str) -> str:
     cfdi = factura.get("cfdi_json") or {}
     emisor = cfdi.get("Emisor") or {}
@@ -133,6 +141,76 @@ def _invoice_pdf_branding(factura: dict, scope: dict) -> tuple[str, dict]:
     logo_data = str(current_logo or factura.get("logo_data_url") or "")
     theme = {key: config.get(key) or factura.get(key) for key in theme_keys}
     return logo_data, theme
+
+
+def _deliver_general_invoice_email(
+    factura: dict, scope: dict, recipient: str, *, automatic: bool = False,
+) -> dict:
+    """Genera los adjuntos, envía el CFDI y conserva evidencia del intento."""
+    recipient = str(recipient or "").strip()
+    attempted_at = datetime.now(timezone.utc).isoformat()
+    if not recipient:
+        delivery = {
+            "status": "no_enviado", "ok": False, "skipped": True,
+            "recipient": "", "message_id": "",
+            "error": "El cliente no tiene un correo fiscal configurado.",
+            "attempted_at": attempted_at, "automatic": automatic,
+        }
+        _profile_update(FACTURAS, int(factura["id"]), scope, {"email_delivery": delivery})
+        return delivery
+
+    # Esta marca se escribe antes de llamar al proveedor. Si el proceso se
+    # interrumpe después del envío, un reintento de timbrado no duplica correo.
+    preparing = {
+        "status": "preparando", "ok": False, "automatic": automatic,
+        "recipient": recipient, "message_id": "", "attempted_at": attempted_at,
+    }
+    _profile_update(FACTURAS, int(factura["id"]), scope, {"email_delivery": preparing})
+    try:
+        cfdi = factura.get("cfdi_json") or {}
+        concepts = cfdi.get("Conceptos") or []
+        units = {str(item.get("Unidad") or item.get("ClaveUnidad") or "Unidad") for item in concepts}
+        if len(units) == 1:
+            quantity = sum(Decimal(str(item.get("Cantidad") or 0)) for item in concepts)
+            unit_label = next(iter(units))
+        else:
+            quantity = len(concepts)
+            unit_label = "conceptos"
+        logo_data, pdf_theme = _invoice_pdf_branding(factura, scope)
+        pdf = generar_pdf_ingreso_desde_xml(
+            factura["xml_content"],
+            logo_data_url=logo_data,
+            observaciones=str(factura.get("notas") or ""),
+            pdf_theme=pdf_theme,
+        )
+        result = send_gas_lp_invoice_email(
+            to_email=recipient,
+            issuer_name=str((cfdi.get("Emisor") or {}).get("Nombre") or "GE Control"),
+            customer_name=str((cfdi.get("Receptor") or {}).get("Nombre") or "Cliente"),
+            uuid_sat=str(factura.get("uuid_sat") or ""),
+            total=cfdi.get("Total") or "0",
+            xml_content=str(factura["xml_content"]),
+            pdf_bytes=pdf,
+            pdf_filename=_document_filename(factura, "pdf"),
+            serie_folio="".join(filter(None, (str(factura.get("serie") or ""), str(factura.get("folio") or "")))),
+            quantity=quantity,
+            unit_label=unit_label,
+        )
+        delivery = {
+            **result.as_metadata(),
+            "status": "procesando" if result.ok else "error",
+            "recipient": recipient,
+            "automatic": automatic,
+            "attempted_at": attempted_at,
+        }
+    except Exception as exc:
+        delivery = {
+            "status": "error", "ok": False, "recipient": recipient,
+            "message_id": "", "error": str(exc), "attempted_at": attempted_at,
+            "automatic": automatic,
+        }
+    _profile_update(FACTURAS, int(factura["id"]), scope, {"email_delivery": delivery})
+    return delivery
 
 
 class GeneralProducto(BaseModel):
@@ -629,6 +707,12 @@ async def timbrar_factura_general(
     existing = _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True)
     previous = next((row for row in existing if row.get("idempotency_key") == payload.idempotency_key), None)
     if previous:
+        if (previous.get("status") == "timbrada" and previous.get("xml_content")
+                and not previous.get("email_delivery")):
+            recipient = _client_email(scope, ((previous.get("cfdi_json") or {}).get("Receptor") or {}).get("Rfc") or "")
+            previous["email_delivery"] = _deliver_general_invoice_email(
+                previous, scope, recipient, automatic=True,
+            )
         return {"ok": previous.get("status") == "timbrada", "reused": True, "factura": previous}
 
     sb = get_supabase_admin()
@@ -709,6 +793,8 @@ async def timbrar_factura_general(
             "message": "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado. Sincroniza las facturas del PAC; no vuelvas a timbrar.",
             "uuid_sat": uuid_sat,
         })
+    recipient = _client_email(scope, ((cfdi.get("Receptor") or {}).get("Rfc") or ""))
+    row["email_delivery"] = _deliver_general_invoice_email(row, scope, recipient, automatic=True)
     return {"ok": True, "reused": False, "factura": row}
 
 
@@ -879,50 +965,15 @@ async def enviar_factura_general_por_correo(
     factura = invoices[0] if invoices else None
     if not factura or factura.get("status") != "timbrada" or not factura.get("xml_content"):
         raise HTTPException(404, "La factura timbrada o sus archivos no están disponibles.")
-    cfdi = factura.get("cfdi_json") or {}
-    concepts = cfdi.get("Conceptos") or []
-    units = {str(item.get("Unidad") or item.get("ClaveUnidad") or "Unidad") for item in concepts}
-    if len(units) == 1:
-        quantity = sum(Decimal(str(item.get("Cantidad") or 0)) for item in concepts)
-        unit_label = next(iter(units))
-    else:
-        quantity = len(concepts)
-        unit_label = "conceptos"
-    logo_data, pdf_theme = _invoice_pdf_branding(factura, scope)
-    pdf = generar_pdf_ingreso_desde_xml(
-        factura["xml_content"],
-        logo_data_url=logo_data,
-        observaciones=str(factura.get("notas") or ""),
-        pdf_theme=pdf_theme,
-    )
-    result = send_gas_lp_invoice_email(
-        to_email=str(payload.email),
-        issuer_name=str((cfdi.get("Emisor") or {}).get("Nombre") or "GE Control"),
-        customer_name=str((cfdi.get("Receptor") or {}).get("Nombre") or "Cliente"),
-        uuid_sat=str(factura.get("uuid_sat") or ""),
-        total=cfdi.get("Total") or "0",
-        xml_content=str(factura["xml_content"]),
-        pdf_bytes=pdf,
-        pdf_filename=_document_filename(factura, "pdf"),
-        serie_folio="".join(filter(None, (str(factura.get("serie") or ""), str(factura.get("folio") or "")))),
-        quantity=quantity,
-        unit_label=unit_label,
-    )
-    delivery = {
-        **result.as_metadata(),
-        "status": "procesando" if result.ok else "error",
-        "recipient": str(payload.email),
-        "attempted_at": datetime.now(timezone.utc).isoformat(),
+    delivery = _deliver_general_invoice_email(factura, scope, str(payload.email))
+    if not delivery.get("ok"):
+        raise HTTPException(502, delivery.get("error") or "No se pudo enviar el correo.")
+    return {
+        "ok": True,
+        "email": str(payload.email),
+        "message_id": delivery.get("message_id") or "",
+        "email_delivery": delivery,
     }
-    update = get_supabase_admin().table(FACTURAS).update({
-        "email_delivery": delivery, "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", factura_id).eq("perfil_id", scope["perfil_id"])
-    if scope.get("tenant_id"):
-        update = update.eq("tenant_id", scope["tenant_id"])
-    update.execute()
-    if not result.ok:
-        raise HTTPException(502, result.error or "No se pudo enviar el correo.")
-    return {"ok": True, "email": str(payload.email), "message_id": result.message_id, "email_delivery": delivery}
 
 
 @router.post("/facturas/{factura_id}/cancelar")
