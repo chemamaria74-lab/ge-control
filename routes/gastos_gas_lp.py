@@ -837,6 +837,30 @@ def list_suppliers(limit: int = Query(default=300, ge=1, le=500),
     return {"items": _base_query(ctx, "gas_lp_expense_suppliers").order("commercial_name").limit(limit).execute().data or []}
 
 
+def _supplier_identity_conflict(
+    ctx: dict[str, Any], *, normalized_name: str, rfc: str = "", exclude_id: int = 0,
+) -> dict[str, Any] | None:
+    """Return the active supplier that already owns a name or RFC."""
+    suppliers = _base_query(ctx, "gas_lp_expense_suppliers").eq("status", "active").execute().data or []
+    clean_rfc = _normalize(rfc)
+    for supplier in suppliers:
+        if int(supplier.get("id") or 0) == int(exclude_id or 0):
+            continue
+        same_name = _normalize(supplier.get("normalized_name") or supplier.get("commercial_name")) == normalized_name
+        same_rfc = bool(clean_rfc and _normalize(supplier.get("rfc")) == clean_rfc)
+        if same_name or same_rfc:
+            return supplier
+    return None
+
+
+def _duplicate_supplier_error(existing: dict[str, Any]) -> HTTPException:
+    return HTTPException(
+        409,
+        f"PROVEEDOR DUPLICADO: ya existe '{existing.get('commercial_name') or 'este proveedor'}'. "
+        "No se creó ni modificó otro registro; selecciona el proveedor existente del catálogo.",
+    )
+
+
 @router.post("/gastos/suppliers", status_code=201)
 def create_supplier(payload: SupplierCreate, token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
@@ -844,9 +868,13 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
     legal_name, candidate_email = _supplier_contact_fields(payload.legal_name, payload.payment_email)
     clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, candidate_email)
+    normalized_name = _normalize(payload.commercial_name)
+    existing = _supplier_identity_conflict(ctx, normalized_name=normalized_name, rfc=clean_rfc)
+    if existing:
+        raise _duplicate_supplier_error(existing)
     row = {
         "tenant_id": ctx["tenant_id"], "profile_id": ctx["perfil_id"],
-        "commercial_name": payload.commercial_name.strip(), "normalized_name": _normalize(payload.commercial_name),
+        "commercial_name": payload.commercial_name.strip(), "normalized_name": normalized_name,
         "legal_name": legal_name,
         "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
         "account_number": _clean_account_number(payload.account_number), "payment_email": clean_email,
@@ -855,7 +883,16 @@ def create_supplier(payload: SupplierCreate, token: str = Query(default=""), aut
         "validated_by": None if ctx["is_manager"] else ctx["actor_id"],
         "validated_at": None if ctx["is_manager"] else _now(),
     }
-    created = ctx["sb"].table("gas_lp_expense_suppliers").insert(row).execute().data[0]
+    created_rows = (
+        ctx["sb"].table("gas_lp_expense_suppliers")
+        .upsert(row, ignore_duplicates=True).execute().data or []
+    )
+    if not created_rows:
+        existing = _supplier_identity_conflict(ctx, normalized_name=normalized_name, rfc=clean_rfc)
+        if existing:
+            raise _duplicate_supplier_error(existing)
+        raise HTTPException(500, "No se pudo confirmar el alta del proveedor.")
+    created = created_rows[0]
     _audit(ctx, "supplier", int(created["id"]), "created", after=created)
     return {"item": created}
 
@@ -899,9 +936,15 @@ def update_supplier(supplier_id: int, payload: SupplierUpdate, token: str = Quer
         raise HTTPException(403, "El gerente solo puede corregir proveedores propios pendientes o rechazados.")
     legal_name, candidate_email = _supplier_contact_fields(payload.legal_name, payload.payment_email)
     clean_rfc, clean_email = _validate_supplier_fields(payload.rfc, candidate_email)
+    normalized_name = _normalize(payload.commercial_name)
+    existing = _supplier_identity_conflict(
+        ctx, normalized_name=normalized_name, rfc=clean_rfc, exclude_id=supplier_id,
+    )
+    if existing:
+        raise _duplicate_supplier_error(existing)
     update = {
         "commercial_name": payload.commercial_name.strip(),
-        "normalized_name": _normalize(payload.commercial_name), "legal_name": legal_name,
+        "normalized_name": normalized_name, "legal_name": legal_name,
         "rfc": clean_rfc, "bank_name": payload.bank_name.strip(),
         "account_number": _clean_account_number(payload.account_number),
         "payment_email": clean_email, "status": payload.status,
