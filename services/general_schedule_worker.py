@@ -260,13 +260,6 @@ def _schedule_invoice_idempotency_key(schedule_id: object, periodo: str, replace
     return f"{base}:reposicion:{replacement_for}" if replacement_for else base
 
 
-def _is_unique_execution_conflict(exc: Exception) -> bool:
-    """Identifica la carrera esperada cuando dos workers reclaman el mismo periodo."""
-    code = str(getattr(exc, "code", "") or "")
-    message = str(exc)
-    return (code == "23505" or "'code': '23505'" in message or '"code": "23505"' in message)
-
-
 def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry_omitted: bool = False) -> dict:
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
     from services.email_delivery import send_gas_lp_invoice_email, send_general_schedule_success_email
@@ -326,24 +319,23 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "ejecucion": previous_row,
         }
 
-    # La ejecución única se registra antes de reservar turno, folio o contactar
-    # al PAC. La restricción única de Supabase impide dos intentos concurrentes.
+    # Reclamar el periodo es una operación atómica. PostgREST traduce
+    # ignore_duplicates a ON CONFLICT DO NOTHING, por lo que dos workers no
+    # generan un 23505 ni pueden timbrar dos veces el mismo periodo.
     if execution is None:
-        try:
-            execution = (
-                sb.table(EJECUCIONES)
-                .insert(_scope_row(schedule, {
-                    "programacion_id": schedule["id"], "periodo": periodo,
-                    "status": "procesando", "email_delivery": {}, "error": "",
-                }))
-                .execute().data or []
-            )[0]
-        except Exception as exc:
-            if not _is_unique_execution_conflict(exc):
-                raise
-            # Otro worker ganó la inserción entre el SELECT y el INSERT. No es
-            # un error fiscal y, sobre todo, no debemos cambiar a "error" la
-            # ejecución que el otro worker está procesando.
+        claimed = (
+            sb.table(EJECUCIONES)
+            .upsert(_scope_row(schedule, {
+                "programacion_id": schedule["id"], "periodo": periodo,
+                "status": "procesando", "email_delivery": {}, "error": "",
+            }), ignore_duplicates=True)
+            .execute().data or []
+        )
+        if claimed:
+            execution = claimed[0]
+        else:
+            # Otro worker ganó el reclamo. Recuperamos su ejecución sin
+            # convertir la concurrencia normal en un error de Postgres.
             concurrent = (
                 sb.table(EJECUCIONES)
                 .select("*")
@@ -357,7 +349,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
                 or []
             )
             if not concurrent:
-                raise
+                raise RuntimeError("No se pudo recuperar la ejecución concurrente del periodo.")
             concurrent_row = concurrent[0]
             completed = concurrent_row.get("status") == "completada"
             return {
