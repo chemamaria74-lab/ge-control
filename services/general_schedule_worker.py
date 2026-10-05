@@ -58,7 +58,43 @@ def _notify_schedule_failure(sb, schedule: dict, execution_id: object, error: st
 
 
 def _try_notify_schedule_failure(sb, schedule: dict, execution_id: object, error: str, now: datetime) -> None:
+    # Un rechazo u omisión todavía puede corregirse y reintentarse desde la
+    # pantalla de programadas. No lo anunciamos como fallo definitivo porque el
+    # mismo intento puede terminar timbrado y producir dos correos
+    # contradictorios. Además, releemos el estado para cerrar la carrera entre
+    # un worker que va a avisar y otro que acaba de completar el CFDI.
+    if not execution_id:
+        return
     try:
+        rows = (
+            sb.table(EJECUCIONES).select("status,factura_id,email_delivery")
+            .eq("id", execution_id).limit(1).execute().data or []
+        )
+        current = rows[0] if rows else {}
+        current_status = str(current.get("status") or "").strip().lower()
+        delivery = current.get("email_delivery") if isinstance(current.get("email_delivery"), dict) else {}
+        pac_uuid = str(delivery.get("pac_uuid") or "").strip()
+        stamped_invoice = False
+        if current.get("factura_id"):
+            invoices = (
+                sb.table(FACTURAS).select("status,uuid_sat")
+                .eq("id", current["factura_id"])
+                .eq("tenant_id", schedule.get("tenant_id"))
+                .eq("perfil_id", schedule["perfil_id"])
+                .limit(1).execute().data or []
+            )
+            invoice = invoices[0] if invoices else {}
+            stamped_invoice = (
+                str(invoice.get("status") or "").strip().lower() == "timbrada"
+                or bool(str(invoice.get("uuid_sat") or "").strip())
+            )
+        if current_status != "error" or pac_uuid or stamped_invoice:
+            logger.info(
+                "Aviso terminal omitido para programación id=%s ejecución=%s status=%s pac_uuid=%s factura_timbrada=%s",
+                schedule.get("id"), execution_id, current_status or "desconocido",
+                bool(pac_uuid), stamped_invoice,
+            )
+            return
         _notify_schedule_failure(sb, schedule, execution_id, error, now)
     except Exception:
         logger.exception("No se pudo avisar el fallo de programación id=%s", schedule.get("id"))
@@ -328,7 +364,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             .upsert(_scope_row(schedule, {
                 "programacion_id": schedule["id"], "periodo": periodo,
                 "status": "procesando", "email_delivery": {}, "error": "",
-            }), ignore_duplicates=True)
+            }), on_conflict="tenant_id,perfil_id,programacion_id,periodo", ignore_duplicates=True)
             .execute().data or []
         )
         if claimed:
@@ -593,6 +629,12 @@ def _parse_timestamp(value: object) -> datetime:
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
+def _is_unique_execution_conflict(exc: Exception) -> bool:
+    """Reconoce el 23505 esperado cuando otro worker reclamó el periodo."""
+    message = str(exc).lower()
+    return "23505" in message or "duplicate key value violates unique constraint" in message
+
+
 def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
     """Procesa todas las programaciones activas vencidas; las futuras no se tocan."""
     from supabase_config import get_supabase_admin
@@ -620,8 +662,21 @@ def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
                 period = now.astimezone(ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))).strftime("%Y-%m")
                 pending = (
                     get_supabase_admin().table(EJECUCIONES).select("id,status")
+                    .eq("tenant_id", schedule.get("tenant_id"))
+                    .eq("perfil_id", schedule["perfil_id"])
                     .eq("programacion_id", schedule["id"]).eq("periodo", period).limit(1).execute().data or []
                 )
+                if _is_unique_execution_conflict(exc) and pending:
+                    # Otro proceso ya posee esta ejecución. No cambiar su
+                    # estado ni enviar un falso aviso de fallo.
+                    results.append({
+                        "programacion_id": schedule["id"],
+                        "ok": pending[0].get("status") == "completada",
+                        "reused": True,
+                        "in_progress": pending[0].get("status") in {"procesando", "esperando_turno", "pac_timbrada"},
+                        "ejecucion": pending[0],
+                    })
+                    continue
                 if not isinstance(exc, PacStampPersistenceError) and pending and pending[0].get("status") == "procesando":
                     get_supabase_admin().table(EJECUCIONES).update({
                         "status": "error", "error": str(exc)[:500], "updated_at": now.isoformat()
