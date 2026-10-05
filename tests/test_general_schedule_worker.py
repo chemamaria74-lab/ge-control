@@ -204,8 +204,21 @@ def test_concurrent_execution_claim_is_atomic_and_does_not_raise_unique_errors()
     source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
     executor = source.split("def execute_schedule", 1)[1].split("def _parse_timestamp", 1)[0]
     assert ".upsert(_scope_row(schedule" in executor
+    assert 'on_conflict="tenant_id,perfil_id,programacion_id,periodo"' in executor
     assert "ignore_duplicates=True" in executor
     assert '"in_progress": not completed' in executor
+
+
+def test_duplicate_worker_claim_never_marks_the_winning_execution_as_failed():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    runner = source.split("def run_due_schedules", 1)[1]
+
+    assert "def _is_unique_execution_conflict" in source
+    assert '"23505" in message' in source
+    assert "if _is_unique_execution_conflict(exc) and pending:" in runner
+    duplicate_guard = runner.index("if _is_unique_execution_conflict(exc) and pending:")
+    mark_error = runner.index('"status": "error"', duplicate_guard)
+    assert runner.index("continue", duplicate_guard) < mark_error
 
 
 def test_pre_pac_failures_are_made_retryable_instead_of_staying_processing():
@@ -226,6 +239,20 @@ def test_terminal_scheduled_failures_notify_the_issuer_without_blocking_the_work
     assert source.count("_try_notify_schedule_failure(sb, schedule, execution[\"id\"]") >= 3
     helper = source.split("def _try_notify_schedule_failure", 1)[1].split("def ", 1)[0]
     assert "except Exception:" in helper
+    assert '.select("status,factura_id,email_delivery")' in helper
+    assert 'current_status != "error"' in helper
+    assert "or pac_uuid or stamped_invoice" in helper
+    assert "_notify_schedule_failure" in helper
+
+
+def test_retryable_schedule_failures_do_not_send_terminal_failure_email():
+    source = (Path(__file__).parents[1] / "services/general_schedule_worker.py").read_text(encoding="utf-8")
+    helper = source.split("def _try_notify_schedule_failure", 1)[1].split("def ", 1)[0]
+
+    assert 'current_status != "error"' in helper
+    assert 'status=%s' in helper
+    assert '.select("status,uuid_sat")' in helper
+    assert '== "timbrada"' in helper
 
 
 def test_successful_scheduled_invoice_notifies_issuer_with_customer_delivery_state():
