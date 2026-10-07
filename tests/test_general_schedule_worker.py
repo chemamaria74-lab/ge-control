@@ -1,8 +1,12 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+import types
 
+import services.general_schedule_worker as schedule_worker
 from services.general_schedule_worker import (_canceled_invoice_linked_to_execution, _schedule_invoice_idempotency_key,
-                                                acquire_general_stamp_slot,
+                                                acquire_general_stamp_slot, activation_schedule_values,
+                                                automatic_execution_is_current,
                                                 catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
                                                 reserve_general_folio, selected_general_logo)
 
@@ -162,6 +166,128 @@ def test_next_execution_moves_to_following_month_after_due_time():
 def test_next_execution_keeps_current_month_before_due_time():
     result = next_execution(schedule(), after=datetime(2026, 9, 5, 14, 59, tzinfo=timezone.utc))
     assert result == datetime(2026, 9, 5, 15, 0, tzinfo=timezone.utc)
+
+
+def test_reactivating_after_due_date_resumes_on_next_month_without_backfill():
+    values = activation_schedule_values(
+        schedule(dia_mes=3, hora_local="08:35"),
+        now=datetime(2026, 10, 7, 21, 0, tzinfo=timezone.utc),
+    )
+
+    assert values == {
+        "status": "activa",
+        "proxima_ejecucion_at": "2026-11-03T14:35:00+00:00",
+    }
+
+
+def test_reactivating_before_due_time_keeps_the_nearest_upcoming_occurrence():
+    values = activation_schedule_values(
+        schedule(dia_mes=3, hora_local="08:35"),
+        now=datetime(2026, 10, 3, 14, 0, tzinfo=timezone.utc),
+    )
+
+    assert values["proxima_ejecucion_at"] == "2026-10-03T14:35:00+00:00"
+
+
+def test_automatic_worker_accepts_only_the_scheduled_local_date():
+    due = schedule(
+        dia_mes=3,
+        hora_local="08:35",
+        proxima_ejecucion_at="2026-10-03T14:35:00+00:00",
+    )
+
+    assert automatic_execution_is_current(
+        due, now=datetime(2026, 10, 3, 14, 36, tzinfo=timezone.utc)
+    ) is True
+    assert automatic_execution_is_current(
+        due, now=datetime(2026, 10, 7, 21, 0, tzinfo=timezone.utc)
+    ) is False
+
+
+def test_automatic_worker_rejects_a_retry_date_that_is_not_the_configured_day():
+    stale_retry = schedule(
+        dia_mes=3,
+        hora_local="08:35",
+        proxima_ejecucion_at="2026-10-07T20:56:00+00:00",
+    )
+
+    assert automatic_execution_is_current(
+        stale_retry, now=datetime(2026, 10, 7, 20, 57, tzinfo=timezone.utc)
+    ) is False
+
+
+def test_worker_advances_an_old_due_date_without_creating_an_execution(monkeypatch):
+    stale = schedule(
+        tenant_id="tenant",
+        perfil_id=7,
+        status="activa",
+        dia_mes=3,
+        hora_local="08:35",
+        proxima_ejecucion_at="2026-10-03T14:35:00+00:00",
+    )
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+    class Supabase:
+        def __init__(self):
+            self.mode = ""
+            self.values = None
+            self.updates = []
+
+        def table(self, name):
+            self.table_name = name
+            return self
+
+        def select(self, _columns):
+            self.mode = "select"
+            return self
+
+        def update(self, values):
+            self.mode = "update"
+            self.values = values
+            return self
+
+        def eq(self, _column, _value):
+            return self
+
+        def lte(self, _column, _value):
+            return self
+
+        def order(self, _column):
+            return self
+
+        def execute(self):
+            if self.mode == "select":
+                return Response([stale])
+            self.updates.append(self.values)
+            return Response([stale])
+
+    sb = Supabase()
+    fake_config = types.ModuleType("supabase_config")
+    fake_config.get_supabase_admin = lambda: sb
+    monkeypatch.setitem(sys.modules, "supabase_config", fake_config)
+    monkeypatch.setattr(
+        schedule_worker,
+        "execute_schedule",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("No debe contactar al PAC")),
+    )
+
+    results = schedule_worker.run_due_schedules(
+        now=datetime(2026, 10, 7, 21, 0, tzinfo=timezone.utc)
+    )
+
+    assert results == [{
+        "programacion_id": 42,
+        "ok": True,
+        "skipped_past_due": True,
+        "proxima_ejecucion_at": "2026-11-03T14:35:00+00:00",
+    }]
+    assert sb.updates == [{
+        "proxima_ejecucion_at": "2026-11-03T14:35:00+00:00",
+        "updated_at": "2026-10-07T21:00:00+00:00",
+    }]
 
 
 def test_pac_success_is_persisted_before_local_invoice_insert_and_never_uses_decimal_balance():
