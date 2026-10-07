@@ -7,7 +7,7 @@ import copy
 import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,26 @@ def next_execution(schedule: dict, *, after: datetime) -> datetime:
         day = min(day, calendar.monthrange(year, month)[1])
         candidate = datetime(year, month, day, hour, minute, tzinfo=tz)
     return candidate.astimezone(timezone.utc)
+
+
+def activation_schedule_values(schedule: dict, *, now: datetime) -> dict:
+    """Reanuda el calendario sin recuperar automáticamente periodos pausados."""
+    return {
+        "status": "activa",
+        "proxima_ejecucion_at": next_execution(schedule, after=now).isoformat(),
+    }
+
+
+def automatic_execution_is_current(schedule: dict, *, now: datetime) -> bool:
+    """Limita el automático a la fecha local exacta que le corresponde."""
+    try:
+        tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
+        due_at = _parse_timestamp(schedule.get("proxima_ejecucion_at")).astimezone(tz)
+        local_now = now.astimezone(tz)
+        configured_day = min(int(schedule.get("dia_mes") or 1), 28)
+        return due_at.date() == local_now.date() and due_at.day == configured_day
+    except (TypeError, ValueError, OverflowError, ZoneInfoNotFoundError):
+        return False
 
 
 def cfdi_for_execution(schedule: dict, *, now: datetime) -> dict:
@@ -636,12 +656,13 @@ def _is_unique_execution_conflict(exc: Exception) -> bool:
 
 
 def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
-    """Procesa todas las programaciones activas vencidas; las futuras no se tocan."""
+    """Procesa solo vencimientos de hoy; nunca recupera automáticamente fechas pasadas."""
     from supabase_config import get_supabase_admin
 
     now = now or datetime.now(timezone.utc)
+    sb = get_supabase_admin()
     rows = (
-        get_supabase_admin()
+        sb
         .table(PROGRAMACIONES)
         .select("*")
         .eq("status", "activa")
@@ -653,6 +674,24 @@ def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
     )
     results = []
     for schedule in rows:
+        if not automatic_execution_is_current(schedule, now=now):
+            next_at = next_execution(schedule, after=now).isoformat()
+            update = (
+                sb.table(PROGRAMACIONES)
+                .update({"proxima_ejecucion_at": next_at, "updated_at": now.isoformat()})
+                .eq("id", schedule["id"])
+                .eq("perfil_id", schedule["perfil_id"])
+            )
+            if schedule.get("tenant_id"):
+                update = update.eq("tenant_id", schedule["tenant_id"])
+            update.execute()
+            results.append({
+                "programacion_id": schedule["id"],
+                "ok": True,
+                "skipped_past_due": True,
+                "proxima_ejecucion_at": next_at,
+            })
+            continue
         execution = None
         try:
             results.append({"programacion_id": schedule["id"], **execute_schedule(schedule, now=now)})
