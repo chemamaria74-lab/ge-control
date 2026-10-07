@@ -18,8 +18,9 @@ from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import retrieve_resend_email_status, send_gas_lp_invoice_email
 from services.resend_webhooks import delivery_update, verify_resend_webhook
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
-from services.general_schedule_worker import (acquire_general_stamp_slot, cfdi_for_execution, execute_schedule,
-                                                next_execution, reserve_general_folio, selected_general_logo)
+from services.general_schedule_worker import (acquire_general_stamp_slot, activation_schedule_values,
+                                                cfdi_for_execution, execute_schedule, next_execution,
+                                                reserve_general_folio, selected_general_logo)
 from supabase_config import get_supabase_admin
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_get, _sb_insert, _sb_list, _sb_query, _sb_update
 
@@ -1320,9 +1321,16 @@ async def cambiar_estado_programacion(programacion_id: int, status: str, authori
     if status not in {"activa", "pausada", "cancelada"}:
         raise HTTPException(422, "Estado de programación inválido.")
     scope = _scope_required(authorization, x_perfil_id)
-    if not _sb_update(PROGRAMACIONES, programacion_id, scope, {"status": status}):
+    values = {"status": status}
+    if status == "activa":
+        schedules = _sb_list(PROGRAMACIONES, scope, active_only=False, order="created_at", desc=True)
+        schedule = next((row for row in schedules if int(row.get("id") or 0) == programacion_id), None)
+        if not schedule:
+            raise HTTPException(404, "Programación no encontrada.")
+        values = activation_schedule_values(schedule, now=datetime.now(timezone.utc))
+    if not _sb_update(PROGRAMACIONES, programacion_id, scope, values):
         raise HTTPException(404, "Programación no encontrada.")
-    return {"ok": True, "programacion_id": programacion_id, "status": status}
+    return {"ok": True, "programacion_id": programacion_id, **values}
 
 
 @router.get("/programaciones/{programacion_id}/vista-previa.pdf")
