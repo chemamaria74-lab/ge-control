@@ -100,3 +100,4 @@ th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
 [data-content="catalogs"] .copy-account.copied{border-color:#a7dbc8;background:#e2f5ee;color:#12664a}
 .paid-invoice-origin strong,.paid-invoice-origin small{display:block}.paid-invoice-origin small{margin-top:3px;color:var(--muted)}
 .payment-email-status{display:inline-flex;align-items:center;gap:5px;width:max-content;margin-top:2px;color:#9d2031;font-size:10px;font-weight:800}.payment-email-status.sent{color:#12664a}
+.analytics-period-summary{margin:-2px 0 12px;padding:10px 14px;border-left:4px solid var(--wine);border-radius:8px;background:#fff8f3;color:var(--muted)}.analytics-period-summary strong{color:var(--text)}
