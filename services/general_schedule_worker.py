@@ -5,6 +5,7 @@ from __future__ import annotations
 import calendar
 import copy
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -128,6 +129,18 @@ def next_execution(schedule: dict, *, after: datetime) -> datetime:
         day = min(day, calendar.monthrange(year, month)[1])
         candidate = datetime(year, month, day, hour, minute, tzinfo=tz)
     return candidate.astimezone(timezone.utc)
+
+
+def next_execution_after_period(schedule: dict, period: str) -> datetime:
+    """Avanza un periodo cerrado aunque se haya ejecutado antes de su día."""
+    if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", str(period or "")):
+        raise ValueError("El periodo debe tener formato AAAA-MM.")
+    year, month = (int(part) for part in period.split("-"))
+    tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
+    # Los días programables llegan hasta el 28. Cerrar ahí el periodo hace que
+    # una ejecución anticipada y una tardía avancen siempre al mismo mes.
+    period_closed_at = datetime(year, month, 28, 23, 59, 59, 999999, tzinfo=tz)
+    return next_execution(schedule, after=period_closed_at.astimezone(timezone.utc))
 
 
 def activation_schedule_values(schedule: dict, *, now: datetime) -> dict:
@@ -336,6 +349,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
     """Ejecuta una programación una sola vez por periodo y avanza al mes siguiente."""
     from services.email_delivery import send_gas_lp_invoice_email, send_general_schedule_success_email
     from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
+    from services.general_document_names import general_invoice_filename
     from services.sw_sapien import emitir_timbrar_json
     from supabase_config import get_supabase_admin
 
@@ -431,7 +445,7 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
                 "error": "" if completed else "Esta programación ya está siendo procesada.",
                 "ejecucion": concurrent_row,
             }
-    next_at = next_execution(schedule, after=now).isoformat()
+    next_at = next_execution_after_period(schedule, periodo).isoformat()
 
     stamp_slot = acquire_general_stamp_slot(
         sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"]
@@ -589,7 +603,11 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
 
     email = {"ok": False, "skipped": True, "error": "Sin correo de destino o XML timbrado."}
     pdf = b""
-    pdf_filename = f"factura_{data.get('uuid') or schedule['id']}.pdf"
+    pdf_filename = general_invoice_filename({
+        **factura,
+        "cfdi_json": cfdi,
+        "uuid_sat": data.get("uuid") or factura.get("uuid_sat"),
+    }, "pdf")
     if data.get("cfdi"):
         try:
             pdf = generar_pdf_ingreso_desde_xml(data["cfdi"], logo_data_url=logo_data, pdf_theme={key: config.get(key) for key in ("pdf_header_color", "pdf_header_text_color", "pdf_title_color")})
