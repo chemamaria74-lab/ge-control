@@ -45,9 +45,8 @@ async function init(){
   if(!TOKEN){ showAdminLogin(); return; }
   try{ await verifySuperadmin(); }
   catch(e){
-    if (window.GESessionTimeout) window.GESessionTimeout.clear();
-    localStorage.removeItem('zc_token');
-    localStorage.removeItem('sat_token');
+    // Entrar por error al panel SaaS con una sesión válida de cliente no debe
+    // cerrar Empresas y personas ni Transporte en las demás pestañas.
     TOKEN = '';
     showAdminLogin(e.message.includes('superadmin') ? 'Este usuario no está autorizado como superadmin.' : 'Tu sesión expiró. Entra de nuevo.');
   }
