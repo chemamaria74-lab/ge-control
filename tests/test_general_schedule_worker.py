@@ -8,6 +8,7 @@ from services.general_schedule_worker import (_canceled_invoice_linked_to_execut
                                                 acquire_general_stamp_slot, activation_schedule_values,
                                                 automatic_execution_is_current,
                                                 catalog_cfdi_for_execution, cfdi_for_execution, next_execution,
+                                                next_execution_after_period,
                                                 reserve_general_folio, selected_general_logo)
 
 
@@ -166,6 +167,11 @@ def test_next_execution_moves_to_following_month_after_due_time():
 def test_next_execution_keeps_current_month_before_due_time():
     result = next_execution(schedule(), after=datetime(2026, 9, 5, 14, 59, tzinfo=timezone.utc))
     assert result == datetime(2026, 9, 5, 15, 0, tzinfo=timezone.utc)
+
+
+def test_completed_period_advances_to_next_month_even_when_run_early():
+    result = next_execution_after_period(schedule(), "2026-10")
+    assert result == datetime(2026, 11, 5, 15, 0, tzinfo=timezone.utc)
 
 
 def test_reactivating_after_due_date_resumes_on_next_month_without_backfill():
