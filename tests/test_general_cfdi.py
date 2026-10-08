@@ -82,7 +82,7 @@ def test_adds_cuenta_predial_to_rental_concept():
 
     payload = build_general_cfdi(request)
 
-    assert payload["Conceptos"][0]["CuentaPredial"] == {"Numero": "0010202501200"}
+    assert payload["Conceptos"][0]["CuentaPredial"] == [{"Numero": "0010202501200"}]
 
 
 def test_ppd_requires_forma_pago_99():

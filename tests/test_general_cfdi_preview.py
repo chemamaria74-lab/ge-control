@@ -23,7 +23,7 @@ def sample_cfdi():
         "Conceptos": [{
             "ClaveProdServ": "80131500", "Cantidad": "1.00", "ClaveUnidad": "E48",
             "Unidad": "SERVICIO", "Descripcion": "RENTA — septiembre 2026",
-            "CuentaPredial": {"Numero": "0010202501200"},
+            "CuentaPredial": [{"Numero": "0010202501200"}],
             "ValorUnitario": "60000.00", "Importe": "60000.00", "ObjetoImp": "02",
             "Impuestos": {
                 "Traslados": [{"Base": "60000.00", "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": "0.160000", "Importe": "9600.00"}],

@@ -916,3 +916,24 @@ def test_successful_batch_capture_stays_in_batch_mode_and_clears_shared_context(
     assert "$(c.input).value=''" in script
     assert "resetDirectCapture(usedMode)" in script
     assert "La captura quedó limpia para registrar otro proveedor" in script
+
+
+def test_expense_analytics_is_always_scoped_to_one_month():
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert 'id="analyticsPeriod" type="month" required' in html
+    assert 'id="analyticsPeriodLabel"' in html
+    assert "params.set('period',period)" in script
+    assert "$('analyticsPeriod').value=today.slice(0,7)" in script
+    assert "['analyticsZone','analyticsSupplier','analyticsConcept','analyticsStatus']" in script
+    assert ".gte(\"invoice_date\", period_start)" in (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    assert "money(x.paid_mxn)" in script
+    assert "money(x.pending_mxn)" in script
+
+    assert gastos_gas_lp._expense_analysis_period("2026-12") == (
+        "2026-12", "2026-12-01", "2027-01-01"
+    )
+    with pytest.raises(HTTPException) as exc:
+        gastos_gas_lp._expense_analysis_period("2026-13")
+    assert exc.value.status_code == 422

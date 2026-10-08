@@ -92,6 +92,30 @@ def test_emitir_timbrar_json_rejects_nominal_success_without_sat_stamp(monkeypat
     assert calls["versions"] == []
 
 
+def test_emitir_timbrar_json_rejects_non_array_cuenta_predial_before_pac(monkeypatch):
+    calls = _patch_audit(monkeypatch)
+    monkeypatch.setattr(
+        sw_sapien.requests,
+        "post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("No debe contactar al PAC")),
+    )
+
+    result = sw_sapien.emitir_timbrar_json({
+        "Version": "4.0",
+        "Emisor": {"Rfc": "AAA010101AAA"},
+        "Receptor": {"Rfc": "XAXX010101000"},
+        "Conceptos": [{
+            "ClaveProdServ": "80131502",
+            "CuentaPredial": {"Numero": "321321000209800"},
+        }],
+    })
+
+    assert result["ok"] is False
+    assert "CuentaPredial debe enviarse como una lista" in result["error"]
+    assert calls["requests"][0]["operation"] == "validate_json"
+    assert calls["responses"][0]["status"] == "error"
+
+
 def test_pac_stamp_validation_requires_matching_uuid_in_xml():
     result = sw_sapien._validate_pac_stamp_data({
         "uuid": "123E4567-E89B-12D3-A456-426614174000",

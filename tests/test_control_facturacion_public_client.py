@@ -127,7 +127,8 @@ def test_sensitive_actions_use_branded_dialog_instead_of_browser_prompts():
     assert 'id="actionDialog"' in TEMPLATE
     assert "recipient=prompt(" not in SOURCE
     assert "const confirmation=prompt(" not in SOURCE
-    assert "title:'Enviar factura por correo'" in SOURCE
+    assert "'Enviar factura por correo'" in SOURCE
+    assert "'Reenviar factura por correo'" in SOURCE
     assert "title:'Ejecutar programación'" in SOURCE
 
 
