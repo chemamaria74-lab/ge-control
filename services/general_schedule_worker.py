@@ -138,14 +138,14 @@ def activation_schedule_values(schedule: dict, *, now: datetime) -> dict:
     }
 
 
-def automatic_execution_is_current(schedule: dict, *, now: datetime) -> bool:
+def automatic_execution_is_current(schedule: dict, *, now: datetime, waiting_retry: bool = False) -> bool:
     """Limita el automático a la fecha local exacta que le corresponde."""
     try:
         tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
         due_at = _parse_timestamp(schedule.get("proxima_ejecucion_at")).astimezone(tz)
         local_now = now.astimezone(tz)
         configured_day = min(int(schedule.get("dia_mes") or 1), 28)
-        return due_at.date() == local_now.date() and due_at.day == configured_day
+        return due_at.date() == local_now.date() and (due_at.day == configured_day or waiting_retry)
     except (TypeError, ValueError, OverflowError, ZoneInfoNotFoundError):
         return False
 
@@ -220,6 +220,22 @@ def acquire_general_stamp_slot(sb, *, tenant_id: str, perfil_id: int, wait_secon
     if not isinstance(row, dict):
         raise RuntimeError("No se pudo consultar el turno de timbrado.")
     return row
+
+
+def release_general_stamp_slot(sb, *, tenant_id: str, perfil_id: int, lease_until: object) -> None:
+    """Libera únicamente el turno adquirido por esta ejecución.
+
+    El plazo de cinco minutos queda como seguro ante una caída real, no como
+    una espera obligatoria después de cada factura.
+    """
+    if not lease_until:
+        return
+    released_at = datetime.now(timezone.utc).isoformat()
+    (sb.table(CONFIG).update({
+        "proximo_timbrado_at": released_at,
+        "updated_at": released_at,
+    }).eq("tenant_id", tenant_id).eq("perfil_id", perfil_id)
+      .eq("proximo_timbrado_at", str(lease_until)).execute())
 
 
 def selected_general_logo(config: dict, slot: int) -> tuple[str, str]:
@@ -483,6 +499,10 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
             "updated_at": now.isoformat(),
         }).eq("id", schedule["id"]).execute()
         _try_notify_schedule_failure(sb, schedule, execution["id"], error, now)
+        release_general_stamp_slot(
+            sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"],
+            lease_until=stamp_slot.get("proximo_timbrado_at"),
+        )
         return {"ok": False, "skipped": True, "error": error, "ejecucion": execution}
 
     result = emitir_timbrar_json(cfdi)
@@ -491,6 +511,10 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         sb.table(EJECUCIONES).update({"status": "rechazada", "error": error, "updated_at": now.isoformat()}).eq("id", execution["id"]).execute()
         sb.table(PROGRAMACIONES).update({"ultima_ejecucion_at": now.isoformat(), "proxima_ejecucion_at": next_at, "updated_at": now.isoformat()}).eq("id", schedule["id"]).execute()
         _try_notify_schedule_failure(sb, schedule, execution["id"], error, now)
+        release_general_stamp_slot(
+            sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"],
+            lease_until=stamp_slot.get("proximo_timbrado_at"),
+        )
         return {"ok": False, "reused": False, "error": error, "ejecucion": execution}
 
     data = result.get("data") or {}
@@ -638,6 +662,10 @@ def execute_schedule(schedule: dict, *, now: datetime | None = None, allow_retry
         "proxima_ejecucion_at": next_at,
         "updated_at": now.isoformat(),
     }).eq("id", schedule["id"]).execute()
+    release_general_stamp_slot(
+        sb, tenant_id=schedule.get("tenant_id"), perfil_id=schedule["perfil_id"],
+        lease_until=stamp_slot.get("proximo_timbrado_at"),
+    )
     return {"ok": True, "reused": False, "factura": factura, "ejecucion": execution, "email_delivery": execution_email}
 
 
@@ -674,7 +702,19 @@ def run_due_schedules(*, now: datetime | None = None) -> list[dict]:
     )
     results = []
     for schedule in rows:
-        if not automatic_execution_is_current(schedule, now=now):
+        is_current = automatic_execution_is_current(schedule, now=now)
+        waiting_retry = False
+        if not is_current and automatic_execution_is_current(schedule, now=now, waiting_retry=True):
+            period = now.astimezone(ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))).strftime("%Y-%m")
+            current_execution = (
+                sb.table(EJECUCIONES).select("status")
+                .eq("tenant_id", schedule.get("tenant_id"))
+                .eq("perfil_id", schedule["perfil_id"])
+                .eq("programacion_id", schedule["id"]).eq("periodo", period)
+                .limit(1).execute().data or []
+            )
+            waiting_retry = bool(current_execution and current_execution[0].get("status") == "esperando_turno")
+        if not is_current and not waiting_retry:
             next_at = next_execution(schedule, after=now).isoformat()
             update = (
                 sb.table(PROGRAMACIONES)
