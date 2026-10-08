@@ -3262,14 +3262,42 @@ def _gas_lp_send_complemento_pago_email(
     return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
 
 
+def _payment_document_tax_groups(root: ET.Element, ratio: Decimal) -> tuple[dict, dict]:
+    """Prorratea los impuestos reales del CFDI relacionado para Pagos 2.0."""
+    transfers: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    retentions: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    for concept in (node for node in root.iter() if _xml_local(node.tag) == "Concepto"):
+        for taxes in (node for node in list(concept) if _xml_local(node.tag) == "Impuestos"):
+            for tax in taxes.iter():
+                tax_type = _xml_local(tax.tag)
+                if tax_type not in {"Traslado", "Retencion"}:
+                    continue
+                code = _xml_attr(tax, "Impuesto")
+                factor = _xml_attr(tax, "TipoFactor", "Tasa")
+                rate = _xml_attr(tax, "TasaOCuota", "0.000000")
+                if not code:
+                    continue
+                target = transfers if tax_type == "Traslado" else retentions
+                group = target.setdefault((code, factor, rate), {"base": Decimal("0"), "amount": Decimal("0")})
+                group["base"] += _money(Decimal(_xml_attr(tax, "Base", "0")) * ratio)
+                group["amount"] += _money(Decimal(_xml_attr(tax, "Importe", "0")) * ratio)
+    return transfers, retentions
+
+
+def _payment_transfer_rate_attributes(suffix: str, factor: str, rate: str, amount: Decimal) -> str:
+    if factor == "Exento":
+        return ""
+    return f' TasaOCuota{suffix}="{Decimal(rate):.6f}" Importe{suffix}="{amount:.2f}"'
+
+
 def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal], serie: str = "PAGO", folio: str = "") -> tuple[str, dict]:
     if not facturas:
         raise HTTPException(400, "Selecciona al menos una factura PPD.")
     receptor_ref: dict | None = None
     doctos = []
     total_pago = Decimal("0.00")
-    total_base = Decimal("0.00")
-    total_iva = Decimal("0.00")
+    payment_transfers: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    payment_retentions: dict[str, Decimal] = {}
     for factura in facturas:
         root = _cfdi_root(factura.get("xml_content") or "")
         if _xml_attr(root, "TipoDeComprobante") != "I" or _xml_attr(root, "MetodoPago") != "PPD":
@@ -3297,32 +3325,50 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
             raise HTTPException(400, "El importe de pago debe ser mayor a cero y no exceder el saldo.")
         saldo = _money(saldo_ant - pagado)
         total_doc = _money(_xml_attr(root, "Total") or info["total"])
-        base = _money(pagado / Decimal("1.16"))
-        iva = _money(pagado - base)
+        if total_doc <= 0:
+            raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
+        ratio = pagado / total_doc
+        transfers, retentions = _payment_document_tax_groups(root, ratio)
         total_pago += pagado
-        total_base += base
-        total_iva += iva
+        for key, values in transfers.items():
+            group = payment_transfers.setdefault(key, {"base": Decimal("0"), "amount": Decimal("0")})
+            group["base"] += values["base"]
+            group["amount"] += values["amount"]
+        for (code, _factor, _rate), values in retentions.items():
+            payment_retentions[code] = payment_retentions.get(code, Decimal("0")) + values["amount"]
         related_serie = _xml_attr(root, "Serie")
         related_folio = _xml_attr(root, "Folio")
         serie_attr = f' Serie="{xml_escape(related_serie)}"' if related_serie else ""
         folio_attr = f' Folio="{xml_escape(related_folio)}"' if related_folio else ""
+        partiality = max(1, int(factura.get("numero_parcialidad") or (factura.get("metadata") or {}).get("numero_parcialidad") or 1))
+        retention_xml = "".join(
+            f'<pago20:RetencionDR BaseDR="{values["base"]:.2f}" ImpuestoDR="{xml_escape(code)}" TipoFactorDR="{xml_escape(factor)}" TasaOCuotaDR="{Decimal(rate):.6f}" ImporteDR="{values["amount"]:.2f}"/>'
+            for (code, factor, rate), values in sorted(retentions.items())
+        )
+        transfer_xml = "".join(
+            f'<pago20:TrasladoDR BaseDR="{values["base"]:.2f}" ImpuestoDR="{xml_escape(code)}" TipoFactorDR="{xml_escape(factor)}"'
+            f'{_payment_transfer_rate_attributes("DR", factor, rate, values["amount"])}/>'
+            for (code, factor, rate), values in sorted(transfers.items())
+        )
+        taxes_xml = (
+            '<pago20:ImpuestosDR>'
+            + (f'<pago20:RetencionesDR>{retention_xml}</pago20:RetencionesDR>' if retention_xml else '')
+            + (f'<pago20:TrasladosDR>{transfer_xml}</pago20:TrasladosDR>' if transfer_xml else '')
+            + '</pago20:ImpuestosDR>'
+        ) if retention_xml or transfer_xml else ""
         doctos.append({
             "factura_id": fid,
             "uuid_relacionado": uuid_rel,
             "monto": float(pagado),
             "saldo_anterior": float(saldo_ant),
             "saldo_insoluto": float(saldo),
-            "parcialidad": 1,
+            "parcialidad": partiality,
             "xml": (
                 f'<pago20:DoctoRelacionado IdDocumento="{xml_escape(uuid_rel)}"{serie_attr}{folio_attr} MonedaDR="MXN" EquivalenciaDR="1" '
-                f'NumParcialidad="1" ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo:.2f}" ObjetoImpDR="02">'
-                '<pago20:ImpuestosDR><pago20:TrasladosDR>'
-                f'<pago20:TrasladoDR BaseDR="{base:.2f}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="{iva:.2f}"/>'
-                '</pago20:TrasladosDR></pago20:ImpuestosDR></pago20:DoctoRelacionado>'
+                f'NumParcialidad="{partiality}" ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo:.2f}" ObjetoImpDR="{"02" if taxes_xml else "01"}">'
+                f'{taxes_xml}</pago20:DoctoRelacionado>'
             ),
         })
-        if total_doc <= 0:
-            raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
     receptor = receptor_ref or {}
     fecha_cfdi, fecha_cfdi_reason = _gas_lp_pago_cfdi_fecha(issuer)
     serie_pago = "".join(ch for ch in str(serie or "PAGO").strip().upper() if ch.isalnum())[:10] or "PAGO"
@@ -3332,6 +3378,33 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
     fecha_pago = _payment_datetime(fecha_pago)
     forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
     doctos_xml = "".join(d["xml"] for d in doctos)
+    retention_p_xml = "".join(
+        f'<pago20:RetencionP ImpuestoP="{xml_escape(code)}" ImporteP="{amount:.2f}"/>'
+        for code, amount in sorted(payment_retentions.items())
+    )
+    transfer_p_xml = "".join(
+        f'<pago20:TrasladoP BaseP="{values["base"]:.2f}" ImpuestoP="{xml_escape(code)}" TipoFactorP="{xml_escape(factor)}"'
+        f'{_payment_transfer_rate_attributes("P", factor, rate, values["amount"])}/>'
+        for (code, factor, rate), values in sorted(payment_transfers.items())
+    )
+    payment_taxes_xml = (
+        '<pago20:ImpuestosP>'
+        + (f'<pago20:RetencionesP>{retention_p_xml}</pago20:RetencionesP>' if retention_p_xml else '')
+        + (f'<pago20:TrasladosP>{transfer_p_xml}</pago20:TrasladosP>' if transfer_p_xml else '')
+        + '</pago20:ImpuestosP>'
+    ) if retention_p_xml or transfer_p_xml else ""
+    totals_attrs = [f'MontoTotalPagos="{total_pago:.2f}"']
+    retention_names = {"001": "ISR", "002": "IVA", "003": "IEPS"}
+    for code, amount in sorted(payment_retentions.items()):
+        if code in retention_names:
+            totals_attrs.append(f'TotalRetenciones{retention_names[code]}="{amount:.2f}"')
+    transfer_names = {("002", "0.160000"): "IVA16", ("002", "0.080000"): "IVA8", ("002", "0.000000"): "IVA0"}
+    for (code, factor, rate), values in sorted(payment_transfers.items()):
+        suffix = "IVAExento" if code == "002" and factor == "Exento" else transfer_names.get((code, f"{Decimal(rate):.6f}"))
+        if suffix:
+            totals_attrs.append(f'TotalTrasladosBase{suffix}="{values["base"]:.2f}"')
+            if factor != "Exento":
+                totals_attrs.append(f'TotalTrasladosImpuesto{suffix}="{values["amount"]:.2f}"')
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
@@ -3341,9 +3414,9 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
         f'<cfdi:Receptor Rfc="{xml_escape(receptor["rfc"])}" Nombre="{xml_escape(receptor["nombre"])}" DomicilioFiscalReceptor="{xml_escape(receptor["cp"])}" RegimenFiscalReceptor="{xml_escape(receptor["regimen"])}" UsoCFDI="CP01"/>'
         '<cfdi:Conceptos><cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/></cfdi:Conceptos>'
         '<cfdi:Complemento><pago20:Pagos Version="2.0">'
-        f'<pago20:Totales TotalTrasladosBaseIVA16="{total_base:.2f}" TotalTrasladosImpuestoIVA16="{total_iva:.2f}" MontoTotalPagos="{total_pago:.2f}"/>'
+        f'<pago20:Totales {" ".join(totals_attrs)}/>'
         f'<pago20:Pago FechaPago="{xml_escape(fecha_pago)}" FormaDePagoP="{xml_escape(forma_pago)}" MonedaP="MXN" TipoCambioP="1" Monto="{total_pago:.2f}">'
-        f'{doctos_xml}<pago20:ImpuestosP><pago20:TrasladosP><pago20:TrasladoP BaseP="{total_base:.2f}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="0.160000" ImporteP="{total_iva:.2f}"/></pago20:TrasladosP></pago20:ImpuestosP>'
+        f'{doctos_xml}{payment_taxes_xml}'
         '</pago20:Pago></pago20:Pagos></cfdi:Complemento></cfdi:Comprobante>'
     )
     for d in doctos:
