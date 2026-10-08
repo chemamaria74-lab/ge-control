@@ -216,6 +216,20 @@ def test_automatic_worker_rejects_a_retry_date_that_is_not_the_configured_day():
     ) is False
 
 
+def test_automatic_worker_accepts_same_day_only_for_a_recorded_waiting_retry():
+    queued = schedule(
+        dia_mes=3,
+        hora_local="08:35",
+        proxima_ejecucion_at="2026-10-07T20:56:00+00:00",
+    )
+
+    assert automatic_execution_is_current(
+        queued,
+        now=datetime(2026, 10, 7, 20, 57, tzinfo=timezone.utc),
+        waiting_retry=True,
+    ) is True
+
+
 def test_worker_advances_an_old_due_date_without_creating_an_execution(monkeypatch):
     stale = schedule(
         tenant_id="tenant",
