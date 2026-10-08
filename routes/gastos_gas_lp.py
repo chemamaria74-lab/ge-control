@@ -2587,11 +2587,22 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     ]
     suppliers = _base_query(ctx, "gas_lp_expense_suppliers").execute().data or []
     concepts = _base_query(ctx, "gas_lp_expense_concepts").execute().data or []
-    vouchers = _base_query(ctx, "gas_lp_expense_vouchers").execute().data or []
     invoice_ids = [int(row["id"]) for row in active_invoices]
     links = (ctx["sb"].table("gas_lp_expense_invoice_vouchers").select(
         "invoice_id,voucher_id,amount_mxn"
     ).in_("invoice_id", invoice_ids).execute().data or []) if invoice_ids else []
+    linked_voucher_ids = sorted({int(row["voucher_id"]) for row in links})
+    linked_vouchers = (
+        _base_query(ctx, "gas_lp_expense_vouchers")
+        .in_("id", linked_voucher_ids)
+        .execute().data or []
+    ) if linked_voucher_ids else []
+    period_vouchers = (
+        _base_query(ctx, "gas_lp_expense_vouchers")
+        .gte("issued_on", period_start)
+        .lt("issued_on", period_end)
+        .execute().data or []
+    )
     groups = ctx["sb"].table("fleet_groups").select("id,name").eq("tenant_id", ctx["tenant_id"]).execute().data or []
     facilities = _profile_facilities(ctx)
     expense_zones = _expense_zones(ctx)
@@ -2604,7 +2615,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     facility_names = {int(row["id"]): row.get("nombre") or row.get("clave_instalacion") or "Zona" for row in facilities}
     expense_zone_names = {int(row["id"]): row.get("name") or "Zona" for row in expense_zones}
     vehicle_names = {int(row["id"]): row["vehicle_number"] for row in vehicles}
-    voucher_by_id = {int(row["id"]): row for row in vouchers}
+    voucher_by_id = {int(row["id"]): row for row in linked_vouchers}
     invoice_by_id = {int(row["id"]): row for row in active_invoices}
     def invoice_zone_id(row):
         return row.get("facility_id") or row.get("expense_zone_id") or row.get("group_id")
@@ -2667,12 +2678,12 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     stale_amount = sum(
         row["status"] == "amount_pending"
         and str(row.get("issued_on") or "")[:10] < (today - timedelta(days=7)).isoformat()
-        for row in vouchers
+        for row in period_vouchers
     )
     stale_ready = sum(
         row["status"] == "ready_to_invoice"
         and str(row.get("issued_on") or "")[:10] < (today - timedelta(days=15)).isoformat()
-        for row in vouchers
+        for row in period_vouchers
     )
     stale_accounting = sum(
         row["status"] == "sent_to_accountant"
