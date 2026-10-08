@@ -106,6 +106,15 @@ class GeneralCliente(BaseModel):
     retencion_iva_tasa: Decimal = Field(default=Decimal("0.106667"), ge=0, le=1)
     dias_credito: int = Field(default=0, ge=0, le=365)
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls, value):
+        """HTML forms submit an optional empty email as ``""``; store it as absent."""
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
 
 def _client_due_date(scope: dict, receptor_rfc: str) -> str:
     """Calcula el vencimiento administrativo usando el plazo del receptor."""
