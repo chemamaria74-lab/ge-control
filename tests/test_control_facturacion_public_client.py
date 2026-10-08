@@ -188,6 +188,34 @@ def test_products_catalog_has_no_business_specific_cleaning_importer():
     assert "Catálogo de limpieza agregado" not in SOURCE
 
 
+def test_sat_catalog_fields_are_real_searchable_dropdowns():
+    styles = (Path(__file__).parents[1] / "static/css/control_facturacion_actions.css").read_text(encoding="utf-8")
+
+    assert "function satCatalogField" in SOURCE
+    assert "function bindSatComboboxes" in SOURCE
+    assert 'data-sat-combo="${kind}"' in SOURCE
+    assert 'placeholder="Buscar por clave o descripción"' in SOURCE
+    assert "state.satProductCatalog" in SOURCE
+    assert "state.satUnitCatalog" in SOURCE
+    assert "<datalist" not in SOURCE
+    assert ".sat-combobox-panel" in styles
+    assert ".sat-combobox-option" in styles
+
+
+def test_manual_invoice_uses_cfdi_cent_rounding_and_allows_period_description():
+    calculation = SOURCE.split("function calculateTotals", 1)[1].split("function syncInvoicePaymentForMethod", 1)[0]
+    payload = SOURCE.split("function buildPayload", 1)[1].split("async function validateInvoice", 1)[0]
+
+    assert "const roundMoney=" in SOURCE
+    assert "unitBase=roundMoney" in calculation
+    assert "vat=roundMoney(base*rate)" in calculation
+    assert "roundMoney(base*isrRate)" in calculation
+    assert "roundMoney(base*ivaRetentionRate)" in calculation
+    assert 'data-field="description"' in SOURCE
+    assert "c.description||p?.descripcion" in payload
+    assert "descripcion:description" in payload
+
+
 def test_facturation_bootstrap_is_single_and_static_javascript_is_revalidated():
     main = (Path(__file__).parents[1] / "main.py").read_text(encoding="utf-8")
 

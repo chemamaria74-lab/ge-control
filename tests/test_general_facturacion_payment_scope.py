@@ -1,4 +1,6 @@
 from pathlib import Path
+from decimal import Decimal
+from xml.etree import ElementTree as ET
 
 
 SOURCE = (Path(__file__).parents[1] / "routes/general_facturacion.py").read_text()
@@ -53,6 +55,47 @@ def test_payment_update_does_not_reload_the_complete_invoice_list():
     assert "row.estado_pago=data.estado_pago" in handler
     assert "renderAll()" in handler
     assert "reloadPart('invoices')" not in handler
+
+
+def test_payment_tab_loads_every_pending_ppd_independently_from_visible_month():
+    endpoint = SOURCE.split("async def listar_facturas_ppd_pendientes", 1)[1].split("@router.patch", 1)[0]
+
+    assert "while True:" in endpoint
+    assert '.eq("status", "timbrada")' in endpoint
+    assert 'cfdi.get("MetodoPago")' in endpoint
+    assert "balance > 0" in endpoint
+    assert "state.paymentInvoices" in FRONTEND
+    assert "'/facturas/ppd-pendientes'" in FRONTEND
+    assert "const pending=state.paymentInvoices" in FRONTEND
+
+
+def test_payment_complement_uses_real_related_taxes_and_consecutive_partiality():
+    from routes.internal_users_mod.core import _build_gas_lp_pago20_multi_xml
+
+    invoice_xml = '''<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="E" Folio="04" TipoDeComprobante="I" MetodoPago="PPD" SubTotal="19475.52" Total="18566.65">
+      <cfdi:Receptor Rfc="MNM190402PP2" Nombre="MULTISERVICIOS NACIONALES MODELO" DomicilioFiscalReceptor="20259" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+      <cfdi:Conceptos><cfdi:Concepto ClaveProdServ="80131503" Cantidad="1" ClaveUnidad="E48" Descripcion="RENTA" ValorUnitario="19475.52" Importe="19475.52" ObjetoImp="02"><cfdi:Impuestos>
+        <cfdi:Traslados><cfdi:Traslado Base="19475.52" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="3116.08"/></cfdi:Traslados>
+        <cfdi:Retenciones><cfdi:Retencion Base="19475.52" Impuesto="001" TipoFactor="Tasa" TasaOCuota="0.100000" Importe="1947.55"/><cfdi:Retencion Base="19475.52" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.106667" Importe="2077.40"/></cfdi:Retenciones>
+      </cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos>
+      <cfdi:Complemento><tfd:TimbreFiscalDigital UUID="aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"/></cfdi:Complemento>
+    </cfdi:Comprobante>'''
+    xml, totals = _build_gas_lp_pago20_multi_xml(
+        facturas=[{"id": 4, "xml_content": invoice_xml, "uuid_sat": "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb", "saldo_insoluto": 18566.65, "numero_parcialidad": 3}],
+        issuer={"rfc": "MUCE450904J94", "nombre": "EMMA MUÑOZ COVARRUBIAS", "regimen": "612", "cp": "98000"},
+        fecha_pago="2026-10-08T15:23:00", forma_pago="03", pagos={4: Decimal("18566.65")}, serie="P", folio="4",
+    )
+    root = ET.fromstring(xml)
+    nodes = {node.tag.split("}")[-1]: node for node in root.iter()}
+
+    assert nodes["DoctoRelacionado"].attrib["NumParcialidad"] == "3"
+    assert nodes["DoctoRelacionado"].attrib["ImpSaldoInsoluto"] == "0.00"
+    assert 'TotalRetencionesISR="1947.55"' in xml
+    assert 'TotalRetencionesIVA="2077.40"' in xml
+    assert 'TotalTrasladosBaseIVA16="19475.52"' in xml
+    assert 'TotalTrasladosImpuestoIVA16="3116.08"' in xml
+    assert '<pago20:RetencionDR' in xml
+    assert totals["facturas"][0]["parcialidad"] == 3
 
 
 def test_new_invoices_are_pending_until_collection_is_confirmed():
