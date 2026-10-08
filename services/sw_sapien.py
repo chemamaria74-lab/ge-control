@@ -1073,6 +1073,13 @@ def _validate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
     conceptos = cfdi_dict.get("Conceptos")
     if not isinstance(conceptos, list) or not conceptos:
         return "CFDI JSON incompleto antes de timbrar: Conceptos debe tener al menos un concepto."
+    for index, concepto in enumerate(conceptos, start=1):
+        cuenta_predial = (concepto or {}).get("CuentaPredial")
+        if cuenta_predial is not None and not isinstance(cuenta_predial, list):
+            return (
+                "CFDI JSON inválido antes de timbrar: CuentaPredial debe enviarse "
+                f"como una lista en el concepto {index}."
+            )
     return ""
 
 

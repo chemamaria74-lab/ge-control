@@ -48,8 +48,13 @@ def general_cfdi_preview_xml(cfdi: dict) -> str:
     for values in cfdi.get("Conceptos") or []:
         concepto = ET.SubElement(conceptos, f"{{{CFDI_NS}}}Concepto", _attributes(values))
         _taxes(concepto, values.get("Impuestos") or {})
-        cuenta_predial = values.get("CuentaPredial") or {}
-        if isinstance(cuenta_predial, dict) and cuenta_predial.get("Numero"):
-            ET.SubElement(concepto, f"{{{CFDI_NS}}}CuentaPredial", _attributes(cuenta_predial))
+        cuentas_prediales = values.get("CuentaPredial") or []
+        # Tolera el contrato histórico de objeto para poder previsualizar
+        # programaciones guardadas antes de la migración al arreglo de SW.
+        if isinstance(cuentas_prediales, dict):
+            cuentas_prediales = [cuentas_prediales]
+        for cuenta_predial in cuentas_prediales:
+            if isinstance(cuenta_predial, dict) and cuenta_predial.get("Numero"):
+                ET.SubElement(concepto, f"{{{CFDI_NS}}}CuentaPredial", _attributes(cuenta_predial))
     _taxes(root, cfdi.get("Impuestos") or {})
     return ET.tostring(root, encoding="unicode", xml_declaration=True)

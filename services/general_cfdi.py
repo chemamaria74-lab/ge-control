@@ -130,7 +130,11 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "Unidad": item.unidad or "",
         "Descripcion": item.descripcion,
         **({"NoIdentificacion": item.no_identificacion} if item.no_identificacion else {}),
-        **({"CuentaPredial": {"Numero": item.cuenta_predial}} if item.cuenta_predial else {}),
+        # SW representa los nodos repetibles del XSD como arreglos JSON, incluso
+        # cuando solo existe una cuenta predial. Mantener el contrato correcto
+        # desde el generador evita que cada consumidor tenga que "arreglar" el
+        # payload justo antes de enviarlo al PAC.
+        **({"CuentaPredial": [{"Numero": item.cuenta_predial}]} if item.cuenta_predial else {}),
         "ValorUnitario": _money(base),
         "Importe": _money(item.cantidad * base),
         "ObjetoImp": item.objeto_imp,
