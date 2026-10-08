@@ -3,7 +3,6 @@ import os
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 import re
-import unicodedata
 from typing import Optional
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
@@ -13,6 +12,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 from services.general_cfdi_preview import general_cfdi_preview_xml
+from services.general_document_names import general_invoice_filename
 from services.sw_sapien import consultar_estatus_cfdi, emitir_timbrar_json, sw_runtime_config, timbrar_cfdi
 from services.cfdi_cancellation import cancel_cfdi_universal
 from services.email_delivery import retrieve_resend_email_status, send_gas_lp_invoice_email
@@ -20,6 +20,7 @@ from services.resend_webhooks import delivery_update, verify_resend_webhook
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
 from services.general_schedule_worker import (acquire_general_stamp_slot, activation_schedule_values,
                                                 cfdi_for_execution, execute_schedule, next_execution,
+                                                next_execution_after_period,
                                                 release_general_stamp_slot, reserve_general_folio,
                                                 selected_general_logo)
 from supabase_config import get_supabase_admin
@@ -134,14 +135,7 @@ def _client_email(scope: dict, receptor_rfc: str) -> str:
 
 
 def _document_filename(factura: dict, extension: str) -> str:
-    cfdi = factura.get("cfdi_json") or {}
-    emisor = cfdi.get("Emisor") or {}
-    name = str(emisor.get("Nombre") or emisor.get("Rfc") or "EMISOR")
-    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_").upper() or "EMISOR"
-    folio = "-".join(filter(None, (str(factura.get("serie") or "").strip(), str(factura.get("folio") or "").strip())))
-    safe_folio = re.sub(r"[^A-Za-z0-9-]+", "_", folio).strip("_") or str(factura.get("uuid_sat") or factura.get("id") or "CFDI")
-    return f"{safe_name}_{safe_folio}.{extension}"
+    return general_invoice_filename(factura, extension)
 
 
 def _invoice_pdf_branding(factura: dict, scope: dict) -> tuple[str, dict]:
@@ -520,7 +514,7 @@ def _recover_profile_pac_invoices(scope: dict) -> dict:
         current_next = datetime.fromisoformat(str(schedule.get("proxima_ejecucion_at") or "1970-01-01T00:00:00+00:00").replace("Z", "+00:00"))
         if current_next > completed_at:
             continue
-        next_at = next_execution(schedule, after=completed_at).isoformat()
+        next_at = next_execution_after_period(schedule, str(completed.get("periodo") or "")).isoformat()
         if _sb_update(PROGRAMACIONES, schedule["id"], scope, {
             "ultima_ejecucion_at": completed_at.isoformat(),
             "proxima_ejecucion_at": next_at,
@@ -1287,6 +1281,24 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
             and str(execution.get("periodo") or "") == current_period), None)
         schedule["ultimo_timbrado"] = completed_by_schedule.get(schedule_key)
         schedule["ultima_ejecucion"] = latest_by_schedule.get(schedule_key)
+        # Mantener calendario y estado mensual como una sola verdad. Una
+        # ejecución completada anticipadamente cierra el mes aunque su día
+        # programado todavía no haya llegado.
+        completed = schedule["ejecucion_periodo_actual"]
+        if completed and completed.get("status") == "completada":
+            tz = ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
+            next_value = str(schedule.get("proxima_ejecucion_at") or "")
+            try:
+                next_period = datetime.fromisoformat(next_value.replace("Z", "+00:00")).astimezone(tz).strftime("%Y-%m")
+            except (TypeError, ValueError):
+                next_period = ""
+            if not next_period or next_period <= current_period:
+                repaired_next = next_execution_after_period(schedule, current_period).isoformat()
+                if _sb_update(PROGRAMACIONES, int(schedule["id"]), scope, {
+                    "ultima_ejecucion_at": completed.get("updated_at") or completed.get("created_at"),
+                    "proxima_ejecucion_at": repaired_next,
+                }):
+                    schedule["proxima_ejecucion_at"] = repaired_next
     return {"ok": True, "programaciones": schedules}
 
 
