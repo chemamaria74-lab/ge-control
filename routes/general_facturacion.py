@@ -20,7 +20,8 @@ from services.resend_webhooks import delivery_update, verify_resend_webhook
 from services.fiscal_pdf import generar_pdf_cfdi_desde_xml, generar_pdf_ingreso_desde_xml
 from services.general_schedule_worker import (acquire_general_stamp_slot, activation_schedule_values,
                                                 cfdi_for_execution, execute_schedule, next_execution,
-                                                reserve_general_folio, selected_general_logo)
+                                                release_general_stamp_slot, reserve_general_folio,
+                                                selected_general_logo)
 from supabase_config import get_supabase_admin
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_get, _sb_insert, _sb_list, _sb_query, _sb_update
 
@@ -325,11 +326,18 @@ def _pac_recovery_signature(cfdi: dict) -> tuple:
     """Identifica un CFDI programado por receptor, importe y conceptos fiscales."""
     concepts = []
     for concept in cfdi.get("Conceptos") or []:
-        predial = concept.get("CuentaPredial") or {}
+        predial = concept.get("CuentaPredial") or []
+        if isinstance(predial, dict):
+            predial = [predial]
+        predial_numero = next((
+            str(item.get("Numero") or "").strip()
+            for item in predial
+            if isinstance(item, dict) and item.get("Numero")
+        ), "")
         concepts.append((
             str(concept.get("ClaveProdServ") or "").strip(),
             str(concept.get("NoIdentificacion") or "").strip().upper(),
-            str(predial.get("Numero") or "").strip() if isinstance(predial, dict) else str(predial).strip(),
+            predial_numero,
             _pac_recovery_description(concept.get("Descripcion")),
         ))
     return (
@@ -749,6 +757,10 @@ async def timbrar_factura_general(
             "logo_slot": payload.logo_slot, "logo_nombre": logo_name, "logo_data_url": logo_data,
             "pdf_header_color": config.get("pdf_header_color") or "#7A1E2C", "pdf_header_text_color": config.get("pdf_header_text_color") or "#FFFFFF", "pdf_title_color": config.get("pdf_title_color") or "#4E111C",
         }))
+        release_general_stamp_slot(
+            sb, tenant_id=scope["tenant_id"], perfil_id=scope["perfil_id"],
+            lease_until=stamp_slot.get("proximo_timbrado_at"),
+        )
         raise HTTPException(422, {"message": result.get("error") or "SW Sapien rechazó el CFDI.", "factura": row})
 
     data = result.get("data") or {}
@@ -789,6 +801,10 @@ async def timbrar_factura_general(
             .execute().data or []
         ) if uuid_sat else []
         if recovered:
+            release_general_stamp_slot(
+                sb, tenant_id=scope["tenant_id"], perfil_id=scope["perfil_id"],
+                lease_until=stamp_slot.get("proximo_timbrado_at"),
+            )
             return {"ok": True, "reused": True, "recovered": True, "factura": recovered[0]}
         raise HTTPException(500, {
             "message": "SW Sapien timbró el CFDI, pero no se pudo guardar el resultado. Sincroniza las facturas del PAC; no vuelvas a timbrar.",
@@ -796,6 +812,10 @@ async def timbrar_factura_general(
         })
     recipient = _client_email(scope, ((cfdi.get("Receptor") or {}).get("Rfc") or ""))
     row["email_delivery"] = _deliver_general_invoice_email(row, scope, recipient, automatic=True)
+    release_general_stamp_slot(
+        sb, tenant_id=scope["tenant_id"], perfil_id=scope["perfil_id"],
+        lease_until=stamp_slot.get("proximo_timbrado_at"),
+    )
     return {"ok": True, "reused": False, "factura": row}
 
 
@@ -1181,8 +1201,12 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
     clients_by_rfc = {str(client.get("rfc") or "").strip().upper(): client for client in clients}
     executions = _profile_table_query(EJECUCIONES, scope).order("created_at", desc=True).execute().data or []
     latest_by_schedule = {}
+    completed_by_schedule = {}
     for execution in executions:
-        latest_by_schedule.setdefault(str(execution.get("programacion_id")), execution)
+        schedule_key = str(execution.get("programacion_id"))
+        latest_by_schedule.setdefault(schedule_key, execution)
+        if execution.get("status") == "completada":
+            completed_by_schedule.setdefault(schedule_key, execution)
     for schedule in schedules:
         receptor_rfc = str(((schedule.get("payload_json") or {}).get("Receptor") or {}).get("Rfc") or "").strip().upper()
         client = clients_by_rfc.get(receptor_rfc) or {}
@@ -1205,7 +1229,16 @@ async def listar_programaciones(authorization: str = Header(default=""), x_perfi
             cfdi["MetodoPago"] = payment_method
             cfdi["FormaPago"] = "99" if payment_method == "PPD" else str(client.get("forma_pago_default") or "99")
             schedule["payload_json"] = cfdi
-        schedule["ultima_ejecucion"] = latest_by_schedule.get(str(schedule.get("id")))
+        schedule_key = str(schedule.get("id"))
+        current_period = datetime.now(timezone.utc).astimezone(
+            ZoneInfo(str(schedule.get("timezone") or "America/Mexico_City"))
+        ).strftime("%Y-%m")
+        schedule["periodo_actual"] = current_period
+        schedule["ejecucion_periodo_actual"] = next((execution for execution in executions
+            if str(execution.get("programacion_id")) == schedule_key
+            and str(execution.get("periodo") or "") == current_period), None)
+        schedule["ultimo_timbrado"] = completed_by_schedule.get(schedule_key)
+        schedule["ultima_ejecucion"] = latest_by_schedule.get(schedule_key)
     return {"ok": True, "programaciones": schedules}
 
 
@@ -1298,7 +1331,7 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
         if cfdi.get("Conceptos"):
             cfdi["Conceptos"][0]["Descripcion"] = payload.descripcion_concepto.strip()
             if payload.cuenta_predial:
-                cfdi["Conceptos"][0]["CuentaPredial"] = {"Numero": payload.cuenta_predial}
+                cfdi["Conceptos"][0]["CuentaPredial"] = [{"Numero": payload.cuenta_predial}]
             elif payload.cuenta_predial == "":
                 cfdi["Conceptos"][0].pop("CuentaPredial", None)
             values["payload_json"] = cfdi
@@ -1306,7 +1339,7 @@ async def editar_programacion(programacion_id: int, payload: ScheduleUpdate, aut
         cfdi = copy.deepcopy(values.get("payload_json") or schedule.get("payload_json") or {})
         if cfdi.get("Conceptos"):
             if payload.cuenta_predial:
-                cfdi["Conceptos"][0]["CuentaPredial"] = {"Numero": payload.cuenta_predial}
+                cfdi["Conceptos"][0]["CuentaPredial"] = [{"Numero": payload.cuenta_predial}]
             else:
                 cfdi["Conceptos"][0].pop("CuentaPredial", None)
             values["payload_json"] = cfdi

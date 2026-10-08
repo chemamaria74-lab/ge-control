@@ -2556,6 +2556,17 @@ def correct_observed_invoice(invoice_id: int, payload: InvoiceCorrection, token:
     return {"ok": True, "item": {**row, **update}}
 
 
+def _expense_analysis_period(value: str = "") -> tuple[str, str, str]:
+    """Return a closed monthly range; expense analytics never run unbounded."""
+    period = str(value or "").strip() or date.today().strftime("%Y-%m")
+    match = re.fullmatch(r"(20\d{2})-(0[1-9]|1[0-2])", period)
+    if not match:
+        raise HTTPException(422, "El periodo del análisis debe tener formato AAAA-MM.")
+    year, month = int(match.group(1)), int(match.group(2))
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return period, f"{period}-01", f"{next_year:04d}-{next_month:02d}-01"
+
+
 @router.get("/gastos/analytics")
 def analytics(token: str = Query(default=""), authorization: str = Header(default=""),
                   x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
@@ -2564,7 +2575,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
                   supplier_id: int | None = Query(default=None), concept_id: int | None = Query(default=None),
                   status: str = Query(default="")):
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
-    invoices = _base_query(ctx, "gas_lp_expense_invoices").execute().data or []
+    period, period_start, period_end = _expense_analysis_period(period)
+    invoices = (
+        _base_query(ctx, "gas_lp_expense_invoices")
+        .gte("invoice_date", period_start)
+        .lt("invoice_date", period_end)
+        .execute().data or []
+    )
     active_invoices = [
         row for row in invoices if row.get("status") not in {"rejected", "cancelled"}
     ]
@@ -2591,8 +2608,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     invoice_by_id = {int(row["id"]): row for row in active_invoices}
     def invoice_zone_id(row):
         return row.get("facility_id") or row.get("expense_zone_id") or row.get("group_id")
-    if period:
-        active_invoices = [row for row in active_invoices if str(row.get("invoice_date") or "").startswith(period)]
+    def invoice_amounts(row):
+        total = float(row.get("total_mxn") or 0)
+        paid = float(row.get("paid_amount_mxn") or (total if row.get("status") == "paid" else 0))
+        paid = max(0.0, min(abs(total), paid))
+        sign = -1 if row.get("expense_type") == "credit_note" else 1
+        signed_total, signed_paid = total * sign, paid * sign
+        return signed_total, signed_paid, signed_total - signed_paid
     if supplier_id is not None:
         active_invoices = [row for row in active_invoices if int(row.get("supplier_id") or 0) == supplier_id]
     if concept_id is not None:
@@ -2609,7 +2631,7 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
         ("status", "supplier", "type", "month", "concept", "zone", "unit", "manager")
     }
     for row in active_invoices:
-        amount = float(row.get("total_mxn") or 0) * (-1 if row.get("expense_type") == "credit_note" else 1)
+        amount, _paid, _pending = invoice_amounts(row)
         dimensions["status"][row["status"]] += amount
         dimensions["supplier"][supplier_names.get(int(row["supplier_id"]), "Proveedor")] += amount
         dimensions["type"]["Con vales" if row["expense_type"] == "voucher" else ("Nota de crédito" if row["expense_type"] == "credit_note" else "Gasto directo")] += amount
@@ -2683,11 +2705,13 @@ def analytics(token: str = Query(default=""), authorization: str = Header(defaul
     def ranked(key: str, limit: int = 20) -> list[dict[str, Any]]:
         return [{"label": label, "amount": round(amount, 2)}
                 for label, amount in sorted(dimensions[key].items(), key=lambda item: item[1], reverse=True)[:limit]]
-    detail = [{"invoice_date": row.get("invoice_date"), "supplier": supplier_names.get(int(row["supplier_id"]), "Proveedor"), "concept": concept_names.get(int(row.get("concept_id") or 0), "—"), "zone": expense_zone_names.get(int(invoice_zone_id(row) or 0), "General de la empresa"), "total_mxn": round(float(row.get("total_mxn") or 0), 2), "status": "pending" if row.get("status") != "paid" else "paid"} for row in active_invoices]
+    amounts = [invoice_amounts(row) for row in active_invoices]
+    detail = [{"invoice_date": row.get("invoice_date"), "supplier": supplier_names.get(int(row["supplier_id"]), "Proveedor"), "concept": concept_names.get(int(row.get("concept_id") or 0), "—"), "zone": expense_zone_names.get(int(invoice_zone_id(row) or 0), "General de la empresa"), "total_mxn": round(total, 2), "paid_mxn": round(paid, 2), "pending_mxn": round(pending, 2), "status": "paid" if abs(pending) <= MONEY_TOLERANCE else "pending"} for row, (total, paid, pending) in zip(active_invoices, amounts)]
     return {
-        "totals": {"all": round(sum(float(row.get("total_mxn") or 0) for row in active_invoices), 2),
-                   "paid": round(dimensions["status"].get("paid", 0), 2),
-                   "pending": round(sum(value for key, value in dimensions["status"].items() if key != "paid"), 2)},
+        "period": period,
+        "totals": {"all": round(sum(total for total, _paid, _pending in amounts), 2),
+                   "paid": round(sum(paid for _total, paid, _pending in amounts), 2),
+                   "pending": round(sum(pending for _total, _paid, pending in amounts), 2)},
         **{f"by_{key}": ranked(key) for key in dimensions},
         "alerts": alerts,
         "alert_total": sum(alerts.values()), "invoice_count": len(active_invoices), "detail": detail,
