@@ -887,6 +887,39 @@ async def sincronizar_facturas_pac(authorization: str = Header(default=""), x_pe
     return {"ok": True, **result, **cancellation}
 
 
+@router.get("/facturas/ppd-pendientes")
+async def listar_facturas_ppd_pendientes(authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    """Lista toda la cartera PPD pendiente del perfil, sin limitarla al mes visible."""
+    scope = _scope_required(authorization, x_perfil_id)
+    fields = "id,status,serie,folio,uuid_sat,cfdi_json,created_at,estado_pago,fecha_vencimiento,saldo_pendiente"
+    rows: list[dict] = []
+    page_size = 1000
+    start = 0
+    while True:
+        page = (
+            _profile_invoice_query(scope, fields)
+            .eq("status", "timbrada")
+            .order("created_at")
+            .range(start, start + page_size - 1)
+            .execute().data or []
+        )
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        start += page_size
+    pending = []
+    for row in rows:
+        cfdi = row.get("cfdi_json") if isinstance(row.get("cfdi_json"), dict) else {}
+        if str(cfdi.get("MetodoPago") or "").upper() != "PPD" or not str(row.get("uuid_sat") or "").strip():
+            continue
+        total = Decimal(str(cfdi.get("Total") or 0))
+        balance = Decimal(str(row.get("saldo_pendiente") if row.get("saldo_pendiente") is not None else total))
+        if balance > 0 and row.get("estado_pago") != "pagada":
+            row["saldo_pendiente"] = float(balance)
+            pending.append(row)
+    return {"ok": True, "facturas": pending}
+
+
 @router.patch("/facturas/{factura_id}/pago")
 async def actualizar_pago_factura(
     factura_id: int,
@@ -1066,9 +1099,15 @@ async def crear_complemento_pago(payload: PaymentComplementRequest, authorizatio
 
     scope = _scope_required(authorization, x_perfil_id)
     requested = {item.factura_id: item.monto for item in payload.facturas}
-    facturas = [row for row in _sb_list(FACTURAS, scope, active_only=False, order="created_at", desc=True) if int(row.get("id") or 0) in requested]
+    invoice_ids = sorted(requested)
+    facturas = (_profile_invoice_query(scope, "*").in_("id", invoice_ids).execute().data or [])
     if len(facturas) != len(requested):
         raise HTTPException(404, "Una factura seleccionada no existe para esta empresa.")
+    payment_links = (_sb_query(COMPLEMENTO_FACTURAS, scope, "factura_id").in_("factura_id", invoice_ids).execute().data or [])
+    partialities: dict[int, int] = {}
+    for link in payment_links:
+        invoice_id = int(link.get("factura_id") or 0)
+        partialities[invoice_id] = partialities.get(invoice_id, 0) + 1
     receptor_rfc = ""
     adapted = []
     for row in facturas:
@@ -1083,7 +1122,7 @@ async def crear_complemento_pago(payload: PaymentComplementRequest, authorizatio
         saldo = Decimal(str(row.get("saldo_pendiente") if row.get("saldo_pendiente") is not None else total))
         if requested[int(row["id"])] > saldo:
             raise HTTPException(400, "El pago no puede exceder el saldo pendiente.")
-        adapted.append({**row, "total": total, "saldo_insoluto": saldo, "rfc_receptor": rfc, "metadata": {"metodo_pago": "PPD", "saldo_insoluto": str(saldo)}})
+        adapted.append({**row, "total": total, "saldo_insoluto": saldo, "rfc_receptor": rfc, "numero_parcialidad": partialities.get(int(row["id"]), 0) + 1, "metadata": {"metodo_pago": "PPD", "saldo_insoluto": str(saldo)}})
     config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
     issuer = {"rfc": config.get("rfc") or "", "nombre": config.get("nombre_razon_social") or "", "regimen": config.get("regimen_fiscal") or "", "cp": config.get("codigo_postal") or ""}
     folio = str(int(datetime.now(timezone.utc).timestamp()))
