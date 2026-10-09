@@ -99,12 +99,13 @@ def test_fiscal_config_starts_as_a_summary_and_opens_only_for_editing():
     assert 'src="/static/js/control_facturacion.js"' in TEMPLATE
 
 
-def test_invoice_documents_are_named_with_issuer_and_invoice_number():
+def test_invoice_documents_are_named_with_receiver_period_and_invoice_number():
     naming = SOURCE.split("function documentName", 1)[1].split("function invoicePeriod", 1)[0]
 
-    assert "cfdi_json?.Emisor" in naming
-    assert "issuer.Nombre||issuer.Rfc" in naming
-    assert "row?.serie,row?.folio" in naming
+    assert "cfdi.Receptor" in naming
+    assert "receiver.Nombre||receiver.Rfc" in naming
+    assert "months[Number(period[2])-1]" in naming
+    assert "row?.serie||cfdi.Serie,row?.folio||cfdi.Folio" in naming
     assert "new File([blob],documentName(row,'pdf')" in SOURCE
 
 

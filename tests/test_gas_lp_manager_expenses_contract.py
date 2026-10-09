@@ -736,12 +736,25 @@ def test_payment_queue_is_filtered_on_the_server_before_the_result_limit():
 
 def test_duplicate_single_capture_can_open_the_existing_record():
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "gas_lp" / "gastos.css").read_text(encoding="utf-8")
 
     assert "async function openRegisteredExpense" in script
     assert "Ver gasto registrado" in script
     assert "attemptedInvoice" in script
     assert "[data-review-filter=\"payable\"]" in script
     assert "[data-review-filter=\"paid\"]" in script
+    assert "#directMsg.status.error:has(.duplicate-location-action)" in css
+    assert "#directMsg .duplicate-location-action" in css
+
+
+def test_direct_capture_can_be_cleared_without_changing_its_mode():
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+    html = (ROOT / "templates" / "gastos_gas_lp.html").read_text(encoding="utf-8")
+
+    assert 'id="clearDirectButton"' in html
+    assert "Limpiar formulario" in html
+    assert "$('clearDirectButton').onclick=()=>resetDirectCapture(captureMode)" in script
+    assert "$('directMsg').textContent=''" in script
 
 
 def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_balance():
