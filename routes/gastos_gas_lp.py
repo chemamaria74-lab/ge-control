@@ -254,6 +254,33 @@ def _insert_expense_invoices(
     must never be reported as a newly captured payable.
     """
     requested = [dict(row) for row in rows] if isinstance(rows, list) else [dict(rows)]
+    # A single capture does not need conflict-skipping semantics.  Using an
+    # UPSERT here made an ordinary invoice insert depend on PostgREST's
+    # conflict-target inference (the duplicate guard is a partial index), and
+    # some deployed schema-cache versions reject that request before inserting
+    # anything.  Keep the normal path simple and translate the only expected
+    # database conflict into an operator-facing duplicate message.
+    if not isinstance(rows, list):
+        try:
+            inserted = (
+                ctx["sb"].table("gas_lp_expense_invoices")
+                .insert(rows)
+                .execute().data or []
+            )
+        except Exception as exc:
+            detail = str(exc).lower()
+            if (
+                "gas_lp_expense_invoices_active_identity_uidx" in detail
+                or "duplicate key" in detail
+                or "23505" in detail
+            ):
+                raise HTTPException(
+                    409,
+                    "Esta factura ya está registrada para el mismo proveedor, fecha e importe. No se agregó otra vez.",
+                ) from exc
+            raise
+        return inserted, [False]
+
     inserted = (
         ctx["sb"].table("gas_lp_expense_invoices")
         .upsert(rows, ignore_duplicates=True)
@@ -1687,6 +1714,7 @@ def create_direct_invoice_batch(payload: DirectInvoiceBatchCreate, token: str = 
 
 @router.get("/gastos/invoices")
 def list_invoices(status: str = Query(default=""), search: str = Query(default="", max_length=100),
+                  payable_only: bool = Query(default=False),
                   invoice_date_from: date | None = Query(default=None),
                   invoice_date_to: date | None = Query(default=None),
                   capture_date_from: date | None = Query(default=None),
@@ -1699,7 +1727,9 @@ def list_invoices(status: str = Query(default=""), search: str = Query(default="
     query = _base_query(ctx, "gas_lp_expense_invoices")
     if ctx["is_manager"]:
         query = query.eq("created_by_type", "manager").eq("created_by", ctx["actor_id"])
-    if status:
+    if payable_only:
+        query = query.in_("status", ["pending_review", "accepted", "sent_to_accountant"])
+    elif status:
         query = query.eq("status", status)
     if invoice_date_from:
         query = query.gte("invoice_date", invoice_date_from.isoformat())
@@ -2051,6 +2081,8 @@ def delete_expense_payment(payment_id: int, token: str = Query(default=""),
         "profile_id", ctx["perfil_id"]
     ).eq("id", payment_id).execute()
 
+    restored_invoice_ids: list[int] = []
+    still_paid_invoice_ids: list[int] = []
     for invoice_id in invoice_ids:
         invoice_rows = _base_query(ctx, "gas_lp_expense_invoices").eq("id", invoice_id).limit(1).execute().data or []
         if not invoice_rows:
@@ -2062,9 +2094,22 @@ def delete_expense_payment(payment_id: int, token: str = Query(default=""),
                               .eq("invoice_id", invoice_id).execute().data or [])
         applied = round(sum(float(row.get("amount_mxn") or 0) for row in [*remaining, *remaining_advances]), 2)
         complete = abs(float(invoice.get("total_mxn") or 0) - applied) < PAYMENT_BALANCE_TOLERANCE
+
+        remaining_payment_links = (ctx["sb"].table("gas_lp_expense_payment_allocations")
+                                   .select("payment_id").eq("invoice_id", invoice_id).execute().data or [])
+        remaining_payment_ids = sorted({int(row["payment_id"]) for row in remaining_payment_links})
+        linked_payments = (_base_query(ctx, "gas_lp_expense_payments").select("id,paid_on")
+                           .in_("id", remaining_payment_ids).execute().data or []) if remaining_payment_ids else []
+        remaining_advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications")
+                                   .select("advance_id").eq("invoice_id", invoice_id).execute().data or [])
+        remaining_advance_ids = sorted({int(row["advance_id"]) for row in remaining_advance_links})
+        linked_advances = (_base_query(ctx, "gas_lp_expense_advances").select("id,paid_on")
+                           .in_("id", remaining_advance_ids).execute().data or []) if remaining_advance_ids else []
+        linked_dates = [str(row.get("paid_on") or "")[:10]
+                        for row in [*linked_payments, *linked_advances] if row.get("paid_on")]
         update = {
             "paid_amount_mxn": applied,
-            "paid_on": invoice.get("paid_on") if applied else None,
+            "paid_on": max(linked_dates) if linked_dates else None,
             "paid_at": invoice.get("paid_at") if complete else None,
             "status": "paid" if complete else "sent_to_accountant",
             "updated_at": _now(),
@@ -2072,11 +2117,17 @@ def delete_expense_payment(payment_id: int, token: str = Query(default=""),
         ctx["sb"].table("gas_lp_expense_invoices").update(update).eq(
             "tenant_id", ctx["tenant_id"]
         ).eq("profile_id", ctx["perfil_id"]).eq("id", invoice_id).execute()
+        (still_paid_invoice_ids if complete else restored_invoice_ids).append(invoice_id)
 
     _audit(ctx, "payment", payment_id, "deleted_payment_error", before={
         **payment, "allocations": allocations,
     })
-    return {"ok": True, "deleted": True, "restored_invoice_ids": invoice_ids}
+    return {
+        "ok": True,
+        "deleted": True,
+        "restored_invoice_ids": restored_invoice_ids,
+        "still_paid_invoice_ids": still_paid_invoice_ids,
+    }
 
 
 @router.get("/gastos/payments/export.xlsx")
