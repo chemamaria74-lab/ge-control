@@ -734,6 +734,16 @@ def test_payment_queue_is_filtered_on_the_server_before_the_result_limit():
     assert "/invoices?limit=500" in script
 
 
+def test_duplicate_single_capture_can_open_the_existing_record():
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert "async function openRegisteredExpense" in script
+    assert "Ver gasto registrado" in script
+    assert "attemptedInvoice" in script
+    assert "[data-review-filter=\"payable\"]" in script
+    assert "[data-review-filter=\"paid\"]" in script
+
+
 def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_balance():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
