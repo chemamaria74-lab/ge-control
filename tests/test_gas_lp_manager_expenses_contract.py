@@ -724,6 +724,16 @@ def test_paid_view_has_visible_edit_and_safe_payment_reversal_actions():
     assert "Las facturas y sus conceptos NO se borrarán" in script
 
 
+def test_payment_queue_is_filtered_on_the_server_before_the_result_limit():
+    route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
+    script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
+
+    assert 'payable_only: bool = Query(default=False)' in route
+    assert 'query.in_("status", ["pending_review", "accepted", "sent_to_accountant"])' in route
+    assert "&payable_only=true" in script
+    assert "/invoices?limit=500" in script
+
+
 def test_supplier_advances_are_shared_and_flow_to_only_the_remaining_invoice_balance():
     route = (ROOT / "routes" / "gastos_gas_lp.py").read_text(encoding="utf-8")
     script = (ROOT / "static" / "js" / "gas_lp" / "gastos_admin.js").read_text(encoding="utf-8")
