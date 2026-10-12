@@ -3,6 +3,7 @@ import inspect
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
@@ -372,6 +373,63 @@ def test_gas_lp_cliente_discount_policy_is_stored_in_metadata_without_migration(
     )
     assert special_price["metadata"]["descuento_facturacion"]["tipo"] == "precio_especial"
     assert special_price["metadata"]["descuento_facturacion"]["precio_especial_litro"] == 10.5
+
+
+def test_gas_lp_cliente_accepts_sat_rfc_and_name_with_ampersand():
+    payload = internal_users.GasLpInternalClientePayload(
+        rfc="I&A1006069R8",
+        nombre="I&AA",
+        cp="98085",
+        regimen_fiscal="601",
+        uso_cfdi="G03",
+    )
+
+    row = internal_users._gas_lp_cliente_row(
+        {"owner_user_id": "user-1", "tenant_id": None, "perfil_id": 1, "id": "assistant-1", "display_name": "Asistente"},
+        payload,
+    )
+
+    assert row["rfc"] == "I&A1006069R8"
+    assert row["nombre"] == "I&AA"
+
+
+def test_gas_lp_invoice_xml_escapes_ampersand_without_changing_fiscal_data(monkeypatch):
+    _freeze_gas_lp_consumo_xml_now(monkeypatch, datetime(2026, 10, 12, 16, 30, 0, tzinfo=timezone.utc))
+    xml, _ = internal_users._build_gas_lp_consumo_xml(
+        issuer={"rfc": "AGA990907II8", "nombre": "AURE GAS", "cp": "99300", "regimen": "601"},
+        receptor={
+            "rfc": "I&A1006069R8",
+            "nombre": "I&AA",
+            "cp": "98085",
+            "regimen_fiscal": "601",
+            "uso_cfdi": "G03",
+        },
+        litros=100,
+        precio_unitario=10,
+        concepto="LITRO DE GAS LP",
+        forma_pago="01",
+        metodo_pago="PUE",
+        fecha="2026-10-12T10:00",
+    )
+
+    assert 'Rfc="I&amp;A1006069R8" Nombre="I&amp;AA"' in xml
+    assert ET.fromstring(xml).find("{http://www.sat.gob.mx/cfd/4}Receptor").attrib == {
+        "Rfc": "I&A1006069R8",
+        "Nombre": "I&AA",
+        "DomicilioFiscalReceptor": "98085",
+        "RegimenFiscalReceptor": "601",
+        "UsoCFDI": "G03",
+    }
+
+
+def test_asistente_rfc_input_preserves_sat_ampersand_and_busts_stale_cache():
+    assistant_html = _assistant_frontend_source()
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "replace(/[^A-Z0-9Ñ&]/g, '')" in assistant_html
+    assert "rfc:normalizeSatRfc(cliRfc.value)" in assistant_html
+    assert "Se permiten letras, números, Ñ y &amp;" in assistant_html
+    assert shell.count("v=rfc-ampersand-20261012") == 2
 
 
 def test_asistente_credito_ppd_dashboard_has_config_shortcut_and_bottom_detail():
@@ -1872,7 +1930,7 @@ def test_assistant_invoice_preview_rounds_half_up_like_backend():
     assert "const INVOICE_ROUND_EPSILON = 1e-9" in html
     assert "Math.round((n + INVOICE_ROUND_EPSILON) * factor)" in html
     shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
-    assert "40_facturacion.js?v=transfer-layout-stable-20260810" in shell
+    assert "40_facturacion.js?v=rfc-ampersand-20261012" in shell
 
     _, totals = internal_users._build_gas_lp_consumo_xml(
         issuer={"rfc": "AAA010101AAA", "nombre": "EMISOR PRUEBA", "cp": "98600", "regimen": "601"},

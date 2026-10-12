@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20260831-stop-trend-20" in template
+    assert "flotilla.js?v=20261012-review-by-unit" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -296,6 +296,7 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert "data-inspection-view" in frontend
     assert "Sin inspección" in frontend
     assert 'id="activityCalendar"' in template
+    assert "flotilla.js?v=20261012-review-by-unit" in template
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
     assert "Con jornada GPS todos los días laborables" in frontend
@@ -309,11 +310,20 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert "const countedDays=days.filter(day=>!isSunday(day))" in frontend
     assert "Actividad parcial en el periodo" in frontend
     assert 'class="activity-complete" open' in frontend
-    assert "Cada fila corresponde al chofer registrado por Motive" in frontend
+    assert 'const reviewUnits=units.filter(unit=>missingDays(unit)>0)' in frontend
+    assert '<th>Unidad</th>' in frontend
+    assert "Requieren revisión” se agrupa por unidad" in frontend
+    assert "Las demás secciones conservan una fila por chofer" in frontend
+    assert 'reviewUnits.length?unitMatrix(reviewUnits)' in frontend
+    assert '${matrix(incompleteDrivers)}' in frontend
+    assert '${matrix(completeDrivers)}' in frontend
     assert "record.observed===true" in frontend
     assert "activity-mobile-unit" in frontend
     assert '"observed": False' in backend
     assert '"grouped_by": "driver"' in backend
+    assert '"units": [{' in backend
+    assert '"unit_key": key' in backend
+    assert '"driver_name": trip_driver_name' in backend
     assert '"vehicle_number": number' in backend
     assert "Desglose de traspasos" in template
 
