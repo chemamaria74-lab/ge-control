@@ -20,7 +20,7 @@
       <div id="clienteFormClientes" class="card hide" style="box-shadow:none;margin-bottom:12px;background:#fbfaf8">
         <h3 id="clienteFormTitle" class="client-form-title">Agregar cliente</h3>
         <div class="form-grid">
-          <div><label>RFC</label><input id="cliRfc" value="XAXX010101000" oninput="this.value=this.value.toUpperCase()"></div>
+          <div><label>RFC</label><input id="cliRfc" value="XAXX010101000" maxlength="13" autocapitalize="characters" spellcheck="false" oninput="normalizeSatRfcInput(this)" aria-describedby="cliRfcHint"><span id="cliRfcHint" class="hint muted">Se permiten letras, números, Ñ y &amp;, conforme al RFC del SAT.</span></div>
           <div><label>Nombre fiscal</label><input id="cliNombre" value="PUBLICO EN GENERAL"></div>
           <div><label>CP</label><input id="cliCp" inputmode="numeric" maxlength="5"></div>
           <div><label>Correo oficial/principal</label><input id="cliEmail" type="email" placeholder="cliente@empresa.com"></div>
