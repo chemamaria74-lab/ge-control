@@ -185,7 +185,7 @@ async function saveClienteFromTab(){
     const currentCredit = clienteCreditFields(currentClient);
     const currentDiscount = clienteDiscountFields(currentClient);
     const payload = {
-      rfc:cliRfc.value,
+      rfc:normalizeSatRfc(cliRfc.value),
       nombre:cliNombre.value,
       cp:cliCp.value,
       regimen_fiscal:cliRegimen.value,

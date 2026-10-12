@@ -29,6 +29,7 @@ async function load(){
     compFechaPago.value = localDateTimeValue();
     ensureFechaEmision();
     ensureFolio();
+    await restoreLastFacturasFromCache();
     const tasks = [
       ['clientes', loadClientes],
       ['instalaciones', loadFacilities],
@@ -113,6 +114,17 @@ function selectClienteFromList(id){
 
 function clienteSearchText(value){
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+
+function normalizeSatRfc(value){
+  // El SAT admite & dentro de la clave diferenciadora de algunos RFC.
+  // No usar una limpieza "alfanumérica" genérica: eliminaría RFC válidos
+  // como I&A1006069R8 antes de enviarlos al backend.
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '').slice(0, 13);
+}
+
+function normalizeSatRfcInput(input){
+  if(input) input.value = normalizeSatRfc(input.value);
 }
 function clienteComboboxRows(){
   const q = clienteSearchText(clienteSearchSelect?.value).trim();
