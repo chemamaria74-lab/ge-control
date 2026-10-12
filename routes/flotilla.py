@@ -1252,6 +1252,7 @@ def report_catalog(
         }
 
     driver_rows: dict[str, dict[str, Any]] = {}
+    unit_rows: dict[str, dict[str, Any]] = {}
 
     def driver_row(name: str) -> dict[str, Any]:
         display_name = str(name or "").strip() or "Sin chofer identificado"
@@ -1267,10 +1268,27 @@ def report_catalog(
             }
         return driver_rows[key]
 
+    def unit_row(number: str) -> dict[str, Any]:
+        display_number = str(number or "").strip() or "Sin número"
+        key = display_number.casefold()
+        if key not in unit_rows:
+            unit_rows[key] = {
+                "vehicle_number": display_number,
+                "days": empty_driver_days(),
+                "driver_names": set(),
+            }
+        return unit_rows[key]
+
     # Conserva en la tabla a los choferes actualmente asignados aunque durante
     # la semana no tengan recorridos. La atribución de cada día, sin embargo,
     # siempre proviene del chofer guardado por Motive en el trayecto.
     for vehicle in data["vehicles"]:
+        vehicle_number = str(vehicle.get("vehicle_number") or "").strip()
+        if vehicle_number:
+            unit = unit_row(vehicle_number)
+            current_driver = str(vehicle.get("current_driver_name") or "").strip()
+            if current_driver:
+                unit["driver_names"].add(current_driver)
         current_driver = str(vehicle.get("current_driver_name") or "").strip()
         if current_driver:
             driver_row(current_driver)["current_vehicle_numbers"].add(str(vehicle.get("vehicle_number") or "Sin número"))
@@ -1279,6 +1297,9 @@ def report_catalog(
         number = str(trip.get("vehicle_number") or "Sin número").strip() or "Sin número"
         day = str(trip.get("started_at") or "")[:10]
         row = driver_row(str(trip.get("driver_name") or ""))
+        unit = unit_row(number)
+        trip_driver_name = str(trip.get("driver_name") or "").strip() or "Sin chofer identificado"
+        unit["driver_names"].add(trip_driver_name)
         if day in row["days"]:
             row["vehicle_numbers"].add(number)
             daily = row["days"][day]
@@ -1298,12 +1319,24 @@ def report_catalog(
             daily["distance_km"] = round(float(daily["distance_km"]) + trip_distance, 3)
             if number not in daily["vehicle_numbers"]:
                 daily["vehicle_numbers"].append(number)
-            daily["trip_details"].append({
+            trip_detail = {
                 "started_at": trip.get("started_at"), "ended_at": trip.get("ended_at"),
                 "origin": trip.get("origin") or "", "destination": trip.get("destination") or "",
                 "distance_km": trip_distance, "duration_minutes": duration_minutes,
-                "vehicle_number": number,
-            })
+                "vehicle_number": number, "driver_name": trip_driver_name,
+            }
+            daily["trip_details"].append(trip_detail)
+            unit_daily = unit["days"][day]
+            unit_daily["observed"] = True
+            unit_daily["trips"] = int(unit_daily["trips"]) + 1
+            if trip.get("ended_at"):
+                unit_daily["stops"] = int(unit_daily["stops"]) + 1
+            unit_daily["drive_minutes"] = int(unit_daily["drive_minutes"]) + duration_minutes
+            unit_daily["distance_km"] = round(float(unit_daily["distance_km"]) + trip_distance, 3)
+            unit_daily.setdefault("driver_names", [])
+            if trip_driver_name not in unit_daily["driver_names"]:
+                unit_daily["driver_names"].append(trip_driver_name)
+            unit_daily["trip_details"].append(trip_detail)
     for row in driver_rows.values():
         first_seen = str(row.get("first_seen_at") or "")[:10]
         deactivated = str(row.get("deactivated_at") or "")[:10]
@@ -1325,6 +1358,12 @@ def report_catalog(
             "deactivated_at": row["deactivated_at"],
             "days": row["days"],
         } for key, row in sorted(driver_rows.items(), key=lambda item: (item[1]["driver_name"] == "Sin chofer identificado", item[1]["driver_name"]))],
+        "units": [{
+            "unit_key": key,
+            "vehicle_number": row["vehicle_number"],
+            "driver_names": sorted(row["driver_names"]),
+            "days": row["days"],
+        } for key, row in sorted(unit_rows.items(), key=lambda item: item[1]["vehicle_number"])],
     }
     alerts = (
         ctx["sb"].table("fleet_alerts").select("id,severity,status", count="exact")
