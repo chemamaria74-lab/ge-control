@@ -927,6 +927,8 @@ def test_expense_capture_prevents_duplicate_submissions_and_allocation_checks_us
     assert "submit.disabled=true" in script
     assert "finally{submit.disabled=false}" in script
     assert ".upsert(rows, ignore_duplicates=True)" in route
+    assert '.select("id,supplier_id,invoice_number,invoice_date,total_mxn,status")' in route
+    assert '.eq("supplier_id", candidate.get("supplier_id"))' in route
     assert "duplicate_capture_rejected" in route
     assert "Retira y destruye la copia física duplicada" in route
     assert "FACTURAS DUPLICADAS:" in script

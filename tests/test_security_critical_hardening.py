@@ -170,3 +170,32 @@ def test_refresh_accepts_expired_access_token_for_same_cookie_user(monkeypatch):
 
     assert response.status_code == 200
     assert b'"token":"access-new"' in response.body
+
+
+def test_refresh_does_not_validate_expired_access_token_against_auth(monkeypatch):
+    import base64
+    import json
+
+    subject = "user-with-expired-access"
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": subject}).encode()).decode().rstrip("=")
+    expired_token = f"header.{payload}.signature"
+
+    class _Auth:
+        def get_user(self, _token):
+            raise AssertionError("refresh must not call Auth /user with an expired JWT")
+
+        def refresh_session(self, _refresh_token):
+            return SimpleNamespace(
+                session=SimpleNamespace(access_token="access-new", refresh_token="refresh-new"),
+                user=SimpleNamespace(id=subject),
+            )
+
+    monkeypatch.setattr(auth, "get_supabase", lambda: SimpleNamespace(auth=_Auth()))
+    request = SimpleNamespace(
+        cookies={auth.REFRESH_COOKIE: "refresh-valid"},
+        url=SimpleNamespace(scheme="https"),
+    )
+
+    response = asyncio.run(auth.refresh(request, authorization=f"Bearer {expired_token}"))
+
+    assert response.status_code == 200

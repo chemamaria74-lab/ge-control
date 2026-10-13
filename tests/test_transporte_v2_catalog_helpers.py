@@ -26,6 +26,37 @@ from routes.transporte_v2 import (
 )
 
 
+def test_tr_viajes_insert_removes_ui_aliases_before_postgrest():
+    row = {
+        "user_id": "user-a",
+        "chofer_id": 1,
+        "vehiculo_id": 2,
+        "nombre_origen": "Origen",
+        "nombre_destino": "Destino",
+        "cliente_id": 3,
+        "operador_id": 1,
+        "producto_id": 4,
+        "origen": "Origen",
+        "destino": "Destino",
+        "fecha_salida": "2026-10-12T10:00:00",
+        "fecha_llegada_estimada": "2026-10-12T12:00:00",
+        "volumen_litros": 1000,
+        "peso_kg": 540,
+        "estatus": "borrador",
+        "metadata": {"source": "ui"},
+    }
+
+    cleaned = transporte_v2._strip_tr_viajes_legacy_columns(row)
+
+    assert cleaned == {
+        "user_id": "user-a",
+        "chofer_id": 1,
+        "vehiculo_id": 2,
+        "nombre_origen": "Origen",
+        "nombre_destino": "Destino",
+    }
+
+
 def test_operator_payment_uses_merchandise_invoice_folio_instead_of_uuid():
     row = {"id_ccp": "CCC5FAC5-0E39-408E-ACEF-961F2E092248", "uuid_cfdi": "UUID-CARTA-PORTE"}
     meta = {"documento_detectado": {"folio_display": "FE 111596", "uuid": "UUID-FACTURA"}}
