@@ -326,6 +326,16 @@ def test_product_updates_are_scoped_to_company_not_original_creator():
     assert "_profile_update(PRODUCTOS" in endpoint
 
 
+def test_product_update_rebuilds_every_linked_schedule_from_catalog():
+    endpoint = SOURCE.split("async def update_general_product", 1)[1].split("@router.delete", 1)[0]
+
+    assert "_profile_table_query(PROGRAMACIONES, scope)" in endpoint
+    assert '.eq("producto_id", producto_id)' in endpoint
+    assert "_schedule_cfdi_from_catalogs(" in endpoint
+    assert '"payload_json": cfdi' in endpoint
+    assert '"programaciones_actualizadas": refreshed_schedules' in endpoint
+
+
 def test_product_delete_is_blocked_while_any_schedule_references_it():
     endpoint = SOURCE.split("async def delete_general_product", 1)[1].split("@router.post", 1)[0]
 

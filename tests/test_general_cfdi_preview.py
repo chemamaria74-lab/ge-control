@@ -1,4 +1,7 @@
 from xml.etree import ElementTree as ET
+from io import BytesIO
+
+from pypdf import PdfReader
 
 from services.fiscal_pdf import generar_pdf_ingreso_desde_xml
 from services.general_cfdi_preview import CFDI_NS, general_cfdi_preview_xml
@@ -59,3 +62,5 @@ def test_preview_pdf_can_be_rendered_without_sat_stamp():
 
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 3_000
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+    assert "Cuenta predial: 0010202501200" in text
