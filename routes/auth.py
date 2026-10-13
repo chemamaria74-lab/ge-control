@@ -563,12 +563,16 @@ async def login(payload: LoginPayload, request: Request):
 async def refresh(request: Request, authorization: str = Header(default="")):
     """Renueva el JWT sin exponer el refresh token a JavaScript."""
     current_token = _extract_bearer(authorization)
-    current_user_id = verify_token(current_token) if current_token else None
-    if not current_user_id and current_token:
-        # El JWT de acceso normalmente vence antes que la sesión recordada. Su
-        # firma ya no autoriza peticiones, pero el ``sub`` todavía sirve para
-        # comprobar que la cookie HttpOnly renovada pertenece a la misma cuenta.
-        current_user_id = _jwt_subject_for_refresh(current_token)
+    # No llamar ``get_user`` aquí: el flujo de renovación se activa precisamente
+    # cuando el access token está por vencer o ya venció, y esa consulta solo
+    # genera un 403 esperado en Auth. El refresh token HttpOnly sigue siendo la
+    # credencial que Supabase valida; ``sub`` únicamente enlaza ambas identidades
+    # después de que la renovación fue aceptada.
+    current_user_id = _jwt_subject_for_refresh(current_token) if current_token else None
+    # Compatibilidad con tokens opacos de integraciones antiguas. Los JWT reales
+    # (tres segmentos) nunca caen en esta consulta, estén vigentes o vencidos.
+    if not current_user_id and current_token and current_token.count(".") != 2:
+        current_user_id = verify_token(current_token)
     if not current_user_id:
         raise HTTPException(status_code=401, detail="La sesión actual no es válida para renovarse.")
     refresh_token = request.cookies.get(REFRESH_COOKIE, "")

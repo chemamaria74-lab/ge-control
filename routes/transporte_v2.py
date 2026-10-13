@@ -441,7 +441,15 @@ def _status_cancelado(*values: Any) -> bool:
 
 def _strip_tr_viajes_legacy_columns(row: dict[str, Any]) -> dict[str, Any]:
     cleaned = dict(row or {})
-    cleaned.pop("estatus", None)
+    # Estos nombres son aliases del modelo/UI de Transporte v2, no columnas de
+    # la tabla legacy ``tr_viajes``. Antes el insert tolerante los descubría de
+    # uno en uno mediante respuestas 400 de PostgREST (diez warnings por alta).
+    for column in (
+        "cliente_id", "operador_id", "producto_id", "origen", "destino",
+        "fecha_salida", "fecha_llegada_estimada", "volumen_litros", "peso_kg",
+        "estatus", "metadata",
+    ):
+        cleaned.pop(column, None)
     return cleaned
 
 

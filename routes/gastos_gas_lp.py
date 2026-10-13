@@ -261,6 +261,24 @@ def _insert_expense_invoices(
     # anything.  Keep the normal path simple and translate the only expected
     # database conflict into an operator-facing duplicate message.
     if not isinstance(rows, list):
+        candidate = requested[0]
+        existing = (
+            _base_query(ctx, "gas_lp_expense_invoices")
+            .select("id,supplier_id,invoice_number,invoice_date,total_mxn,status")
+            .eq("supplier_id", candidate.get("supplier_id"))
+            .eq("invoice_date", str(candidate.get("invoice_date") or "")[:10])
+            .eq("total_mxn", candidate.get("total_mxn"))
+            .execute().data or []
+        )
+        if any(
+            _normalize(row.get("invoice_number")) == _normalize(candidate.get("invoice_number"))
+            and row.get("status") != "cancelled"
+            for row in existing
+        ):
+            raise HTTPException(
+                409,
+                "Esta factura ya está registrada para el mismo proveedor, fecha e importe. No se agregó otra vez.",
+            )
         try:
             inserted = (
                 ctx["sb"].table("gas_lp_expense_invoices")
