@@ -236,7 +236,13 @@
       headers: {Authorization: `Bearer ${activeToken()}`},
       ...(controller ? {signal: controller.signal} : {}),
     }).then(async response => {
-      if (!response.ok) return '';
+      if (!response.ok) {
+        // Una cookie de renovación vencida o ligada a otra identidad no se
+        // recupera reintentando. Limpiar ahora evita que cada petición posterior
+        // vuelva a golpear Auth con el mismo JWT/cookie inválidos.
+        if (response.status === 401 || response.status === 409) logoutExpired();
+        return '';
+      }
       const data = await response.json();
       return applyRefreshedToken(data.token, true);
     }).catch(() => '')
@@ -339,6 +345,12 @@
     let freshToken = oldToken;
     if (canRefresh && oldToken && jwtExpiresSoon(oldToken)) {
       freshToken = await refreshAccessToken() || oldToken;
+      if (!activeToken()) {
+        return new Response(JSON.stringify({detail: 'La sesión expiró; inicia sesión nuevamente.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        });
+      }
     }
     let requestInput = withFreshQueryToken(input, freshToken);
     let requestInit = withFreshAuthorization(requestInput, init, oldToken, freshToken);
