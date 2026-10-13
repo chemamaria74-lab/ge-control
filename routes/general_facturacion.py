@@ -654,9 +654,34 @@ async def create_general_product(payload: GeneralProducto, authorization: str = 
 
 @router.put("/productos/{producto_id}")
 async def update_general_product(producto_id: int, payload: GeneralProducto, authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
-    if not _profile_update(PRODUCTOS, producto_id, _scope_required(authorization, x_perfil_id), payload.model_dump(mode="json")):
+    scope = _scope_required(authorization, x_perfil_id)
+    if not _profile_update(PRODUCTOS, producto_id, scope, payload.model_dump(mode="json")):
         raise HTTPException(404, "Producto o servicio no encontrado.")
-    return {"ok": True, "producto_id": producto_id}
+    refreshed_schedules = 0
+    schedules = (
+        _profile_table_query(PROGRAMACIONES, scope)
+        .eq("producto_id", producto_id)
+        .execute()
+        .data
+        or []
+    )
+    for schedule in schedules:
+        cliente_id = schedule.get("cliente_id")
+        if not cliente_id:
+            continue
+        cfdi, email_destino = _schedule_cfdi_from_catalogs(
+            scope, int(cliente_id), producto_id
+        )
+        if _profile_update(PROGRAMACIONES, int(schedule["id"]), scope, {
+            "payload_json": cfdi,
+            "email_destino": email_destino,
+        }):
+            refreshed_schedules += 1
+    return {
+        "ok": True,
+        "producto_id": producto_id,
+        "programaciones_actualizadas": refreshed_schedules,
+    }
 
 
 @router.delete("/productos/{producto_id}")
