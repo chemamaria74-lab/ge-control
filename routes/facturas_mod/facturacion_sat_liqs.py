@@ -481,7 +481,7 @@ def _periodo_bounds(periodo: str) -> tuple[str, str]:
 
 def _registrar_evento(sb, uid: str, perfil_id, viaje_id: int, tipo: str, titulo: str, descripcion: str, actor_tipo: str, actor_id: str, metadata: dict) -> None:
     try:
-        sb.table("tr_eventos").insert({
+        sb.table("tr_viaje_eventos").insert({
             "user_id": uid,
             "perfil_id": perfil_id,
             "viaje_id": viaje_id,
@@ -1388,12 +1388,12 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                     "factura_servicio_uuid": sw_data.get("uuid", ""),
                     "factura_servicio_pdf_url": f"/api/tr-v2/facturas-servicio/{factura_id}/pdf?download=true",
                     "factura_servicio_xml_url": f"/api/tr-v2/facturas-servicio/{factura_id}/xml",
-                    "metadata": viaje_meta,
+                    "defaults_json": viaje_meta,
                 }).eq("id", int(vid)).eq("user_id", uid).execute()
             except Exception as exc:
                 logger.info("Columnas separadas factura servicio aun no disponibles viaje=%s: %s", vid, exc)
                 try:
-                    sb.table(_TBL_VIAJES).update({"metadata": viaje_meta}).eq("id", int(vid)).eq("user_id", uid).execute()
+                    sb.table(_TBL_VIAJES).update({"defaults_json": viaje_meta}).eq("id", int(vid)).eq("user_id", uid).execute()
                 except Exception as meta_exc:
                     logger.info("No se pudo guardar metadata de calculo Carta Ingreso viaje=%s: %s", vid, meta_exc)
         version_xml(
