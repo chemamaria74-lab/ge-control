@@ -1033,13 +1033,17 @@ def _gas_lp_complemento_pago_context(token: str, *, perfil_id: int | None = None
 
 
 def _gas_lp_profile_impl(user: dict, *, require_module_marker: bool = False) -> dict:
+    perfil_id = user.get("perfil_id")
+    tenant_id = user.get("tenant_id")
+    if not perfil_id or not tenant_id:
+        raise HTTPException(403, "Tu sesión no tiene una empresa activa asignada.")
     sb = get_supabase_admin()
     rows = (
         sb
         .table("perfiles_empresa")
         .select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
-        .eq("id", user.get("perfil_id"))
-        .eq("tenant_id", user.get("tenant_id"))
+        .eq("id", perfil_id)
+        .eq("tenant_id", tenant_id)
         .eq("activo", True)
         .limit(1)
         .execute()

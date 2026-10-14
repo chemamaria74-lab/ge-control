@@ -272,10 +272,13 @@ def manager_inventory(
     month = str(month or datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m"))[:7]
     if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(400, "Mes inválido.")
+    profile_id = ctx.get("perfil_id")
+    if not profile_id:
+        raise HTTPException(422, "Selecciona una empresa para consultar su inventario.")
     sb = get_supabase_admin()
     profile_rows = (
         sb.table("perfiles_empresa").select("id,user_id,tenant_id,nombre,rfc,descripcion,activo")
-        .eq("id", ctx.get("perfil_id")).eq("tenant_id", ctx["tenant_id"])
+        .eq("id", profile_id).eq("tenant_id", ctx["tenant_id"])
         .eq("activo", True).limit(1).execute().data or []
     )
     if not profile_rows:

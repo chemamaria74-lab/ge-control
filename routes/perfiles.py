@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 from routes.auth import obtener_accesos_usuario, verify_token
-from supabase_config import get_supabase, get_supabase_for_user
+from supabase_config import get_supabase, get_supabase_admin, get_supabase_for_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -339,7 +339,10 @@ def _tenant_id_for_user(user_id: str, access_token: str = "") -> str:
 
 def _subscription_for_tenant(tenant_id: str) -> dict:
     try:
-        sb = get_supabase()
+        # La suscripción es configuración interna del tenant. Consultarla con el
+        # cliente anónimo genera 401 bajo RLS y degrada silenciosamente al plan
+        # por defecto, incluso después de autenticar al usuario en este backend.
+        sb = get_supabase_admin()
         try:
             rows = (
                 sb
