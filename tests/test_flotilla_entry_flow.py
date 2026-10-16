@@ -120,7 +120,7 @@ def test_fleet_restores_only_the_last_analysis_generated_today():
     assert "renderReportCatalog(cached.data)" in script
     assert "cached.saved_day===todayKey" in script
     assert "Mostrando el análisis guardado de hoy" in script
-    assert "flotilla.js?v=20261012-review-by-unit" in template
+    assert "flotilla.js?v=20261015-all-sections-by-unit" in template
 
 
 def test_fleet_cache_is_scoped_by_zone_and_official_logout_returns_to_supervision():
@@ -296,7 +296,7 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert "data-inspection-view" in frontend
     assert "Sin inspección" in frontend
     assert 'id="activityCalendar"' in template
-    assert "flotilla.js?v=20261012-review-by-unit" in template
+    assert "flotilla.js?v=20261015-all-sections-by-unit" in template
     assert '"activity_calendar": activity_calendar' in backend
     assert "Requieren revisión" in frontend
     assert "Con jornada GPS todos los días laborables" in frontend
@@ -312,15 +312,16 @@ def test_manager_portal_localizes_inspections_and_shows_weekly_activity():
     assert 'class="activity-complete" open' in frontend
     assert 'const reviewUnits=units.filter(unit=>missingDays(unit)>0)' in frontend
     assert '<th>Unidad</th>' in frontend
-    assert "Requieren revisión” se agrupa por unidad" in frontend
-    assert "Las demás secciones conservan una fila por chofer" in frontend
+    assert "Toda la actividad semanal se agrupa por unidad" in frontend
+    assert "Todas las secciones están agrupadas por unidad" in frontend
     assert 'reviewUnits.length?unitMatrix(reviewUnits)' in frontend
-    assert '${matrix(incompleteDrivers)}' in frontend
-    assert '${matrix(completeDrivers)}' in frontend
+    assert '${unitMatrix(incompleteUnits)}' in frontend
+    assert '${unitMatrix(completeUnits)}' in frontend
+    assert "Sin trayectos registrados en el periodo" in frontend
     assert "record.observed===true" in frontend
     assert "activity-mobile-unit" in frontend
     assert '"observed": False' in backend
-    assert '"grouped_by": "driver"' in backend
+    assert '"grouped_by": "unit"' in backend
     assert '"units": [{' in backend
     assert '"unit_key": key' in backend
     assert '"driver_name": trip_driver_name' in backend
