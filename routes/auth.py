@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from supabase import create_client
 
 from supabase_config import get_supabase, get_supabase_for_user, SUPABASE_URL, SUPABASE_KEY
+from services.logout import revoke_supabase_session
 from services.observability import set_scope
 from services.security import client_ip, enforce_rate_limit
 
@@ -670,11 +671,10 @@ async def me(authorization: str = Header(default="")):
 @router.post("/auth/logout")
 async def logout(authorization: str = Header(default="")):
     token = _extract_bearer(authorization)
-    if token:
-        try:
-            get_supabase().auth.sign_out()
-        except Exception:
-            pass
+    # El cliente global no contiene la sesión del navegador y llamar sign_out()
+    # sobre él provoca ``session_not_found``. Revocar por el JWT recibido apunta
+    # a la familia de refresh tokens correcta y conserva un logout idempotente.
+    revoke_supabase_session(token or "")
     response = JSONResponse(content={"success": True})
     response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
     return response
