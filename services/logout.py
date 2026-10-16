@@ -37,7 +37,10 @@ def revoke_supabase_session(access_token: str) -> LogoutResult:
     try:
         from supabase_config import get_supabase_admin
 
-        get_supabase_admin().auth.admin.sign_out(token, "global")
+        # The JWT identifies one Supabase session. Revoking only that session
+        # prevents a logout in this browser from invalidating other devices and
+        # leaving them with refresh tokens that suddenly no longer exist.
+        get_supabase_admin().auth.admin.sign_out(token, "local")
         return LogoutResult(ok=True, revoked=True)
     except Exception as exc:
         if _is_session_not_found(exc):
