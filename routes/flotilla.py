@@ -1350,7 +1350,7 @@ def report_catalog(
                 daily["inactive"] = True
     activity_calendar = {
         "days": [day.isoformat() for day in activity_days],
-        "grouped_by": "driver",
+        "grouped_by": "unit",
         "drivers": [{
             "driver_key": key,
             "driver_name": row["driver_name"],
