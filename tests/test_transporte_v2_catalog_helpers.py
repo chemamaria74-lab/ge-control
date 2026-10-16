@@ -57,6 +57,26 @@ def test_tr_viajes_insert_removes_ui_aliases_before_postgrest():
     }
 
 
+def test_operator_update_uses_canonical_updated_at_column(monkeypatch):
+    captured = {}
+
+    def fake_update(_token, table, row, item_id, uid, perfil_id):
+        captured.update({"table": table, "row": row})
+        return [{"id": item_id, "user_id": uid, "perfil_id": perfil_id, **row}]
+
+    monkeypatch.setattr(transporte_v2, "_update_catalog_row", fake_update)
+    monkeypatch.setattr(transporte_v2, "_audit", lambda *_args, **_kwargs: None)
+
+    result = transporte_v2._update_catalog_item(
+        "token", "user-a", 410, "operadores", 20, {"nombre": "Operador actualizado"},
+    )
+
+    assert result["ok"] is True
+    assert captured["table"] == transporte_v2.TBL_OPERADORES
+    assert captured["row"]["nombre"] == "Operador actualizado"
+    assert captured["row"]["updated_at"]
+
+
 def test_operator_payment_uses_merchandise_invoice_folio_instead_of_uuid():
     row = {"id_ccp": "CCC5FAC5-0E39-408E-ACEF-961F2E092248", "uuid_cfdi": "UUID-CARTA-PORTE"}
     meta = {"documento_detectado": {"folio_display": "FE 111596", "uuid": "UUID-FACTURA"}}

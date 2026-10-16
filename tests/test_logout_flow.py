@@ -13,6 +13,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "service")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import routes.internal_users as internal_users
+import routes.auth as auth
 import services.logout as logout_service
 
 
@@ -74,13 +75,21 @@ class FakeSessionDB:
 
 
 class LogoutFlowTest(unittest.TestCase):
+    def test_public_auth_logout_revokes_the_request_session(self):
+        with patch.object(auth, "revoke_supabase_session") as revoke:
+            response = asyncio.run(auth.logout(authorization="Bearer jwt-from-browser"))
+
+        revoke.assert_called_once_with("jwt-from-browser")
+        self.assertTrue(response_json(response)["success"])
+        self.assertIn(auth.REFRESH_COOKIE, response.headers["set-cookie"])
+
     def test_auth_logout_revokes_request_jwt_with_admin_client(self):
         client = FakeSupabaseAuthClient()
         with patch("supabase_config.get_supabase_admin", lambda: client):
             result = logout_service.revoke_supabase_session("jwt-from-browser")
         self.assertTrue(result.ok)
         self.assertTrue(result.revoked)
-        self.assertEqual(client.auth.admin.calls, [("jwt-from-browser", "global")])
+        self.assertEqual(client.auth.admin.calls, [("jwt-from-browser", "local")])
 
     def test_auth_logout_is_idempotent_when_supabase_session_is_already_missing(self):
         client = FakeSupabaseAuthClient(Exception("403 session_not_found"))
