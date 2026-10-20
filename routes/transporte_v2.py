@@ -267,6 +267,7 @@ CATALOG_CONFIG: dict[str, dict[str, Any]] = {
             "nombre", "rfc", "cp", "direccion", "tipo", "tipo_carta_porte",
             "proveedor_id", "proveedor_nombre", "cliente_id", "cliente_nombre",
             "permiso_cre", "clave_instalacion", "id_ubicacion_carta_porte",
+            "clasificacion_trimestral_glp", "nombre_instalacion_cne",
             "estado_sat", "municipio_sat", "localidad_sat", "referencia", "activo", "metadata",
         ],
         "defaults": {"activo": True, "tipo": "terminal"},
@@ -3325,6 +3326,8 @@ def _normalize_catalog_row(catalogo: str, row: dict[str, Any]) -> dict[str, Any]
         item["municipio_sat"] = _first_text(item.get("municipio_sat"), install_meta.get("municipio_sat"))
         item["localidad_sat"] = _first_text(item.get("localidad_sat"), install_meta.get("localidad_sat"))
         item["referencia"] = _first_text(item.get("referencia"), install_meta.get("referencia"))
+        item["clasificacion_trimestral_glp"] = _first_text(item.get("clasificacion_trimestral_glp"))
+        item["nombre_instalacion_cne"] = _first_text(item.get("nombre_instalacion_cne"))
     elif catalogo == "destinos":
         install_meta = _meta(item)
         item["nombre"] = _first_text(item.get("nombre"))
@@ -7290,19 +7293,15 @@ def _quarterly_trip_rows(sb: Any, uid: str, pid: int, permit_id: int, anio: int,
 
 
 def _glp_origin_type(origin: dict[str, Any]) -> str:
-    text = _normalize_match_text(_first_text(origin.get("punto_origen_glp"), _meta(origin).get("punto_origen_glp"), origin.get("tipo"), origin.get("nombre")))
-    for needle, label in (
-        ("RECEPCION", "Instalación de Recepción y Entrega"),
-        ("ALMACEN", "Sistema de almacenamiento"),
-        ("PROCESADOR", "Centro Procesador de Gas"),
-        ("REFINER", "Refinería"),
-        ("DISTRIB", "Planta de Distribución"),
-        ("FERRE", "Sistema de transporte férreo"),
-        ("TRANSPORTE", "Sistema de transporte"),
-    ):
-        if needle in text:
-            return label
-    return ""
+    return {
+        "recepcion_entrega": "Instalación de Recepción y Entrega",
+        "almacenamiento": "Sistema de almacenamiento",
+        "centro_procesador_gas": "Centro Procesador de Gas",
+        "refineria": "Refinería",
+        "planta_distribucion": "Planta de Distribución",
+        "transporte_ferreo": "Sistema de transporte férreo",
+        "sistema_transporte": "Sistema de transporte",
+    }.get(_first_text(origin.get("clasificacion_trimestral_glp")), "")
 
 
 def _quarterly_glp_data(
@@ -7319,7 +7318,7 @@ def _quarterly_glp_data(
         origin = _normalize_catalog_row("origenes", origins.get(int(trip.get("origen_id") or 0), {}))
         destination = _normalize_catalog_row("destinos", destinations.get(int(trip.get("destino_id") or 0), {}))
         point_type = _glp_origin_type(origin)
-        installation_name = _first_text(origin.get("nombre_instalacion_cne"), _meta(origin).get("nombre_instalacion_cne"), origin.get("nombre")) if point_type == "Instalación de Recepción y Entrega" else ""
+        installation_name = _first_text(origin.get("nombre_instalacion_cne"), origin.get("nombre")) if point_type == "Instalación de Recepción y Entrega" else ""
         date_value = _first_text(trip.get("fecha_hora_llegada"), trip.get("fecha_hora_salida"))
         total = _num(meta.get("total_flete") or meta.get("importe_servicio_iva") or trip.get("importe_total"))
         values = [
@@ -7341,7 +7340,12 @@ def _quarterly_glp_data(
             required["nombre_instalacion"] = values[6]
         missing = [field for field, value in required.items() if value in {None, "", 0}]
         if missing:
-            errors.append({"viaje_id": trip.get("id"), "faltantes": missing})
+            errors.append({
+                "viaje_id": trip.get("id"), "faltantes": missing,
+                "origen_id": trip.get("origen_id"), "origen": _first_text(origin.get("nombre")),
+                "destino_id": trip.get("destino_id"), "destino": _first_text(destination.get("nombre")),
+                "vehiculo_id": trip.get("vehiculo_id"),
+            })
         output.append(values)
     return output, errors
 
