@@ -7283,11 +7283,32 @@ def _quarterly_catalog_map(sb: Any, table: str, uid: str, pid: int) -> dict[int,
 
 def _quarterly_trip_rows(sb: Any, uid: str, pid: int, permit_id: int, anio: int, trimestre: int) -> list[dict[str, Any]]:
     start, end = _quarter_bounds(anio, trimestre)
-    rows = (
-        sb.table(TBL_VIAJES).select("*")
-        .eq("user_id", uid).eq("perfil_id", pid).eq("permiso_operacion_id", permit_id)
-        .gte("fecha_hora_salida", start.isoformat()).lt("fecha_hora_salida", end.isoformat())
+    start_value = start.replace(tzinfo=None).isoformat()
+    end_value = end.replace(tzinfo=None).isoformat()
+
+    def base_query() -> Any:
+        return (
+            sb.table(TBL_VIAJES).select("*")
+            .eq("user_id", uid).eq("perfil_id", pid).eq("permiso_operacion_id", permit_id)
+        )
+
+    # La plantilla define Fecha del Servicio como la descarga. Por eso el viaje
+    # pertenece al trimestre de llegada; la salida sólo es respaldo si no se
+    # capturó llegada. Usar la salida para filtrar y la llegada para exportar
+    # podía introducir un 1 de octubre dentro de T3.
+    arrived = (
+        base_query().gte("fecha_hora_llegada", start_value).lt("fecha_hora_llegada", end_value)
+        .order("fecha_hora_llegada").limit(5000).execute().data or []
+    )
+    without_arrival = (
+        base_query().is_("fecha_hora_llegada", "null")
+        .gte("fecha_hora_salida", start_value).lt("fecha_hora_salida", end_value)
         .order("fecha_hora_salida").limit(5000).execute().data or []
+    )
+    rows_by_id = {int(row["id"]): row for row in [*arrived, *without_arrival] if row.get("id")}
+    rows = sorted(
+        rows_by_id.values(),
+        key=lambda row: _first_text(row.get("fecha_hora_llegada"), row.get("fecha_hora_salida")),
     )
     return [row for row in rows if not _status_cancelado(row.get("status"), row.get("estatus"), row.get("operacion_status"))]
 
@@ -7304,6 +7325,19 @@ def _glp_origin_type(origin: dict[str, Any]) -> str:
     }.get(_first_text(origin.get("clasificacion_trimestral_glp")), "")
 
 
+def _quarterly_destination_for_trip(
+    trip: dict[str, Any], destinations: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    direct = destinations.get(int(trip.get("destino_id") or 0), {})
+    if direct:
+        return direct
+    client_id = int(_meta(trip).get("cliente_id") or 0)
+    if not client_id:
+        return {}
+    matches = [row for row in destinations.values() if int(row.get("cliente_id") or 0) == client_id]
+    return matches[0] if len(matches) == 1 else {}
+
+
 def _quarterly_glp_data(
     trips: list[dict[str, Any]],
     vehicles: dict[int, dict[str, Any]],
@@ -7316,7 +7350,7 @@ def _quarterly_glp_data(
         meta = _meta(trip)
         vehicle = _normalize_catalog_row("vehiculos", vehicles.get(int(trip.get("vehiculo_id") or 0), {}))
         origin = _normalize_catalog_row("origenes", origins.get(int(trip.get("origen_id") or 0), {}))
-        destination = _normalize_catalog_row("destinos", destinations.get(int(trip.get("destino_id") or 0), {}))
+        destination = _normalize_catalog_row("destinos", _quarterly_destination_for_trip(trip, destinations))
         point_type = _glp_origin_type(origin)
         installation_name = _first_text(origin.get("nombre_instalacion_cne"), origin.get("nombre")) if point_type == "Instalación de Recepción y Entrega" else ""
         date_value = _first_text(trip.get("fecha_hora_llegada"), trip.get("fecha_hora_salida"))
@@ -7408,9 +7442,11 @@ def _build_petroliferos_quarterly_xlsx(
         meta = _meta(trip)
         vehicle = _normalize_catalog_row("vehiculos", vehicles.get(int(trip.get("vehiculo_id") or 0), {}))
         origin = _normalize_catalog_row("origenes", origins.get(int(trip.get("origen_id") or 0), {}))
-        destination = _normalize_catalog_row("destinos", destinations.get(int(trip.get("destino_id") or 0), {}))
+        destination = _normalize_catalog_row("destinos", _quarterly_destination_for_trip(trip, destinations))
         product = _normalize_catalog_row("productos", products.get(int(trip.get("producto_operacion_id") or trip.get("producto_id") or 0), {}))
-        trailer = _normalize_catalog_row("remolques", trailers.get(int(trip.get("remolque_id") or 0), {}))
+        vehicle_meta = _meta(vehicle)
+        trailer_id = int(trip.get("remolque_id") or meta.get("remolque_id") or vehicle.get("remolque_id") or vehicle_meta.get("remolque_id") or 0)
+        trailer = _normalize_catalog_row("remolques", trailers.get(trailer_id, {}))
         item = {
             "id": trip.get("id"), "fecha": _first_text(trip.get("fecha_hora_llegada"), trip.get("fecha_hora_salida")),
             "id_cre": _first_text(vehicle.get("id_cre")), "placas": _first_text(vehicle.get("placas")),
@@ -7463,7 +7499,8 @@ def _quarterly_safe_permit(value: str) -> str:
 
 @router.get("/tr-v2/reportes/trimestrales/historial")
 async def transporte_v2_trimestral_history(
-    authorization: str = Header(default=""), perfil_id: Optional[int] = Query(default=None), x_perfil_id: str = Header(default=""),
+    authorization: str = Header(default=""), perfil_id: Optional[int] = Query(default=None),
+    permiso_operacion_id: Optional[int] = Query(default=None, gt=0), x_perfil_id: str = Header(default=""),
 ):
     uid, token = _auth(authorization)
     pid = _profile_id(perfil_id, x_perfil_id)
@@ -7471,7 +7508,15 @@ async def transporte_v2_trimestral_history(
     if not pid:
         raise HTTPException(400, "Selecciona empresa.")
     try:
-        rows = _sb(token).table(TBL_TRIMESTRALES).select("*").eq("user_id", uid).eq("perfil_id", pid).order("generated_at", desc=True).limit(100).execute().data or []
+        sb = _sb(token)
+        query = (
+            sb.table(TBL_TRIMESTRALES).select("*")
+            .eq("user_id", uid).eq("perfil_id", pid).neq("status", "eliminado")
+        )
+        if permiso_operacion_id:
+            _quarterly_permit(sb, uid, pid, permiso_operacion_id)
+            query = query.eq("permiso_operacion_id", permiso_operacion_id)
+        rows = query.order("generated_at", desc=True).limit(100).execute().data or []
         return {"ok": True, "items": rows}
     except Exception as exc:
         if _is_missing_table_error(exc):
@@ -7601,6 +7646,48 @@ async def transporte_v2_upload_quarterly_ack(
     updated = sb.table(TBL_TRIMESTRALES).update(update).eq("id", report_id).eq("user_id", uid).eq("perfil_id", pid).execute().data or []
     _audit(uid, token, pid, TBL_TRIMESTRALES, report_id, "adjuntar_acuse_trimestral", {"acuse_folio": acuse_folio.strip(), "sha256": update["acuse_sha256"]})
     return {"ok": True, "item": updated[0] if updated else {**rows[0], **update}}
+
+
+@router.post("/tr-v2/reportes/trimestrales/{report_id}/eliminar")
+async def transporte_v2_delete_quarterly_draft(
+    report_id: int, authorization: str = Header(default=""), x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "Selecciona empresa.")
+    sb = _sb(token)
+    rows = (
+        sb.table(TBL_TRIMESTRALES).select("*")
+        .eq("id", report_id).eq("user_id", uid).eq("perfil_id", pid)
+        .limit(1).execute().data or []
+    )
+    if not rows or rows[0].get("status") == "eliminado":
+        raise HTTPException(404, "Reporte trimestral no encontrado.")
+    report = rows[0]
+    if report.get("status") == "presentado" or report.get("acuse_nombre"):
+        raise HTTPException(409, "No se puede eliminar un reporte que ya tiene acuse. Debe conservarse como evidencia.")
+    storage_bucket = _first_text(report.get("storage_bucket"))
+    storage_path = _first_text(report.get("storage_path"))
+    if storage_bucket and storage_path:
+        try:
+            sb.storage.from_(storage_bucket).remove([storage_path])
+        except Exception as exc:
+            logger.warning("No se pudo retirar archivo trimestral %s: %s", report_id, exc)
+            raise HTTPException(500, "No se pudo retirar el archivo almacenado; el registro se conservó.") from exc
+    update = {"status": "eliminado", "deleted_at": _now_iso(), "deleted_by": uid, "updated_at": _now_iso()}
+    updated = (
+        sb.table(TBL_TRIMESTRALES).update(update)
+        .eq("id", report_id).eq("user_id", uid).eq("perfil_id", pid).eq("status", "generado")
+        .execute().data or []
+    )
+    if not updated:
+        raise HTTPException(409, "El reporte cambió de estado y ya no puede eliminarse.")
+    _audit(uid, token, pid, TBL_TRIMESTRALES, report_id, "eliminar_borrador_trimestral", {
+        "folio": report.get("folio_interno"), "sha256": report.get("sha256"),
+    })
+    return {"ok": True, "id": report_id}
 
 
 @router.get("/tr-v2/health")
