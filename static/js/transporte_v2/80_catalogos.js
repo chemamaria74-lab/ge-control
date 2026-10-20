@@ -245,7 +245,9 @@ const TRV2_CATALOG_FORMS = {
     ['tipo_carta_porte', 'Tipo Carta Porte', 'cp-location-type'],
     ['proveedor_id', 'Proveedor', 'proveedor-select'],
     ['cliente_id', 'Cliente', 'cliente-select'],
-    ['permiso_cre', 'Permiso CRE *'],
+    ['permiso_cre', 'Permiso regulatorio del punto físico *'],
+    ['clasificacion_trimestral_glp', 'Clasificación trimestral CNE (Gas LP)', 'glp-origin-type'],
+    ['nombre_instalacion_cne', 'Nombre regulatorio de la instalación'],
     ['clave_instalacion', 'Clave instalación interna'],
     ['cp', 'CP'],
     ['direccion', 'Domicilio'],
@@ -1185,6 +1187,18 @@ function trv2RenderCatalogFields(name) {
         <option value="Origen">Origen</option><option value="Destino">Destino</option><option value="Ambos">Ambos</option>
       </select></label>`;
     }
+    if (type === 'glp-origin-type') {
+      return `<label data-installation-provider>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
+        <option value="">Seleccionar clasificación</option>
+        <option value="recepcion_entrega">Instalación de Recepción y Entrega</option>
+        <option value="almacenamiento">Sistema de almacenamiento</option>
+        <option value="centro_procesador_gas">Centro Procesador de Gas</option>
+        <option value="refineria">Refinería</option>
+        <option value="planta_distribucion">Planta de Distribución</option>
+        <option value="transporte_ferreo">Sistema de transporte férreo</option>
+        <option value="sistema_transporte">Sistema de transporte</option>
+      </select><small class="trv2-field-help">Se usa únicamente en el informe trimestral de Gas LP; no sustituye el tipo operativo de Carta Porte.</small></label>`;
+    }
     if (type === 'proveedor-select') {
       return `<label data-installation-provider>${trv2Esc(labelText)}<select data-field="${field}" ${required ? 'required' : ''}>
         ${trv2CatalogOptions('proveedores', 'Seleccionar proveedor')}
@@ -1342,7 +1356,14 @@ function trv2CoerceInstallationContext(form, data) {
     if (proveedor) {
       data.proveedor_nombre = trv2CatalogLabel('proveedores', proveedor);
       data.rfc = data.rfc || proveedor.rfc || '';
-      data.permiso_cre = data.permiso_cre || proveedor.permiso_cre || '';
+      // La instalación representa el punto físico. Su permiso no es el permiso
+      // comercial del proveedor: debe venir del almacenamiento/terminal.
+      data.permiso_cre = proveedor.permiso_almacenamiento_terminal || data.permiso_cre || '';
+      if (!data.clasificacion_trimestral_glp) {
+        const physicalPermit = String(data.permiso_cre || '').toUpperCase();
+        if (/\/LPA\//.test(physicalPermit)) data.clasificacion_trimestral_glp = 'almacenamiento';
+        if (/\/DIST\/PLA\//.test(physicalPermit)) data.clasificacion_trimestral_glp = 'planta_distribucion';
+      }
       data.nombre = data.nombre || data.proveedor_nombre || '';
     }
   }
@@ -1860,6 +1881,8 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     municipio_sat: data.municipio_sat,
     localidad_sat: data.localidad_sat,
     activo: data.activo,
+    clasificacion_trimestral_glp: data.clasificacion_trimestral_glp || null,
+    nombre_instalacion_cne: data.nombre_instalacion_cne || '',
   };
   for (const target of targets) {
     const isOrigin = target === 'origenes';
@@ -1871,7 +1894,7 @@ async function trv2SaveInstalacionCatalogItem(itemId, data) {
     payload.cliente_nombre = isOrigin ? '' : (trv2CatalogLabel('clientes', cliente) || '');
     payload.rfc = data.rfc || (isOrigin ? proveedor?.rfc : cliente?.rfc) || '';
     payload.permiso_cre = isOrigin
-      ? (data.permiso_cre || proveedor?.permiso_cre || '')
+      ? (proveedor?.permiso_almacenamiento_terminal || data.permiso_cre || '')
       : (data.permiso_cre || '');
     payload.id_ubicacion_carta_porte = trv2BuildCartaPorteLocationId(data, target);
     const sourceId = current?._source_catalog === target ? Number(current._source_id || 0) : 0;

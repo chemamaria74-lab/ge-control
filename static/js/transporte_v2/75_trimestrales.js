@@ -69,8 +69,23 @@ async function trv2QuarterlyPrepare() {
     return;
   }
   if (data.errors?.length) {
-    const rows = data.errors.slice(0, 8).map(item => `Viaje ${item.viaje_id}: ${item.faltantes.join(', ')}`).join(' · ');
-    alert.textContent = `Faltan datos regulatorios (${data.errors.length} viaje(s)): ${rows}`;
+    const labels = {
+      fecha_servicio: 'fecha de servicio', id_cre: 'ID CNE/CRE de unidad',
+      glp_transportado_kg: 'volumen de Gas LP en kg', punto_origen: 'clasificación CNE del origen',
+      nombre_instalacion: 'nombre regulatorio de instalación', permiso_origen: 'permiso del origen',
+      permiso_destinatario: 'permiso del destinatario',
+    };
+    const grouped = new Map();
+    data.errors.forEach(item => {
+      const fields = (item.faltantes || []).map(field => labels[field] || field).join(', ');
+      const place = item.origen ? `Origen ${item.origen}` : `Viaje ${item.viaje_id}`;
+      const key = `${place}|${fields}`;
+      const current = grouped.get(key) || {place, fields, count: 0};
+      current.count += 1;
+      grouped.set(key, current);
+    });
+    const summary = [...grouped.values()].slice(0, 5).map(item => `${item.place} (${item.count} viaje(s)): ${item.fields}`).join(' · ');
+    alert.innerHTML = `<strong>Completa la configuración regulatoria antes de generar.</strong><br>${trv2Esc(summary)}<br><small>Ve a Catálogos → Instalaciones, edita el origen y selecciona su clasificación trimestral CNE.</small>`;
     return;
   }
   alert.className = 'trv2-alert trv2-alert-ok';
