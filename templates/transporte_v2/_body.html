@@ -22,7 +22,7 @@
   <button class="trv2-tab" type="button" data-tab="facturas-servicio" onclick="trv2SwitchTab('facturas-servicio')">Cartas Ingreso</button>
   <button class="trv2-tab" type="button" data-tab="conciliacion" onclick="trv2SwitchTab('conciliacion')">Nómina operadores</button>
   <button class="trv2-tab" type="button" data-tab="operadores-ruta" onclick="trv2SwitchTab('operadores-ruta')">Operadores en ruta</button>
-  <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')">Reportes SAT</button>
+  <button class="trv2-tab" type="button" data-tab="reportes-sat" onclick="trv2SwitchTab('reportes-sat')">Reportes</button>
   <button class="trv2-tab" type="button" data-tab="catalogos" onclick="trv2SwitchTab('catalogos')">Catálogos</button>
   <button class="trv2-tab" type="button" data-tab="administracion" onclick="trv2SwitchTab('administracion')">Administración</button>
 </nav>
@@ -102,8 +102,9 @@
         <label>Origen <input id="trv2-trip-origen" required placeholder="Origen"></label>
         <label>Destino <input id="trv2-trip-destino" required placeholder="Destino"></label>
         <label>Operador <select id="trv2-trip-operador-id" required></select></label>
-        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id" required></select></label>
-        <label>Producto <select id="trv2-trip-producto-id" required></select></label>
+        <label>Vehículo/autotanque <select id="trv2-trip-vehiculo-id" required onchange="trv2PopulateTripPermitSelect()"></select></label>
+        <label>Producto <select id="trv2-trip-producto-id" required onchange="trv2PopulateTripPermitSelect()"></select></label>
+        <label>Permiso CNE del viaje <select id="trv2-trip-permiso-id" required></select></label>
         <label>Litros <input id="trv2-trip-litros" type="number" min="0" step="0.001" value="0"></label>
         <label>Peso kg <input id="trv2-trip-peso" type="number" min="0" step="0.001" value="0"></label>
         <label>Fecha salida <input id="trv2-trip-salida" type="datetime-local" required></label>
@@ -586,10 +587,21 @@
   <section id="trv2-tab-reportes-sat" class="trv2-section">
     <div class="trv2-section-head">
       <div>
-        <h1>Reportes SAT</h1>
-        <p>Control volumétrico mensual de transporte. Cada viaje se registra una sola vez con el CFDI que contiene su complemento Carta Porte.</p>
+        <h1>Reportes</h1>
+        <p>Genera el JSON mensual del SAT y los informes trimestrales por permiso de transporte.</p>
       </div>
     </div>
+    <section class="trv2-panel trv2-report-permit-panel">
+      <div class="trv2-form trv2-form-cv trv2-report-permit-form">
+        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2CvPermitChanged()"></select></label>
+        <div class="trv2-cv-context" id="trv2-report-permit-context"></div>
+      </div>
+    </section>
+    <nav class="trv2-subtabs" aria-label="Tipos de reporte">
+      <button class="trv2-subtab active" type="button" data-report-tab="mensual" onclick="trv2SetReportSubtab('mensual')"><i class="fa-solid fa-code"></i> JSON mensual</button>
+      <button class="trv2-subtab" type="button" data-report-tab="trimestrales" onclick="trv2SetReportSubtab('trimestrales')"><i class="fa-solid fa-file-excel"></i> Trimestrales</button>
+    </nav>
+    <div class="trv2-report-panel active" data-report-panel="mensual">
     <div class="trv2-cv-action-grid">
       <article class="trv2-cv-action-card trv2-cv-action-upload">
         <h2><i class="fa-solid fa-cloud-arrow-up"></i> Subir pendientes externos</h2>
@@ -613,7 +625,6 @@
     </div>
     <section class="trv2-panel trv2-cv-filter-panel" id="trv2-cv-review-panel" hidden>
       <div class="trv2-form trv2-form-cv">
-        <label>Permiso * <select id="trv2-cv-permiso" onchange="trv2CvPermitChanged()"></select></label>
         <label>Año * <input id="trv2-cv-anio" type="number" min="2024" max="2100" onchange="trv2InvalidateCvSearch()"></label>
         <label>Mes * <select id="trv2-cv-mes" onchange="trv2InvalidateCvSearch()"></select></label>
         <label>Producto <select id="trv2-cv-producto" onchange="trv2InvalidateCvSearch()"></select></label>
@@ -640,6 +651,25 @@
             <tbody id="trv2-cv-movements-table"><tr><td colspan="9"><div class="trv2-empty">Sin revisar el periodo.</div></td></tr></tbody>
           </table>
         </div>
+      </section>
+    </div>
+    </div>
+    <div class="trv2-report-panel" data-report-panel="trimestrales" hidden>
+      <section class="trv2-panel">
+        <div class="trv2-table-head">
+          <div><h2 id="trv2-quarterly-title">Informe trimestral</h2><p class="trv2-muted" id="trv2-quarterly-description">Selecciona un permiso. Su familia define automáticamente el informe y sus validaciones.</p></div>
+        </div>
+        <div class="trv2-form trv2-form-cv trv2-quarterly-period-form">
+          <label>Año * <input id="trv2-quarterly-year" type="number" min="2024" max="2100" onchange="trv2QuarterlyPrepare()"></label>
+          <label>Trimestre * <select id="trv2-quarterly-quarter" onchange="trv2QuarterlyPrepare()"><option value="1">T1 · enero–marzo</option><option value="2">T2 · abril–junio</option><option value="3">T3 · julio–septiembre</option><option value="4">T4 · octubre–diciembre</option></select></label>
+          <div class="trv2-form-actions"><button class="trv2-btn trv2-btn-primary" id="trv2-quarterly-generate" type="button" onclick="trv2GenerateQuarterly()" disabled><i class="fa-solid fa-file-arrow-down"></i> Generar y descargar</button></div>
+        </div>
+        <div id="trv2-quarterly-readiness" class="trv2-alert trv2-alert-warn">Selecciona un permiso para validar el trimestre.</div>
+      </section>
+      <section class="trv2-panel">
+        <div class="trv2-table-head"><div><h2>Historial trimestral</h2><p class="trv2-muted">Evidencia de generación, hash SHA-256, usuario, folio interno y acuse.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadQuarterlyHistory()"><i class="fa-solid fa-rotate"></i> Actualizar</button></div>
+        <div class="trv2-table-wrap"><table><thead><tr><th>Periodo</th><th>Familia / permiso</th><th>Archivo</th><th>Generado</th><th>Folio / SHA-256</th><th>Acuse</th></tr></thead><tbody id="trv2-quarterly-history"><tr><td colspan="6"><div class="trv2-empty">Sin consultar.</div></td></tr></tbody></table></div>
+        <input id="trv2-quarterly-ack-file" type="file" accept="application/pdf,.pdf" hidden onchange="trv2UploadQuarterlyAck(event)">
       </section>
     </div>
   </section>
@@ -756,7 +786,7 @@
         <div class="trv2-table-head">
           <div>
             <h2>Permisos CRE del transportista</h2>
-            <p class="trv2-muted">Estos permisos alimentan Reportes SAT / JSON mensual. Los proveedores se administran en Catálogos.</p>
+            <p class="trv2-muted">Estos permisos alimentan Reportes: JSON mensual y Trimestrales. Los proveedores se administran en Catálogos.</p>
           </div>
           <button class="trv2-btn trv2-btn-primary" type="button" onclick="trv2NewPermisoRfc()">+ Nuevo permiso</button>
         </div>
