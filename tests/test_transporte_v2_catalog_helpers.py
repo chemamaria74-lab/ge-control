@@ -378,7 +378,7 @@ def test_carta_ingreso_historica_permite_tarifa_manual_sin_recrear_ruta():
     assert "override_tarifa: tarifa" in source
     assert "Ruta o destino histórico ya no disponible" in source
     assert "${!tariff ?" in source
-    assert "transporte_v2.css?v=transport-multiclient-audit-20260729a" in shell
+    assert "transporte_v2.css?v=quarterly-reports-20261019a" in shell
 
 
 def test_resumen_cartas_ingreso_distingue_estimado_facturado_y_pendiente_pago():
@@ -714,7 +714,8 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
     )[0]
     assert 'data-payment-config-nav hidden style="display:none"' in template
     assert shell.count("transport-ondemand-20260729b") == 1
-    assert shell.count("transport-multiclient-audit-20260729a") == 2
+    assert shell.count("transport-multiclient-audit-20260729a") == 1
+    assert shell.count("quarterly-reports-20261019a") == 1
     assert shell.count("transport-sat-canonical-ci-20260915d") == 1
     assert "transport-payroll-catalogs-20260729f" in shell
 
