@@ -120,6 +120,14 @@ def test_operator_catalog_uses_safe_deactivation_language():
     assert "name === 'operadores' ? ''" in frontend
 
 
+def test_origin_installation_uses_physical_permit_not_supplier_commercial_permit():
+    frontend = (Path(__file__).parents[1] / "static/js/transporte_v2/80_catalogos.js").read_text(encoding="utf-8")
+
+    assert "proveedor?.permiso_almacenamiento_terminal || data.permiso_cre" in frontend
+    assert "proveedor?.permiso_cre ||" not in frontend
+    assert "Permiso regulatorio del punto físico" in frontend
+
+
 def test_operator_deactivation_revokes_portal_access_and_payroll_history_keeps_ui_state():
     root = Path(__file__).parents[1]
     backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
