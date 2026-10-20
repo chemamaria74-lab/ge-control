@@ -70,6 +70,7 @@ TBL_CFDI = "tr_cfdi"
 TBL_COVOL = "tr_covol_reports"
 TBL_COVOL_CIERRES = "tr_covol_month_closures"
 TBL_COVOL_EXTERNOS = "tr_covol_external_movements"
+TBL_TRIMESTRALES = "tr_reportes_trimestrales"
 TBL_COMPANY_REQUESTS = "tr_company_activation_requests"
 TRV2_LIST_LIMIT_DEFAULT = 100
 TRV2_LIST_LIMIT_MAX = 1000
@@ -307,6 +308,7 @@ CATALOG_READ_ONLY = False
 
 VIAJE_ALLOWED_FIELDS = {
     "cliente_id", "operador_id", "vehiculo_id", "producto_id", "ruta_id",
+    "permiso_operacion_id", "num_permiso_cne",
     "origen", "destino", "volumen_litros", "peso_kg", "fecha_salida",
     "fecha_llegada_estimada", "estatus", "observaciones", "metadata",
 }
@@ -318,6 +320,8 @@ class TransporteV2ViajeCreate(BaseModel):
     operador_id: Optional[int] = None
     vehiculo_id: Optional[int] = None
     producto_id: Optional[int] = None
+    permiso_operacion_id: Optional[int] = None
+    num_permiso_cne: str = ""
     ruta_id: Optional[int] = None
     cliente_nombre: str = ""
     origen: str = ""
@@ -413,6 +417,14 @@ class TransporteV2SettingsPayload(BaseModel):
 class TransporteV2PermisoPayload(BaseModel):
     perfil_id: Optional[int] = None
     data: dict[str, Any] = {}
+
+
+class TransporteV2TrimestralRequest(BaseModel):
+    perfil_id: Optional[int] = None
+    permiso_operacion_id: int
+    anio: int
+    trimestre: int
+    datos_petroliferos: dict[str, Any] = {}
 
 
 def _now_iso() -> str:
@@ -1999,6 +2011,15 @@ def _operator_create_trip(
     factura_total = _num(detected.get("total"))
     valor_mercancia = factura_total or factura_subtotal
     product_name = _first_text(product.get("nombre"), detected.get("producto"))
+    permiso_operacion = _resolve_trip_transport_permit(
+        sb,
+        acc.get("user_id"),
+        acc.get("perfil_id"),
+        _first_text(product.get("tipo_producto"), product.get("descripcion"), product_name),
+        requested_number=_first_text(detected.get("permiso_transportista"), detected.get("num_permiso_cne")),
+    )
+    permiso_operacion_id = int(_num(permiso_operacion.get("id")) or 0)
+    num_permiso_cne = _first_text(permiso_operacion.get("permiso_cre"))
     pretrip_events = pretrip.get("eventos") if isinstance(pretrip.get("eventos"), list) else []
     bitacora = {}
     if pretrip_events:
@@ -2033,6 +2054,9 @@ def _operator_create_trip(
         "remolque2_subtipo": _first_text(vehicle.get("remolque2_subtipo"), _meta(vehicle).get("remolque2_subtipo")),
         "producto": product_name,
         "producto_descripcion": product_name,
+        "permiso_operacion_id": permiso_operacion_id,
+        "num_permiso_cne": num_permiso_cne,
+        "familia_producto": transport_product_family(_first_text(product.get("tipo_producto"), product_name)),
         "peso_kg": kilos,
         "subtotal": factura_subtotal,
         "iva": factura_iva,
@@ -2058,6 +2082,8 @@ def _operator_create_trip(
         "origen_id": route.get("origen_id"),
         "destino_id": route.get("destino_id"),
         "producto_operacion_id": product.get("id"),
+        "permiso_operacion_id": permiso_operacion_id,
+        "num_permiso_cne": num_permiso_cne,
         "producto_id": product.get("id"),
         "cp_origen": route.get("cp_origen") or "",
         "nombre_origen": route.get("nombre_origen") or "",
@@ -3161,6 +3187,11 @@ def _insert_table_row_tolerant(sb: Any, table: str, row: dict[str, Any]) -> list
             text = str(exc).lower()
             if "null value in column" in text:
                 raise
+            if table == TBL_VIAJES and column in {"permiso_operacion_id", "num_permiso_cne"}:
+                raise HTTPException(
+                    409,
+                    "Falta aplicar la migración de permiso canónico en tr_viajes; no se guardó el viaje sin su permiso.",
+                ) from exc
             if not column or column == "user_id" or column in removed or column not in pending:
                 raise
             logger.info("Transporte v2 omitió columna no migrada %s.%s al insertar.", table, column)
@@ -4569,6 +4600,17 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
     cp_destino = _first_text(ruta.get("cp_destino"), cliente.get("cp"))
     producto_nombre = _first_text(producto.get("descripcion"), payload.producto_descripcion)
     clave_producto = _first_text(producto.get("clave_producto"), producto.get("clave_prodserv_cfdi"))
+    permiso_operacion = _resolve_trip_transport_permit(
+        _sb(token),
+        uid,
+        pid,
+        _first_text(producto.get("tipo_producto"), producto_nombre),
+        requested_id=payload.permiso_operacion_id,
+        requested_number=payload.num_permiso_cne,
+    )
+    permiso_operacion_id = int(_num(permiso_operacion.get("id")) or 0)
+    num_permiso_cne = _first_text(permiso_operacion.get("permiso_cre"))
+    familia_producto = transport_product_family(_first_text(producto.get("tipo_producto"), producto_nombre))
     peso_kg = _num(payload.peso_kg)
     volumen = _num(payload.volumen_litros)
     tipo_cfdi = "T"
@@ -4623,6 +4665,9 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "remolque2_subtipo": _first_text(vehiculo.get("remolque2_subtipo"), _meta(vehiculo).get("remolque2_subtipo")),
         "producto_descripcion": producto_nombre,
         "producto": producto_nombre,
+        "permiso_operacion_id": permiso_operacion_id,
+        "num_permiso_cne": num_permiso_cne,
+        "familia_producto": familia_producto,
         "peso_kg": peso_kg,
         "valor_mercancia": valor_mercancia,
         "origen_sugerido": origen,
@@ -4653,6 +4698,8 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "origen_id": ruta.get("origen_id") if ruta else None,
         "destino_id": ruta.get("destino_id") if ruta else None,
         "producto_operacion_id": payload.producto_id,
+        "permiso_operacion_id": permiso_operacion_id,
+        "num_permiso_cne": num_permiso_cne,
         "producto_id": payload.producto_id,
         "cp_origen": cp_origen,
         "nombre_origen": origen,
@@ -5145,7 +5192,12 @@ def _stamp_expand_vehicle_trailers(sb: Any, uid: str, pid: Optional[int], vehicu
     return expanded
 
 
-def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto_text: str) -> dict[str, Any]:
+def _trip_transport_permit_candidates(
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    producto_text: str,
+) -> list[dict[str, Any]]:
     try:
         q = sb.table(TBL_PROVEEDORES).select("*").eq("user_id", uid).eq("activo", True)
         if pid:
@@ -5153,20 +5205,59 @@ def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto
         rows = [_normalize_permiso_row(row) for row in (q.limit(200).execute().data or [])]
     except Exception as exc:
         logger.info("Permisos transportista no disponibles para timbrado Transporte v2: %s", exc)
-        return {}
-    product_norm = _normalize_producto_value(producto_text)
+        return []
     transportista_tipos = {"TRANSPORTISTA", "CLIENTE", "PERMISIONARIO", "RAZONSOCIAL", "RAZON_SOCIAL"}
-    candidates = [
+    return [
         row for row in rows
         if _normalize_producto_value(row.get("tipo")) in transportista_tipos
         and _normalize_permiso_value(row.get("permiso_cre"))
+        and _permiso_product_family_match(row, producto_text)
     ]
-    exact = next((row for row in candidates if product_norm and _permiso_product_family_match(row, producto_text)), None)
-    if exact:
-        return exact
-    if not product_norm and len(candidates) == 1:
+
+
+def _resolve_trip_transport_permit(
+    sb: Any,
+    uid: str,
+    pid: Optional[int],
+    producto_text: str,
+    *,
+    requested_id: Any = None,
+    requested_number: Any = "",
+) -> dict[str, Any]:
+    candidates = _trip_transport_permit_candidates(sb, uid, pid, producto_text)
+    permit_id = int(_num(requested_id) or 0)
+    permit_number = _normalize_permiso_value(requested_number)
+    if permit_id:
+        selected = next((row for row in candidates if int(_num(row.get("id")) or 0) == permit_id), None)
+        if selected:
+            return selected
+        raise HTTPException(400, "El permiso seleccionado no existe, está inactivo o no corresponde a la familia del producto.")
+    if permit_number:
+        matches = [row for row in candidates if _normalize_permiso_value(row.get("permiso_cre")) == permit_number]
+        if len(matches) == 1:
+            return matches[0]
+    if len(candidates) == 1:
         return candidates[0]
-    return {}
+    if not candidates:
+        raise HTTPException(400, "No hay un permiso CNE de transportista activo compatible con el producto del viaje.")
+    raise HTTPException(409, {
+        "code": "transport_permit_required",
+        "message": "Hay varios permisos CNE compatibles. Selecciona el permiso exacto para este viaje.",
+        "items": [
+            {
+                "id": row.get("id"),
+                "num_permiso_cne": _first_text(row.get("permiso_cre")),
+                "producto": _first_text(row.get("producto")),
+            }
+            for row in candidates
+        ],
+    })
+
+
+def _stamp_transportista_permiso(sb: Any, uid: str, pid: Optional[int], producto_text: str) -> dict[str, Any]:
+    """Compatibilidad para análisis: sólo infiere cuando la respuesta es inequívoca."""
+    candidates = _trip_transport_permit_candidates(sb, uid, pid, producto_text)
+    return candidates[0] if len(candidates) == 1 else {}
 
 
 def _emisor_from_settings(settings: dict[str, Any]) -> dict[str, str]:
@@ -5449,7 +5540,15 @@ def _stamp_build_context(
             viaje_row["defaults_json"] = meta_tarifa
             normalized_viaje = _normalize_viaje_row(viaje_row)
     product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje_row).get("producto"))
-    permiso_transportista = _stamp_transportista_permiso(sb, uid, pid, product_text)
+    viaje_meta = _meta(viaje_row)
+    permiso_transportista = _resolve_trip_transport_permit(
+        sb,
+        uid,
+        pid,
+        product_text,
+        requested_id=viaje_row.get("permiso_operacion_id") or viaje_meta.get("permiso_operacion_id"),
+        requested_number=viaje_row.get("num_permiso_cne") or viaje_meta.get("num_permiso_cne"),
+    )
     emisor = _emisor_from_settings(settings)
     permiso_vehiculo = _vehicle_carta_porte_permit(vehiculo)
     if not permiso_vehiculo["ok"]:
@@ -6723,7 +6822,7 @@ async def transporte_v2_subir_covol_externos(
         raise HTTPException(400, "perfil_id requerido.")
     document_type = _first_text(tipo_documento).lower()
     if document_type != "carta_ingreso":
-        raise HTTPException(400, "En Reportes SAT sólo se importan Cartas Ingreso con complemento Carta Porte.")
+        raise HTTPException(400, "En JSON mensual sólo se importan Cartas Ingreso con complemento Carta Porte.")
     selected_permiso = _first_text(num_permiso_cne)
     if not selected_permiso:
         raise HTTPException(400, "Selecciona un permiso CRE/CNE antes de subir movimientos externos.")
@@ -7143,6 +7242,361 @@ async def transporte_v2_generar_control_volumetrico(
         "permisos_detectados": sorted(permisos_detectados),
         "meta": {**meta, "num_permiso_cne": selected_permiso, "permisos_detectados": sorted(permisos_detectados)},
     }
+
+
+def _quarter_bounds(anio: int, trimestre: int) -> tuple[datetime, datetime]:
+    if anio < 2000 or anio > 2100 or trimestre not in {1, 2, 3, 4}:
+        raise HTTPException(400, "Año o trimestre inválido.")
+    start_month = (trimestre - 1) * 3 + 1
+    start = datetime(anio, start_month, 1, tzinfo=timezone.utc)
+    end = datetime(anio + (1 if trimestre == 4 else 0), 1 if trimestre == 4 else start_month + 3, 1, tzinfo=timezone.utc)
+    return start, end
+
+
+def _quarterly_permit(sb: Any, uid: str, pid: int, permit_id: int) -> tuple[dict[str, Any], str]:
+    rows = (
+        sb.table(TBL_PROVEEDORES).select("*")
+        .eq("id", permit_id).eq("user_id", uid).eq("perfil_id", pid).eq("activo", True)
+        .limit(1).execute().data or []
+    )
+    if not rows:
+        raise HTTPException(404, "Permiso de operación no encontrado para la empresa activa.")
+    permit = _normalize_permiso_row(rows[0])
+    if _normalize_producto_value(permit.get("tipo")) not in {"TRANSPORTISTA", "CLIENTE", "PERMISIONARIO", "RAZONSOCIAL", "RAZON_SOCIAL"}:
+        raise HTTPException(400, "El registro seleccionado no es un permiso de transportista.")
+    family = transport_product_family(permit.get("producto"))
+    if family not in {"gas_lp", "petroliferos"}:
+        raise HTTPException(400, "El permiso debe estar clasificado como Gas LP o Petrolíferos.")
+    return permit, family
+
+
+def _quarterly_catalog_map(sb: Any, table: str, uid: str, pid: int) -> dict[int, dict[str, Any]]:
+    try:
+        rows = sb.table(table).select("*").eq("user_id", uid).eq("perfil_id", pid).limit(2000).execute().data or []
+        return {int(row["id"]): row for row in rows if row.get("id")}
+    except Exception:
+        return {}
+
+
+def _quarterly_trip_rows(sb: Any, uid: str, pid: int, permit_id: int, anio: int, trimestre: int) -> list[dict[str, Any]]:
+    start, end = _quarter_bounds(anio, trimestre)
+    rows = (
+        sb.table(TBL_VIAJES).select("*")
+        .eq("user_id", uid).eq("perfil_id", pid).eq("permiso_operacion_id", permit_id)
+        .gte("fecha_hora_salida", start.isoformat()).lt("fecha_hora_salida", end.isoformat())
+        .order("fecha_hora_salida").limit(5000).execute().data or []
+    )
+    return [row for row in rows if not _status_cancelado(row.get("status"), row.get("estatus"), row.get("operacion_status"))]
+
+
+def _glp_origin_type(origin: dict[str, Any]) -> str:
+    text = _normalize_match_text(_first_text(origin.get("punto_origen_glp"), _meta(origin).get("punto_origen_glp"), origin.get("tipo"), origin.get("nombre")))
+    for needle, label in (
+        ("RECEPCION", "Instalación de Recepción y Entrega"),
+        ("ALMACEN", "Sistema de almacenamiento"),
+        ("PROCESADOR", "Centro Procesador de Gas"),
+        ("REFINER", "Refinería"),
+        ("DISTRIB", "Planta de Distribución"),
+        ("FERRE", "Sistema de transporte férreo"),
+        ("TRANSPORTE", "Sistema de transporte"),
+    ):
+        if needle in text:
+            return label
+    return ""
+
+
+def _quarterly_glp_data(
+    trips: list[dict[str, Any]],
+    vehicles: dict[int, dict[str, Any]],
+    origins: dict[int, dict[str, Any]],
+    destinations: dict[int, dict[str, Any]],
+) -> tuple[list[list[Any]], list[dict[str, Any]]]:
+    output: list[list[Any]] = []
+    errors: list[dict[str, Any]] = []
+    for trip in trips:
+        meta = _meta(trip)
+        vehicle = _normalize_catalog_row("vehiculos", vehicles.get(int(trip.get("vehiculo_id") or 0), {}))
+        origin = _normalize_catalog_row("origenes", origins.get(int(trip.get("origen_id") or 0), {}))
+        destination = _normalize_catalog_row("destinos", destinations.get(int(trip.get("destino_id") or 0), {}))
+        point_type = _glp_origin_type(origin)
+        installation_name = _first_text(origin.get("nombre_instalacion_cne"), _meta(origin).get("nombre_instalacion_cne"), origin.get("nombre")) if point_type == "Instalación de Recepción y Entrega" else ""
+        date_value = _first_text(trip.get("fecha_hora_llegada"), trip.get("fecha_hora_salida"))
+        total = _num(meta.get("total_flete") or meta.get("importe_servicio_iva") or trip.get("importe_total"))
+        values = [
+            date_value,
+            _first_text(vehicle.get("id_cre")),
+            _first_text(meta.get("permiso_comercializacion"), meta.get("proveedor_permiso"), (meta.get("documento_detectado") or {}).get("permiso") if isinstance(meta.get("documento_detectado"), dict) else ""),
+            _num(trip.get("peso_kg") or meta.get("peso_kg") or _first_product(trip).get("peso_kg")),
+            total,
+            point_type,
+            installation_name,
+            _first_text(origin.get("permiso_cre")),
+            _first_text(destination.get("permiso_cre")),
+        ]
+        required = {
+            "fecha_servicio": values[0], "id_cre": values[1], "glp_transportado_kg": values[3],
+            "punto_origen": values[5], "permiso_origen": values[7], "permiso_destinatario": values[8],
+        }
+        if point_type == "Instalación de Recepción y Entrega":
+            required["nombre_instalacion"] = values[6]
+        missing = [field for field, value in required.items() if value in {None, "", 0}]
+        if missing:
+            errors.append({"viaje_id": trip.get("id"), "faltantes": missing})
+        output.append(values)
+    return output, errors
+
+
+def _build_glp_quarterly_xls(rows: list[list[Any]]) -> bytes:
+    try:
+        import xlwt
+    except ImportError as exc:
+        raise HTTPException(503, "Falta instalar xlwt para generar la plantilla .xls de Gas LP.") from exc
+    book = xlwt.Workbook(encoding="utf-8")
+    headers = [
+        "Fecha del Servicio\n(Fecha en la que se realiza la descarga del GLP)", "ID asignado por la CRE",
+        "No. de Permiso de comercialización\n(en su caso)", "Volumen de GLP transportado (kg)",
+        "Importe del servicio\n*Incluyendo IVA", "Punto de Origen",
+        "Nombre de la Instalación de Recepción y Entrega\n(en su caso)", "No. de Permiso del punto de origen",
+        "No. de Permiso del Destinatario",
+    ]
+    header_style = xlwt.easyxf("font: bold on, colour white; pattern: pattern solid, fore_colour dark_blue; align: wrap on, vert centre, horiz centre;")
+    date_style = xlwt.easyxf(num_format_str="DD/MM/YYYY")
+    money_style = xlwt.easyxf(num_format_str='#,##0.00')
+    for sheet_name, normalized_headers in (("Informe de Compra", headers), ("Layout", ["FechaServ", "IdCre", "NoPermisoComercializacion", "GLPTransportado", "Precio", "PuntoOrigen", "NombreInstalacion", "PermisoPuntoOrigen", "PermisoDestinatario"])):
+        sheet = book.add_sheet(sheet_name)
+        for col, header in enumerate(normalized_headers):
+            sheet.write(0, col, header, header_style)
+            sheet.col(col).width = 5200
+        sheet.row(0).height = 1000
+        for row_index, values in enumerate(rows, start=1):
+            for col, value in enumerate(values):
+                if col == 0 and value:
+                    try:
+                        value = datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+                        sheet.write(row_index, col, value, date_style)
+                        continue
+                    except Exception:
+                        pass
+                sheet.write(row_index, col, value, money_style if col in {3, 4} else xlwt.Style.default_style)
+    stream = io.BytesIO()
+    book.save(stream)
+    return stream.getvalue()
+
+
+def _build_petroliferos_quarterly_xlsx(
+    trips: list[dict[str, Any]],
+    vehicles: dict[int, dict[str, Any]],
+    origins: dict[int, dict[str, Any]],
+    destinations: dict[int, dict[str, Any]],
+    products: dict[int, dict[str, Any]],
+    trailers: Optional[dict[int, dict[str, Any]]] = None,
+) -> tuple[bytes, list[dict[str, Any]]]:
+    import xlsxwriter
+    stream = io.BytesIO()
+    book = xlsxwriter.Workbook(stream, {"in_memory": True})
+    header = book.add_format({"bold": True, "font_color": "white", "bg_color": "#17365D", "text_wrap": True, "align": "center", "valign": "vcenter"})
+    date_fmt = book.add_format({"num_format": "dd/mm/yyyy"})
+    number_fmt = book.add_format({"num_format": "#,##0.00"})
+    errors: list[dict[str, Any]] = []
+    detail: list[dict[str, Any]] = []
+    trailers = trailers or {}
+    for trip in trips:
+        meta = _meta(trip)
+        vehicle = _normalize_catalog_row("vehiculos", vehicles.get(int(trip.get("vehiculo_id") or 0), {}))
+        origin = _normalize_catalog_row("origenes", origins.get(int(trip.get("origen_id") or 0), {}))
+        destination = _normalize_catalog_row("destinos", destinations.get(int(trip.get("destino_id") or 0), {}))
+        product = _normalize_catalog_row("productos", products.get(int(trip.get("producto_operacion_id") or trip.get("producto_id") or 0), {}))
+        trailer = _normalize_catalog_row("remolques", trailers.get(int(trip.get("remolque_id") or 0), {}))
+        item = {
+            "id": trip.get("id"), "fecha": _first_text(trip.get("fecha_hora_llegada"), trip.get("fecha_hora_salida")),
+            "id_cre": _first_text(vehicle.get("id_cre")), "placas": _first_text(vehicle.get("placas")),
+            "capacidad": _num(trailer.get("capacidad_litros") or _meta(trailer).get("capacidad_litros") or vehicle.get("capacidad_litros") or _meta(vehicle).get("capacidad_litros")),
+            "producto": _first_text(product.get("descripcion"), _first_product(trip).get("descripcion")),
+            "volumen": _num(trip.get("volumen_total_litros") or trip.get("volumen_litros") or _first_product(trip).get("cantidad_litros")),
+            "origen": _first_text(origin.get("nombre"), trip.get("nombre_origen")), "permiso_origen": _first_text(origin.get("permiso_cre")),
+            "destino": _first_text(destination.get("nombre"), trip.get("nombre_destino")), "permiso_destino": _first_text(destination.get("permiso_cre")),
+            "subtotal": _num(trip.get("subtotal_flete") or meta.get("subtotal_flete")), "iva": _num(meta.get("iva_flete")),
+            "retencion": _num(trip.get("retencion") or meta.get("retencion_flete")), "total": _num(meta.get("total_flete")),
+            "tarifa": _num((meta.get("tarifa_calculo") or {}).get("tarifa") if isinstance(meta.get("tarifa_calculo"), dict) else 0),
+            "regla": _first_text((meta.get("tarifa_calculo") or {}).get("regla_calculo") if isinstance(meta.get("tarifa_calculo"), dict) else ""),
+        }
+        missing = [key for key in ("fecha", "id_cre", "capacidad", "producto", "volumen", "origen", "permiso_origen", "destino", "permiso_destino") if item[key] in {None, "", 0}]
+        if missing:
+            errors.append({"viaje_id": trip.get("id"), "faltantes": missing})
+        detail.append(item)
+    sheets = {
+        "Volumenes": (["Fecha", "Producto", "Volumen (L)"], [[d["fecha"], d["producto"], d["volumen"]] for d in detail]),
+        "Capacidad": (["ID CNE/CRE de unidad", "Placas", "Capacidad (L)"], [[d["id_cre"], d["placas"], d["capacidad"]] for d in detail]),
+        "Procedencia": (["Producto", "Origen", "Permiso origen", "Destino", "Permiso destino"], [[d["producto"], d["origen"], d["permiso_origen"], d["destino"], d["permiso_destino"]] for d in detail]),
+        "Fletes": (["Fecha", "ID unidad", "Producto", "Origen", "Destino", "Volumen (L)"], [[d["fecha"], d["id_cre"], d["producto"], d["origen"], d["destino"], d["volumen"]] for d in detail]),
+        "Tarifas y cargos": (["Viaje", "Regla", "Tarifa", "Subtotal", "IVA", "Retención", "Total"], [[d["id"], d["regla"], d["tarifa"], d["subtotal"], d["iva"], d["retencion"], d["total"]] for d in detail]),
+        "Ingresos tarifa": (["Concepto", "Importe"], [["Subtotal", sum(d["subtotal"] for d in detail)], ["IVA", sum(d["iva"] for d in detail)], ["Retención", sum(d["retencion"] for d in detail)], ["Ingresos por tarifa", sum(d["total"] for d in detail)]]),
+    }
+    for name, (columns, data) in sheets.items():
+        ws = book.add_worksheet(name)
+        ws.hide_gridlines(2)
+        ws.freeze_panes(1, 0)
+        ws.set_row(0, 32)
+        ws.set_column(0, len(columns) - 1, 22)
+        for col, value in enumerate(columns):
+            ws.write(0, col, value, header)
+        for row_index, values in enumerate(data, start=1):
+            for col, value in enumerate(values):
+                if col == 0 and name in {"Volumenes", "Fletes"} and value:
+                    try:
+                        ws.write_datetime(row_index, col, datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None), date_fmt)
+                        continue
+                    except Exception:
+                        pass
+                ws.write(row_index, col, value, number_fmt if isinstance(value, (int, float)) else None)
+    book.close()
+    return stream.getvalue(), errors
+
+
+def _quarterly_safe_permit(value: str) -> str:
+    return re.sub(r"[^A-Z0-9-]+", "-", str(value or "").upper().replace("/", "-")).strip("-")
+
+
+@router.get("/tr-v2/reportes/trimestrales/historial")
+async def transporte_v2_trimestral_history(
+    authorization: str = Header(default=""), perfil_id: Optional[int] = Query(default=None), x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "Selecciona empresa.")
+    try:
+        rows = _sb(token).table(TBL_TRIMESTRALES).select("*").eq("user_id", uid).eq("perfil_id", pid).order("generated_at", desc=True).limit(100).execute().data or []
+        return {"ok": True, "items": rows}
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            return JSONResponse(_missing_schema_payload(TBL_TRIMESTRALES), status_code=409)
+        raise HTTPException(500, f"No se pudo cargar el historial trimestral: {exc}")
+
+
+@router.get("/tr-v2/reportes/trimestrales/preparar")
+async def transporte_v2_prepare_quarterly(
+    permiso_operacion_id: int = Query(..., gt=0), anio: int = Query(..., ge=2024, le=2100),
+    trimestre: int = Query(..., ge=1, le=4), perfil_id: Optional[int] = Query(default=None),
+    authorization: str = Header(default=""), x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "Selecciona empresa.")
+    sb = _sb(token)
+    permit, family = _quarterly_permit(sb, uid, pid, permiso_operacion_id)
+    trips = _quarterly_trip_rows(sb, uid, pid, permiso_operacion_id, anio, trimestre)
+    vehicles = _quarterly_catalog_map(sb, TBL_VEHICULOS, uid, pid)
+    origins = _quarterly_catalog_map(sb, TBL_ORIGENES, uid, pid)
+    destinations = _quarterly_catalog_map(sb, TBL_DESTINOS, uid, pid)
+    products = _quarterly_catalog_map(sb, TBL_PRODUCTOS, uid, pid)
+    trailers = _quarterly_catalog_map(sb, TBL_REMOLQUES, uid, pid)
+    if family == "gas_lp":
+        _, errors = _quarterly_glp_data(trips, vehicles, origins, destinations)
+        sections = ["Informe de Compra", "Layout de nueve columnas Gas LP"]
+    else:
+        _, errors = _build_petroliferos_quarterly_xlsx(trips, vehicles, origins, destinations, products, trailers)
+        sections = ["Volúmenes", "Capacidad", "Procedencia", "Fletes", "Tarifas y cargos", "Ingresos por tarifa"]
+    return {
+        "ok": True, "ready": bool(trips) and not errors, "family": family,
+        "family_label": "Gas LP" if family == "gas_lp" else "Petrolíferos",
+        "permiso_operacion_id": permiso_operacion_id, "num_permiso_cne": _first_text(permit.get("permiso_cre")),
+        "trip_count": len(trips), "errors": errors, "sections": sections,
+    }
+
+
+@router.post("/tr-v2/reportes/trimestrales/generar")
+async def transporte_v2_generate_quarterly(
+    payload: TransporteV2TrimestralRequest, authorization: str = Header(default=""), x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(payload.perfil_id, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "Selecciona empresa.")
+    sb = _sb(token)
+    permit, family = _quarterly_permit(sb, uid, pid, payload.permiso_operacion_id)
+    trips = _quarterly_trip_rows(sb, uid, pid, payload.permiso_operacion_id, payload.anio, payload.trimestre)
+    if not trips:
+        raise HTTPException(404, "No hay viajes de este permiso en el trimestre seleccionado.")
+    vehicles = _quarterly_catalog_map(sb, TBL_VEHICULOS, uid, pid)
+    origins = _quarterly_catalog_map(sb, TBL_ORIGENES, uid, pid)
+    destinations = _quarterly_catalog_map(sb, TBL_DESTINOS, uid, pid)
+    products = _quarterly_catalog_map(sb, TBL_PRODUCTOS, uid, pid)
+    trailers = _quarterly_catalog_map(sb, TBL_REMOLQUES, uid, pid)
+    if family == "gas_lp":
+        data, errors = _quarterly_glp_data(trips, vehicles, origins, destinations)
+        if errors:
+            raise HTTPException(422, {"code": "quarterly_missing_regulatory_data", "family": family, "message": "Completa los datos regulatorios de Gas LP antes de generar.", "items": errors})
+        content = _build_glp_quarterly_xls(data)
+        extension, mime, prefix = "xls", "application/vnd.ms-excel", "CNE_GLPT"
+    else:
+        content, errors = _build_petroliferos_quarterly_xlsx(trips, vehicles, origins, destinations, products, trailers)
+        if errors:
+            raise HTTPException(422, {"code": "quarterly_missing_regulatory_data", "family": family, "message": "Completa los datos regulatorios de Petrolíferos antes de generar.", "items": errors})
+        extension, mime, prefix = "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "CNE_PETROLIFEROS"
+    permit_number = _first_text(permit.get("permiso_cre"))
+    filename = f"{prefix}_{payload.anio}_T{payload.trimestre}_{_quarterly_safe_permit(permit_number)}.{extension}"
+    digest = hashlib.sha256(content).hexdigest()
+    folio = f"GEC-{payload.anio}T{payload.trimestre}-{secrets.token_hex(4).upper()}"
+    storage_path = f"trimestrales/{uid}/{pid}/{payload.anio}/T{payload.trimestre}/{folio}/{filename}"
+    stored = False
+    try:
+        sb.storage.from_(DOCUMENT_BUCKET).upload(storage_path, content, {"content-type": mime, "upsert": "false"})
+        stored = True
+    except Exception as exc:
+        logger.warning("No se pudo almacenar reporte trimestral %s: %s", folio, exc)
+        storage_path = ""
+    history_row = {
+        "user_id": uid, "perfil_id": pid, "permiso_operacion_id": payload.permiso_operacion_id,
+        "num_permiso_cne": permit_number, "familia_producto": family, "anio": payload.anio,
+        "trimestre": payload.trimestre, "folio_interno": folio, "nombre_archivo": filename,
+        "mime_type": mime, "sha256": digest, "size_bytes": len(content),
+        "storage_bucket": DOCUMENT_BUCKET if stored else "", "storage_path": storage_path,
+        "generated_by": uid, "generated_at": _now_iso(), "status": "generado",
+        "metadata": {"viaje_ids": [row.get("id") for row in trips], "viajes": len(trips), "template": "FE83_Informe_Viajes_V4" if family == "gas_lp" else "CNE_petroliferos_secciones_2026"},
+    }
+    try:
+        inserted = sb.table(TBL_TRIMESTRALES).insert(history_row).execute().data or []
+    except Exception as exc:
+        if _is_missing_table_error(exc):
+            raise HTTPException(409, _missing_schema_payload(TBL_TRIMESTRALES)) from exc
+        raise HTTPException(500, f"El archivo se generó, pero no pudo registrarse en el historial: {exc}") from exc
+    _audit(uid, token, pid, TBL_TRIMESTRALES, (inserted[0] if inserted else {}).get("id"), "generar_trimestral", {"folio": folio, "sha256": digest, "familia": family})
+    return {"ok": True, "item": inserted[0] if inserted else history_row, "filename": filename, "mime_type": mime, "file_b64": base64.b64encode(content).decode("ascii")}
+
+
+@router.post("/tr-v2/reportes/trimestrales/{report_id}/acuse")
+async def transporte_v2_upload_quarterly_ack(
+    report_id: int, file: UploadFile = File(...), acuse_folio: str = Form(default=""),
+    authorization: str = Header(default=""), x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    pid = _profile_id(None, x_perfil_id)
+    _require_profile_if_present(uid, token, pid)
+    if not pid:
+        raise HTTPException(400, "Selecciona empresa.")
+    content = await file.read()
+    if not content or len(content) > 10_000_000:
+        raise HTTPException(400, "El acuse debe contener datos y pesar menos de 10 MB.")
+    sb = _sb(token)
+    rows = sb.table(TBL_TRIMESTRALES).select("*").eq("id", report_id).eq("user_id", uid).eq("perfil_id", pid).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(404, "Reporte trimestral no encontrado.")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", file.filename or "acuse.pdf")
+    path = f"trimestrales/{uid}/{pid}/acuses/{report_id}/{safe_name}"
+    sb.storage.from_(DOCUMENT_BUCKET).upload(path, content, {"content-type": file.content_type or "application/pdf", "upsert": "true"})
+    update = {
+        "status": "presentado", "acuse_folio": acuse_folio.strip(), "acuse_fecha": _now_iso(),
+        "acuse_sha256": hashlib.sha256(content).hexdigest(), "acuse_nombre": safe_name,
+        "acuse_storage_bucket": DOCUMENT_BUCKET, "acuse_storage_path": path, "updated_at": _now_iso(),
+    }
+    updated = sb.table(TBL_TRIMESTRALES).update(update).eq("id", report_id).eq("user_id", uid).eq("perfil_id", pid).execute().data or []
+    _audit(uid, token, pid, TBL_TRIMESTRALES, report_id, "adjuntar_acuse_trimestral", {"acuse_folio": acuse_folio.strip(), "sha256": update["acuse_sha256"]})
+    return {"ok": True, "item": updated[0] if updated else {**rows[0], **update}}
 
 
 @router.get("/tr-v2/health")
@@ -8767,7 +9221,15 @@ async def transporte_v2_carta_porte_preview(
         viaje, cliente, operador, vehiculo, producto, ruta, _pid = _load_preview_context(uid, token, payload, x_perfil_id)
         settings = _load_settings(token, uid, _pid)
         product_text = _first_text(producto.get("tipo_producto"), producto.get("descripcion"), _meta(viaje).get("producto"))
-        permiso_transportista = _stamp_transportista_permiso(_sb(token), uid, _pid, product_text)
+        viaje_meta = _meta(viaje)
+        permiso_transportista = _resolve_trip_transport_permit(
+            _sb(token),
+            uid,
+            _pid,
+            product_text,
+            requested_id=viaje.get("permiso_operacion_id") or viaje_meta.get("permiso_operacion_id"),
+            requested_number=viaje.get("num_permiso_cne") or viaje_meta.get("num_permiso_cne"),
+        )
         permiso_vehiculo = _vehicle_carta_porte_permit(vehiculo)
         pac_ready, pac_message, _pac_cfg = _sw_ready_state()
         result = _build_carta_porte_preview(
