@@ -26,6 +26,7 @@ function trv2QuarterlyPermitChanged() {
     ? `<span><i class="fa-solid fa-layer-group"></i> Familia detectada: <strong>${trv2Esc(trv2CvPermitFamilyLabel(family))}</strong></span>`
     : '<span>Selecciona un permiso existente.</span>';
   trv2QuarterlyPrepare();
+  trv2LoadQuarterlyHistory();
 }
 
 function trv2InitQuarterly() {
@@ -73,7 +74,8 @@ async function trv2QuarterlyPrepare() {
       fecha_servicio: 'fecha de servicio', id_cre: 'ID CNE/CRE de unidad',
       glp_transportado_kg: 'volumen de Gas LP en kg', punto_origen: 'clasificación CNE del origen',
       nombre_instalacion: 'nombre regulatorio de instalación', permiso_origen: 'permiso del origen',
-      permiso_destinatario: 'permiso del destinatario',
+      permiso_destinatario: 'permiso del destinatario', capacidad: 'capacidad de unidad o remolque',
+      permiso_destino: 'permiso del destino', producto: 'producto', volumen: 'volumen',
     };
     const grouped = new Map();
     data.errors.forEach(item => {
@@ -85,7 +87,10 @@ async function trv2QuarterlyPrepare() {
       grouped.set(key, current);
     });
     const summary = [...grouped.values()].slice(0, 5).map(item => `${item.place} (${item.count} viaje(s)): ${item.fields}`).join(' · ');
-    alert.innerHTML = `<strong>Completa la configuración regulatoria antes de generar.</strong><br>${trv2Esc(summary)}<br><small>Ve a Catálogos → Instalaciones, edita el origen y selecciona su clasificación trimestral CNE.</small>`;
+    const help = data.family === 'gas_lp'
+      ? 'Ve a Catálogos → Instalaciones, edita el origen y selecciona su clasificación trimestral CNE.'
+      : 'Completa la capacidad en Catálogos → Vehículos o Remolques y el permiso regulatorio en Catálogos → Instalaciones del destino.';
+    alert.innerHTML = `<strong>Completa la configuración regulatoria antes de generar.</strong><br>${trv2Esc(summary)}<br><small>${trv2Esc(help)}</small>`;
     return;
   }
   alert.className = 'trv2-alert trv2-alert-ok';
@@ -132,7 +137,13 @@ function trv2QuarterlyDate(value) {
 async function trv2LoadQuarterlyHistory() {
   const body = document.getElementById('trv2-quarterly-history');
   if (!body) return;
-  const data = await trv2Api('GET', '/api/tr-v2/reportes/trimestrales/historial', undefined, {force: true, silent: true});
+  const permitId = trv2QuarterlyPermitId();
+  if (!permitId) {
+    body.innerHTML = '<tr><td colspan="7"><div class="trv2-empty">Selecciona un permiso para consultar su historial.</div></td></tr>';
+    return;
+  }
+  const params = new URLSearchParams({permiso_operacion_id: String(permitId)});
+  const data = await trv2Api('GET', `/api/tr-v2/reportes/trimestrales/historial?${params}`, undefined, {force: true, silent: true});
   const items = data?.items || [];
   body.innerHTML = items.length ? items.map(item => `<tr>
     <td>${Number(item.anio)} · T${Number(item.trimestre)}</td>
@@ -141,7 +152,17 @@ async function trv2LoadQuarterlyHistory() {
     <td>${trv2QuarterlyDate(item.generated_at)}<br><small>Usuario ${trv2Esc(String(item.generated_by || '').slice(0, 12))}</small></td>
     <td><strong>${trv2Esc(item.folio_interno)}</strong><br><small title="${trv2Esc(item.sha256)}">SHA ${trv2Esc(String(item.sha256 || '').slice(0, 16))}…</small></td>
     <td>${item.acuse_nombre ? `<strong>${trv2Esc(item.acuse_nombre)}</strong><br><small>${trv2Esc(item.acuse_folio || 'Sin folio capturado')} · SHA ${trv2Esc(String(item.acuse_sha256 || '').slice(0, 12))}…</small>` : `<button class="trv2-mini-btn" type="button" onclick="trv2ChooseQuarterlyAck(${Number(item.id)})"><i class="fa-solid fa-paperclip"></i> Adjuntar acuse</button>`}</td>
-  </tr>`).join('') : '<tr><td colspan="6"><div class="trv2-empty">Todavía no hay reportes trimestrales generados.</div></td></tr>';
+    <td>${item.acuse_nombre ? '<small>Conservado como evidencia</small>' : `<button class="trv2-mini-btn trv2-mini-btn-danger" type="button" onclick="trv2DeleteQuarterly(${Number(item.id)}, '${trv2Esc(item.folio_interno)}')"><i class="fa-solid fa-trash"></i> Eliminar</button>`}</td>
+  </tr>`).join('') : '<tr><td colspan="7"><div class="trv2-empty">Este permiso todavía no tiene reportes trimestrales generados.</div></td></tr>';
+}
+
+async function trv2DeleteQuarterly(reportId, folio) {
+  const confirmed = window.confirm(`¿Eliminar la generación de prueba ${folio}?\n\nSe retirará el archivo guardado y desaparecerá del historial. Esta acción sólo está disponible mientras no tenga acuse.`);
+  if (!confirmed) return;
+  const data = await trv2Api('POST', `/api/tr-v2/reportes/trimestrales/${Number(reportId)}/eliminar`, {});
+  if (!data?.ok) return;
+  trv2Toast('Generación de prueba eliminada.', 'success');
+  await trv2LoadQuarterlyHistory();
 }
 
 function trv2ChooseQuarterlyAck(reportId) {
