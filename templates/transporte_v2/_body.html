@@ -667,8 +667,8 @@
         <div id="trv2-quarterly-readiness" class="trv2-alert trv2-alert-warn">Selecciona un permiso para validar el trimestre.</div>
       </section>
       <section class="trv2-panel">
-        <div class="trv2-table-head"><div><h2>Historial trimestral</h2><p class="trv2-muted">Evidencia de generación, hash SHA-256, usuario, folio interno y acuse.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadQuarterlyHistory()"><i class="fa-solid fa-rotate"></i> Actualizar</button></div>
-        <div class="trv2-table-wrap"><table><thead><tr><th>Periodo</th><th>Familia / permiso</th><th>Archivo</th><th>Generado</th><th>Folio / SHA-256</th><th>Acuse</th></tr></thead><tbody id="trv2-quarterly-history"><tr><td colspan="6"><div class="trv2-empty">Sin consultar.</div></td></tr></tbody></table></div>
+        <div class="trv2-table-head"><div><h2>Historial del permiso seleccionado</h2><p class="trv2-muted">Descargas, hash SHA-256, usuario, folio interno y acuse exclusivos del permiso activo.</p></div><button class="trv2-btn trv2-btn-ghost" type="button" onclick="trv2LoadQuarterlyHistory()"><i class="fa-solid fa-rotate"></i> Actualizar</button></div>
+        <div class="trv2-table-wrap"><table><thead><tr><th>Periodo</th><th>Familia / permiso</th><th>Archivo</th><th>Generado</th><th>Folio / SHA-256</th><th>Acuse</th><th>Acciones</th></tr></thead><tbody id="trv2-quarterly-history"><tr><td colspan="7"><div class="trv2-empty">Sin consultar.</div></td></tr></tbody></table></div>
         <input id="trv2-quarterly-ack-file" type="file" accept="application/pdf,.pdf" hidden onchange="trv2UploadQuarterlyAck(event)">
       </section>
     </div>
