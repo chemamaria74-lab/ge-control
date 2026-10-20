@@ -1,11 +1,52 @@
 let TRV2_TRIP_EXPENSE_SELECTED = 0;
 
-function trv2OpenTripForm() {
+async function trv2OpenTripForm() {
   document.getElementById('trv2-trip-form').hidden = false;
+  if (typeof trv2LoadPermisosRfc === 'function' && !(window.TRV2_PERMISOS_RFC || []).length) {
+    await trv2LoadPermisosRfc({renderAdmin: false});
+  }
+  trv2PopulateTripPermitSelect();
 }
 
 function trv2CloseTripForm() {
   document.getElementById('trv2-trip-form').hidden = true;
+}
+
+function trv2TripPermitCandidates(producto = null) {
+  if (!producto) return [];
+  const productText = producto.tipo_producto || producto.descripcion || producto.nombre || '';
+  const productKey = typeof trv2AdminNormalizeProduct === 'function'
+    ? trv2AdminNormalizeProduct(productText)
+    : String(productText).trim().toLowerCase();
+  return (window.TRV2_PERMISOS_RFC || []).filter(item => {
+    if (item.activo === false) return false;
+    if (typeof trv2IsTransportistaPermiso === 'function' && !trv2IsTransportistaPermiso(item)) return false;
+    if (!(item.permiso_cre || item.permiso)) return false;
+    if (typeof trv2PermisoAllowedProductKeys !== 'function') return false;
+    const keys = trv2PermisoAllowedProductKeys(item);
+    return keys.has(productKey) || (['magna', 'premium', 'diesel'].includes(productKey) && keys.has('petroliferos'));
+  });
+}
+
+function trv2PopulatePermitSelect(select, producto) {
+  if (!select) return [];
+  const previous = String(select.value || '');
+  const items = trv2TripPermitCandidates(producto);
+  let placeholder = producto ? 'Selecciona el permiso exacto' : 'Selecciona primero el producto';
+  if (producto && !items.length) placeholder = 'Sin permiso compatible';
+  select.innerHTML = `<option value="">${trv2Esc(placeholder)}</option>` + items.map(item => {
+    const number = item.permiso_cre || item.permiso || '';
+    const family = item.producto || item.familia_producto || '';
+    return `<option value="${Number(item.id)}" data-num-permiso="${trv2Esc(number)}">${trv2Esc(`${number}${family ? ` · ${family}` : ''}`)}</option>`;
+  }).join('');
+  if (items.some(item => String(item.id) === previous)) select.value = previous;
+  else if (items.length === 1) select.value = String(items[0].id);
+  return items;
+}
+
+function trv2PopulateTripPermitSelect() {
+  const producto = trv2FindCatalog('productos', document.getElementById('trv2-trip-producto-id')?.value);
+  return trv2PopulatePermitSelect(document.getElementById('trv2-trip-permiso-id'), producto);
 }
 
 function trv2TripMeta(row, key) {
@@ -180,6 +221,8 @@ async function trv2CreateTrip(event) {
   const operador = trv2FindCatalog('operadores', document.getElementById('trv2-trip-operador-id').value);
   const vehiculo = trv2FindCatalog('vehiculos', document.getElementById('trv2-trip-vehiculo-id').value);
   const producto = trv2FindCatalog('productos', document.getElementById('trv2-trip-producto-id').value);
+  const permisoSelect = document.getElementById('trv2-trip-permiso-id');
+  const permiso = (window.TRV2_PERMISOS_RFC || []).find(item => Number(item.id) === Number(permisoSelect?.value));
   const ruta = trv2FindCatalog('rutas', document.getElementById('trv2-trip-ruta-id').value);
   const body = {
     perfil_id: TRV2_PERFIL?.id || null,
@@ -187,6 +230,8 @@ async function trv2CreateTrip(event) {
     operador_id: operador?.id || null,
     vehiculo_id: vehiculo?.id || null,
     producto_id: producto?.id || null,
+    permiso_operacion_id: permiso?.id || null,
+    num_permiso_cne: permiso?.permiso_cre || permiso?.permiso || '',
     ruta_id: ruta?.id || null,
     cliente_nombre: cliente ? trv2CatalogLabel('clientes', cliente) : '',
     origen: document.getElementById('trv2-trip-origen').value.trim(),

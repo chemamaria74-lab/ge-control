@@ -242,6 +242,16 @@ function trv2ApplyPermisoCatalogMatch(detected = {}, permisoInfo = {}) {
   return detected;
 }
 
+function trv2PopulateDocumentPermit(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  const product = trv2FindCatalog('productos', document.getElementById(trv2DocFieldId(scope, 'producto-id'))?.value);
+  return trv2PopulatePermitSelect(document.getElementById(trv2DocFieldId(scope, 'permiso-id')), product);
+}
+
+function trv2DocumentProductChanged(scope = TRV2_DOCUMENT_SCOPE || 'carga') {
+  trv2PopulateDocumentPermit(scope);
+  trv2UpdateDocumentPending(scope);
+}
+
 async function trv2UploadForm(path, formData) {
   try {
     if (!TRV2_TOKEN) {
@@ -312,7 +322,10 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
       <select id="${scope === 'cp' ? 'trv2-cp-doc-vehiculo-id' : 'trv2-doc-vehiculo-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2CatalogOptions('vehiculos', 'Selecciona vehículo')}</select>
     </label>
     <label>Producto
-      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')">${trv2DocProductOptions(detected, 'Selecciona producto')}</select>
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-producto-id' : 'trv2-doc-producto-id'}" required onchange="trv2DocumentProductChanged('${trv2Esc(scope)}')">${trv2DocProductOptions(detected, 'Selecciona producto')}</select>
+    </label>
+    <label>Permiso CNE del viaje
+      <select id="${scope === 'cp' ? 'trv2-cp-doc-permiso-id' : 'trv2-doc-permiso-id'}" required onchange="trv2UpdateDocumentPending('${trv2Esc(scope)}')"></select>
     </label>
     <label>Fecha salida
       <input id="${scope === 'cp' ? 'trv2-cp-doc-fecha-salida' : 'trv2-doc-fecha-salida'}" type="datetime-local" required onchange="trv2UpdateTripDatesFromRoute('${trv2Esc(scope)}')">
@@ -330,6 +343,7 @@ function trv2RenderDocumentDetected(data, scope = TRV2_DOCUMENT_SCOPE || 'carga'
     </div>
   `;
   trv2SelectDetectedCatalogValues(scope, detected);
+  trv2PopulateDocumentPermit(scope);
   trv2SetDefaultTripDates(scope);
 }
 
@@ -700,6 +714,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   const ruta = trv2FindCatalog('rutas', document.getElementById(trv2DocFieldId(scope, 'ruta-id'))?.value);
   const operador = trv2FindCatalog('operadores', document.getElementById(trv2DocFieldId(scope, 'operador-id'))?.value);
   const vehiculo = trv2FindCatalog('vehiculos', document.getElementById(trv2DocFieldId(scope, 'vehiculo-id'))?.value);
+  const permiso = (window.TRV2_PERMISOS_RFC || []).find(item => Number(item.id) === Number(document.getElementById(trv2DocFieldId(scope, 'permiso-id'))?.value));
   const fechaSalida = document.getElementById(trv2DocFieldId(scope, 'fecha-salida'))?.value || '';
   const fechaLlegada = document.getElementById(trv2DocFieldId(scope, 'fecha-llegada'))?.value || '';
   const missing = [];
@@ -708,6 +723,7 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
   if (!operador) missing.push('operador');
   if (!vehiculo) missing.push('vehículo');
   if (!producto) missing.push('producto');
+  if (!permiso) missing.push('permiso CNE');
   if (!fechaSalida) missing.push('fecha salida');
   if (!fechaLlegada) missing.push('fecha llegada');
   if (missing.length) {
@@ -723,6 +739,8 @@ async function trv2CreateTripFromDocument(scope = TRV2_DOCUMENT_SCOPE || 'carga'
     ruta_id: ruta?.id || null,
     producto_id: producto?.id || null,
     producto_operacion_id: producto?.id || null,
+    permiso_operacion_id: permiso?.id || null,
+    num_permiso_cne: permiso?.permiso_cre || permiso?.permiso || '',
     cliente_nombre: detected.cliente_nombre || detected.receptor_nombre || '',
     origen: ruta?.origen || detected.origen_sugerido || detected.proveedor_nombre || detected.emisor_nombre || '',
     destino: ruta?.destino || detected.destino_sugerido || detected.cliente_nombre || detected.receptor_nombre || '',

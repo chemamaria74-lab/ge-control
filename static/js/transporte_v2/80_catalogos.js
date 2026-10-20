@@ -311,7 +311,7 @@ const TRV2_CATALOG_UI = {
   proveedores: {
     icon: 'fa-address-card',
     title: 'Proveedores',
-    subtitle: 'RFC y permisos de proveedores detectados en facturas. No alimentan Reportes SAT mensuales.',
+    subtitle: 'RFC y permisos de proveedores detectados en facturas. No alimentan el JSON mensual.',
     metrics: [['Registros', 'count'], ['Con RFC', 'rfc'], ['Con permiso', 'permiso_cre']],
     fields: [['RFC proveedor', 'rfc'], ['Producto', 'producto'], ['Permiso proveedor', 'permiso_cre'], ['Terminal', 'permiso_almacenamiento_terminal']],
   },
@@ -1994,6 +1994,7 @@ function trv2PopulateTripSelects() {
   trv2FillSelect('trv2-trip-operador-id', 'operadores', 'Operador pendiente');
   trv2FillSelect('trv2-trip-vehiculo-id', 'vehiculos', 'Vehículo pendiente');
   trv2FillSelect('trv2-trip-producto-id', 'productos', 'Producto pendiente');
+  if (typeof trv2PopulateTripPermitSelect === 'function') trv2PopulateTripPermitSelect();
   trv2ApplyClientRouteToTrip();
 }
 

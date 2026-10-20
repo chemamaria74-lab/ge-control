@@ -132,6 +132,7 @@ function trv2PopulateCvProductsForPermit() {
 function trv2CvPermitChanged() {
   trv2PopulateCvProductsForPermit();
   trv2InvalidateCvSearch();
+  if (typeof trv2QuarterlyPermitChanged === 'function') trv2QuarterlyPermitChanged();
 }
 
 function trv2PopulateCvPermisos() {
@@ -160,6 +161,7 @@ function trv2PopulateCvPermisos() {
     if (match) select.value = trv2CvPermitOptionKey(match);
   }
   if (!select.value && transportPermits.length === 1) select.value = trv2CvPermitOptionKey(transportPermits[0]);
+  if (typeof trv2InitQuarterly === 'function') trv2InitQuarterly();
 }
 
 function trv2CvTripDate(row) {
