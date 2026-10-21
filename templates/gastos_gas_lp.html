@@ -5,7 +5,7 @@
   <title>GE CONTROL | Gastos y pagos</title>
   <link rel="icon" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=paid-reimbursement-detail-email-20260826">
+  <link rel="stylesheet" href="/static/css/gas_lp/gastos.css?v=multi-month-export-20261021">
   <link rel="stylesheet" href="/static/css/gas_lp/gastos_responsive.css?v=20260729a">
   <link rel="stylesheet" href="/static/css/company_switch_overlay.css?v=20260902">
 </head>
@@ -91,7 +91,7 @@
     </section>
 
     <section class="panel" data-content="review">
-      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><div class="toolbar-inline"><label>Mes de pago<input id="paymentExportMonth" type="month"></label><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div></div>
+      <div class="review-navigation"><div class="subtabs tabs review-tabs"><button class="active" type="button" data-review-filter="payable"><i class="fa-solid fa-building-columns"></i> Pendientes de pago</button><button type="button" data-review-filter="paid"><i class="fa-solid fa-circle-check"></i> Pagados</button></div><div class="toolbar-inline"><label>Mes para consultar<input id="paymentExportMonth" type="month"></label><details class="export-period-picker"><summary><i class="fa-regular fa-calendar"></i> Meses del Excel <span id="exportMonthCount">1</span></summary><div class="export-period-menu"><strong>Elige uno o varios meses</strong><small>Puedes agregar un rango completo y quitar meses individuales.</small><div class="export-range-fields"><label>Desde<input id="paymentExportFrom" type="month"></label><label>Hasta<input id="paymentExportTo" type="month"></label><button class="btn secondary" id="addExportRange" type="button">Agregar rango</button></div><div class="export-single-field"><label>Agregar otro mes<input id="paymentExportChoice" type="month"></label><button class="btn secondary" id="addExportMonth" type="button">Agregar</button></div><div id="selectedExportMonths" class="export-month-chips"></div><button class="btn danger-link" id="clearExportMonths" type="button">Limpiar selección</button></div></details><a class="btn secondary" id="exportPayments" href="#"><i class="fa-solid fa-file-excel"></i> Excel para contabilidad</a></div></div>
       <article class="card"><div class="card-heading"><div><h3 id="paymentsHeading">Pendientes por destinatario</h3><p id="paymentsHelp">Selecciona un proveedor o persona para revisar las facturas y preparar su transferencia.</p></div><div class="toolbar-inline"><button class="btn primary" id="searchReview" type="button">Cargar pendientes</button></div></div><label class="review-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="sr-only">Buscar en pagos</span><input id="paymentSearch" type="search" autocomplete="off" placeholder="Buscar proveedor, persona, folio o referencia"></label><div class="status" id="reviewLoadStatus">Presiona Cargar pendientes para consultar.</div><div class="payment-summary compact"><span id="paymentSummaryLabel">Total pendiente</span><strong id="payableGrandTotal">$0.00</strong><small id="payableInvoiceCount">0 gastos</small></div><div id="reviewRows" class="payment-groups"><div class="empty">Presiona Cargar pendientes.</div></div></article>
     </section>
 
@@ -140,5 +140,5 @@
   </div>
   <script src="/static/js/company_switch_overlay.js?v=20260902"></script>
   <script src="/static/js/session_timeout.js?v=inactivity-fix-20260901"></script>
-  <script src="/static/js/gas_lp/gastos_admin.js?v=paid-left-aligned-20260824-payment-month-filter-20260901"></script>
+  <script src="/static/js/gas_lp/gastos_admin.js?v=paid-left-aligned-20260824-payment-month-filter-20260901-multi-month-export-20261021"></script>
 </body></html>
