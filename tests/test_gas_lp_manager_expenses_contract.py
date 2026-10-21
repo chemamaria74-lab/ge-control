@@ -445,9 +445,16 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert 'id="batchPaymentForm"' in html and "Excel para contabilidad" in html
     assert 'id="paymentExportMonth" type="month"' in html
     assert "const month=$('paymentExportMonth').value" in script
+    assert 'id="paymentExportFrom" type="month"' in html
+    assert 'id="paymentExportTo" type="month"' in html
+    assert 'id="paymentExportChoice" type="month"' in html
+    assert "const exportMonths=new Set" in script
+    assert "payments/export.xlsx?months=" in script
     assert "`/payments?limit=300&month=${encodeURIComponent(month)}`" in script
-    assert "payment-month-filter-20260901" in html
-    assert "No hay pagos registrados en {period}" in route
+    assert "multi-month-export-20261021" in html
+    assert "No hay pagos registrados en los meses seleccionados" in route
+    assert 'months: str = Query(default="")' in route
+    assert "selected_period_set" in route
     assert "gas_lp_expense_payment_allocations" in migration
     assert "gas_lp_expense_recipients" in migration
     assert "balance_mxn" in route and "invoice_allocations" in route
