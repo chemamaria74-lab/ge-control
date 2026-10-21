@@ -2150,30 +2150,40 @@ def delete_expense_payment(payment_id: int, token: str = Query(default=""),
 
 @router.get("/gastos/payments/export.xlsx")
 def export_expense_payments(token: str = Query(default=""), month: str = Query(default=""),
+                            months: str = Query(default=""),
                             authorization: str = Header(default=""),
                             x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
                             x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
-    """Monthly accountant relationship modeled after PARADOR PROVEEDOR.xlsx."""
+    """Accountant relationship for one or several selected payment months."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
     ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
-    if month and not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise HTTPException(400, "El mes debe tener formato AAAA-MM.")
-    period = month or datetime.now(timezone(timedelta(hours=-6))).strftime("%Y-%m")
-    year, month_number = (int(value) for value in period.split("-"))
-    start = date(year, month_number, 1)
-    end = date(year + (month_number == 12), 1 if month_number == 12 else month_number + 1, 1)
+    requested_periods = [value.strip() for value in months.split(",") if value.strip()]
+    if not requested_periods:
+        requested_periods = [month or datetime.now(timezone(timedelta(hours=-6))).strftime("%Y-%m")]
+    if len(requested_periods) > 60 or any(not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])", value)
+                                          for value in requested_periods):
+        raise HTTPException(400, "Selecciona hasta 60 meses válidos con formato AAAA-MM.")
+    selected_periods = sorted(set(requested_periods))
+    selected_period_set = set(selected_periods)
+    first_year, first_month = (int(value) for value in selected_periods[0].split("-"))
+    last_year, last_month = (int(value) for value in selected_periods[-1].split("-"))
+    start = date(first_year, first_month, 1)
+    end = date(last_year + (last_month == 12), 1 if last_month == 12 else last_month + 1, 1)
     payments = (_base_query(ctx, "gas_lp_expense_payments").gte("paid_on", start.isoformat())
                 .lt("paid_on", end.isoformat()).order("paid_on").order("id").execute().data or [])
     advances = (_base_query(ctx, "gas_lp_expense_advances").gte("paid_on", start.isoformat())
                 .lt("paid_on", end.isoformat()).in_("status", ["pending", "partial", "applied"])
                 .order("paid_on").order("id").execute().data or [])
+    payments = [row for row in payments if str(row.get("paid_on") or "")[:7] in selected_period_set]
+    advances = [row for row in advances if str(row.get("paid_on") or "")[:7] in selected_period_set]
+    period = selected_periods[0] if len(selected_periods) == 1 else f"{selected_periods[0]} a {selected_periods[-1]}"
     if not payments and not advances:
         raise HTTPException(
             404,
-            f"No hay pagos registrados en {period}. Selecciona otro mes de pago para generar el Excel.",
+            "No hay pagos registrados en los meses seleccionados. Elige otro periodo para generar el Excel.",
         )
     advance_ids = [int(row["id"]) for row in advances]
     advance_links = (ctx["sb"].table("gas_lp_expense_advance_applications")
@@ -2278,16 +2288,20 @@ def export_expense_payments(token: str = Query(default=""), month: str = Query(d
     for (kind, party_name), values in sorted(totals.items()):
         summary_ws.append([kind, party_name, values["invoices"], len(values["payments"]), values["paid"]])
     last_detail = summary_ws.max_row
-    summary_ws.append(["", "TOTAL DEL MES", "", "", f"=SUM(E2:E{max(2, last_detail)})"])
+    summary_ws.append(["", "TOTAL DEL PERIODO", "", "", f"=SUM(E2:E{max(2, last_detail)})"])
     for cell in summary_ws["E"][1:]: cell.number_format = '$#,##0.00'
     summary_ws.freeze_panes = "A2"; summary_ws.auto_filter.ref = "A1:E1"
     for column, width in enumerate((16, 38, 14, 18, 20), 1): summary_ws.column_dimensions[get_column_letter(column)].width = width
     company = _profile(ctx).get("nombre") or ""
     for worksheet in wb.worksheets:
         worksheet.sheet_view.showGridLines = False; worksheet.oddFooter.center.text = f"{company} · {period}"
+    contiguous_months = (last_year - first_year) * 12 + last_month - first_month + 1
+    filename_period = (selected_periods[0] if len(selected_periods) == 1 else
+                       f"{selected_periods[0]}_a_{selected_periods[-1]}" if len(selected_periods) == contiguous_months else
+                       f"{selected_periods[0]}_a_{selected_periods[-1]}-{len(selected_periods)}-meses")
     output = BytesIO(); wb.save(output); output.seek(0)
     return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                             headers={"Content-Disposition": f'attachment; filename="relacion-pagos-{period}.xlsx"'})
+                             headers={"Content-Disposition": f'attachment; filename="relacion-pagos-{filename_period}.xlsx"'})
 
 
 def _legacy_export_expense_payments(token: str = Query(default=""), authorization: str = Header(default=""),
