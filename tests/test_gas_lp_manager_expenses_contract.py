@@ -451,7 +451,7 @@ def test_supervision_supports_reimbursements_partial_payments_and_mowry_zones():
     assert "const exportMonths=new Set" in script
     assert "payments/export.xlsx?months=" in script
     assert "`/payments?limit=300&month=${encodeURIComponent(month)}`" in script
-    assert "multi-month-export-layout-20261021" in html
+    assert "multi-month-export-dialog-20261021" in html
     assert "No hay pagos registrados en los meses seleccionados" in route
     assert 'months: str = Query(default="")' in route
     assert "selected_period_set" in route
