@@ -894,7 +894,9 @@ async def frontend_gerentes_gastos():
 @app.get("/gas-lp/gastos", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_gastos_administracion():
     """Espacio multiempresa de Gastos y pagos."""
-    return _render_html_file("gastos_gas_lp.html")
+    response = _render_html_file("gastos_gas_lp.html")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
 @app.get("/control-administrativo", response_class=HTMLResponse, include_in_schema=False)
@@ -906,7 +908,7 @@ async def frontend_control_administrativo():
     html = html.replace('href="/conciliacion/gas-lp"', 'href="/choice"')
     html = html.replace("Conciliación fiscal", "Empresas y personas")
     html = html.replace('href="/gas-lp/gastos"', 'href="/control-administrativo"')
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.get("/control-administrativo/portales", response_class=HTMLResponse, include_in_schema=False)
@@ -930,7 +932,7 @@ async def frontend_transporte_gastos():
     html = html.replace('href="/conciliacion/gas-lp"', 'href="/transporte-v2/admin"')
     html = html.replace("Conciliación fiscal", "Transporte")
     html = html.replace('href="/gas-lp/gastos"', 'href="/transporte-v2/gastos"')
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.get("/gas-lp/conciliacion/inicio", response_class=HTMLResponse, include_in_schema=False)
