@@ -29,9 +29,9 @@ def _discounted_general_cfdi():
         "receptor": {"rfc": "XAXX010101000", "nombre": "PUBLICO EN GENERAL", "codigo_postal": "64000", "regimen_fiscal": "616", "uso_cfdi": "S01"},
         "conceptos": [{
             "clave_prod_serv": "47131811", "cantidad": "2", "clave_unidad": "H87",
-            "descripcion": "Detergente", "valor_unitario": "100", "descuento": "20", "iva_tasa": "0.16",
+            "descripcion": "Detergente", "valor_unitario": "100", "iva_tasa": "0.16",
         }],
-        "metodo_pago": "PUE", "forma_pago": "03", "lugar_expedicion": "64000",
+        "descuento_porcentaje": "10", "metodo_pago": "PUE", "forma_pago": "03", "lugar_expedicion": "64000",
     })
     return build_general_cfdi(request)
 

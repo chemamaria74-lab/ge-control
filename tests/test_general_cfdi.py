@@ -182,9 +182,9 @@ def test_discount_is_itemized_and_reduces_taxable_base_and_total():
             "clave_unidad": "H87",
             "descripcion": "Detergente",
             "valor_unitario": "100.00",
-            "descuento": "20.00",
             "iva_tasa": "0.16",
         }],
+        descuento_porcentaje="10",
     ))
 
     assert payload["SubTotal"] == "200.00"
@@ -200,9 +200,10 @@ def test_discount_reduces_retention_base():
     payload = build_general_cfdi(base(
         conceptos=[{
             "clave_prod_serv": "80131500", "cantidad": "1", "clave_unidad": "E48",
-            "descripcion": "RENTA", "valor_unitario": "1000", "descuento": "100",
+            "descripcion": "RENTA", "valor_unitario": "1000",
         }],
         retencion_isr_tasa="0.10",
+        descuento_porcentaje="10",
     ))
 
     assert payload["Impuestos"]["TotalImpuestosRetenidos"] == "90.00"
@@ -210,14 +211,39 @@ def test_discount_reduces_retention_base():
     assert payload["Total"] == "810.00"
 
 
-def test_rejects_discount_greater_than_concept_amount():
-    request = base(conceptos=[{
-        "clave_prod_serv": "80131500", "cantidad": "1", "clave_unidad": "E48",
-        "descripcion": "RENTA", "valor_unitario": "100", "descuento": "100.01",
-    }])
+def test_rejects_discount_percentage_greater_than_100():
+    with pytest.raises(ValidationError, match="descuento_porcentaje"):
+        base(descuento_porcentaje="100.01")
 
-    with pytest.raises(ValueError, match="descuento"):
-        build_general_cfdi(request)
+
+def test_global_percentage_distributes_rounding_without_changing_total_discount():
+    payload = build_general_cfdi(base(
+        conceptos=[
+            {"clave_prod_serv": "47131811", "cantidad": "1", "clave_unidad": "H87", "descripcion": "A", "valor_unitario": "0.05"},
+            {"clave_prod_serv": "47131811", "cantidad": "1", "clave_unidad": "H87", "descripcion": "B", "valor_unitario": "0.05"},
+        ],
+        descuento_porcentaje="10",
+    ))
+
+    assert payload["SubTotal"] == "0.10"
+    assert payload["Descuento"] == "0.01"
+    assert sum(Decimal(item.get("Descuento", "0")) for item in payload["Conceptos"]) == Decimal("0.01")
+
+
+def test_global_percentage_with_iva_included_uses_the_serialized_unit_price():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "47121803", "cantidad": "4", "clave_unidad": "H87",
+            "descripcion": "Esponja", "valor_unitario": "25", "iva_tasa": "0.16", "iva_incluido": True,
+        }],
+        descuento_porcentaje="10",
+    ))
+
+    concept = payload["Conceptos"][0]
+    assert concept["ValorUnitario"] == "21.55"
+    assert concept["Importe"] == "86.20"
+    assert concept["Descuento"] == "8.62"
+    assert concept["Impuestos"]["Traslados"][0]["Base"] == "77.58"
 
 
 def test_global_invoice_adds_sat_information_global():
