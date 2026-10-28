@@ -4,6 +4,7 @@ os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "dummy")
 
 from services import sw_sapien
+from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
 
 
 class _FakeResponse:
@@ -20,6 +21,38 @@ class _FakeResponse:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
+
+
+def _discounted_general_cfdi():
+    request = GeneralCfdiRequest.model_validate({
+        "emisor": {"rfc": "AAA010101AAA", "nombre": "EMISOR", "codigo_postal": "64000", "regimen_fiscal": "601"},
+        "receptor": {"rfc": "XAXX010101000", "nombre": "PUBLICO EN GENERAL", "codigo_postal": "64000", "regimen_fiscal": "616", "uso_cfdi": "S01"},
+        "conceptos": [{
+            "clave_prod_serv": "47131811", "cantidad": "2", "clave_unidad": "H87",
+            "descripcion": "Detergente", "valor_unitario": "100", "descuento": "20", "iva_tasa": "0.16",
+        }],
+        "metodo_pago": "PUE", "forma_pago": "03", "lugar_expedicion": "64000",
+    })
+    return build_general_cfdi(request)
+
+
+def test_discounted_general_cfdi_passes_final_pac_contract_validation():
+    cfdi = _discounted_general_cfdi()
+
+    assert sw_sapien._validate_cfdi_json_before_sw(cfdi) == ""
+    assert cfdi["Descuento"] == "20.00"
+    assert cfdi["Conceptos"][0]["Descuento"] == "20.00"
+    assert cfdi["Conceptos"][0]["Impuestos"]["Traslados"][0]["Base"] == "180.00"
+
+
+def test_pac_contract_rejects_discount_if_tax_base_or_total_was_altered():
+    bad_base = _discounted_general_cfdi()
+    bad_base["Conceptos"][0]["Impuestos"]["Traslados"][0]["Base"] = "200.00"
+    assert "base de impuesto" in sw_sapien._validate_cfdi_json_before_sw(bad_base)
+
+    bad_total = _discounted_general_cfdi()
+    bad_total["Total"] = "232.00"
+    assert "total no corresponde" in sw_sapien._validate_cfdi_json_before_sw(bad_total)
 
 
 def _patch_audit(monkeypatch):

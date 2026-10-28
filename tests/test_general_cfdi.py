@@ -174,6 +174,52 @@ def test_price_with_iva_is_converted_to_tax_base_without_double_charging():
     assert payload["Conceptos"][0]["ValorUnitario"] == "100.00"
 
 
+def test_discount_is_itemized_and_reduces_taxable_base_and_total():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "47131811",
+            "cantidad": "2",
+            "clave_unidad": "H87",
+            "descripcion": "Detergente",
+            "valor_unitario": "100.00",
+            "descuento": "20.00",
+            "iva_tasa": "0.16",
+        }],
+    ))
+
+    assert payload["SubTotal"] == "200.00"
+    assert payload["Descuento"] == "20.00"
+    assert payload["Conceptos"][0]["Importe"] == "200.00"
+    assert payload["Conceptos"][0]["Descuento"] == "20.00"
+    assert payload["Conceptos"][0]["Impuestos"]["Traslados"][0]["Base"] == "180.00"
+    assert payload["Impuestos"]["TotalImpuestosTrasladados"] == "28.80"
+    assert payload["Total"] == "208.80"
+
+
+def test_discount_reduces_retention_base():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "80131500", "cantidad": "1", "clave_unidad": "E48",
+            "descripcion": "RENTA", "valor_unitario": "1000", "descuento": "100",
+        }],
+        retencion_isr_tasa="0.10",
+    ))
+
+    assert payload["Impuestos"]["TotalImpuestosRetenidos"] == "90.00"
+    assert payload["Conceptos"][0]["Impuestos"]["Retenciones"][0]["Base"] == "900.00"
+    assert payload["Total"] == "810.00"
+
+
+def test_rejects_discount_greater_than_concept_amount():
+    request = base(conceptos=[{
+        "clave_prod_serv": "80131500", "cantidad": "1", "clave_unidad": "E48",
+        "descripcion": "RENTA", "valor_unitario": "100", "descuento": "100.01",
+    }])
+
+    with pytest.raises(ValueError, match="descuento"):
+        build_general_cfdi(request)
+
+
 def test_global_invoice_adds_sat_information_global():
     payload = build_general_cfdi(base(
         informacion_global_periodicidad="04",

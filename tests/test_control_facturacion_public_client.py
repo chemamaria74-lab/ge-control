@@ -209,12 +209,14 @@ def test_manual_invoice_uses_cfdi_cent_rounding_and_allows_period_description():
 
     assert "const roundMoney=" in SOURCE
     assert "unitBase=roundMoney" in calculation
-    assert "vat=roundMoney(base*rate)" in calculation
+    assert "taxableBase=roundMoney(Math.max(0,base-conceptDiscount))" in calculation
+    assert "vat=roundMoney(taxableBase*rate)" in calculation
     assert "roundMoney(base*isrRate)" in calculation
     assert "roundMoney(base*ivaRetentionRate)" in calculation
     assert 'data-field="description"' in SOURCE
     assert "c.description||p?.descripcion" in payload
     assert "descripcion:description" in payload
+    assert "descuento:discount" in payload
 
 
 def test_facturation_bootstrap_is_single_and_static_javascript_is_revalidated():
@@ -226,6 +228,14 @@ def test_facturation_bootstrap_is_single_and_static_javascript_is_revalidated():
     assert 'request.url.path.startswith("/static/js/")' in main
     assert 'response.headers["Cache-Control"] = "no-cache, must-revalidate"' in main
     assert 'src="/static/js/control_facturacion.js"' in TEMPLATE
+
+
+def test_successful_stamp_with_email_problem_is_a_warning_not_an_error():
+    styles = (Path(__file__).parents[1] / "static/css/control_facturacion_actions.css").read_text(encoding="utf-8")
+
+    assert "status==='warn'?'warn':status?'ok':'bad'" in SOURCE
+    assert "delivery.error?'warn':true" in SOURCE
+    assert ".message.warn" in styles
 
 
 def test_visible_invoice_delivery_status_refreshes_without_manual_search():
