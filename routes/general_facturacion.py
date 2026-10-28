@@ -1,5 +1,6 @@
 import copy
 import os
+from io import BytesIO
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 import re
@@ -8,6 +9,7 @@ from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from services.general_cfdi import GeneralCfdiRequest, build_general_cfdi
@@ -904,6 +906,131 @@ async def listar_facturas_generales(
         _profile_update(FACTURAS, row["id"], scope, {"email_delivery": merged})
         row["email_delivery"] = merged
     return {"ok": True, "facturas": rows}
+
+
+@router.get("/facturas/export.xlsx")
+async def exportar_facturas_generales_excel(
+    mes: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    estado: str = Query(default="vigentes", pattern=r"^(vigentes|todas|canceladas|cancelacion_en_proceso)$"),
+    buscar: str = Query(default="", max_length=120),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Genera el corte mensual de ingresos para revisión contable."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    scope = _scope_required(authorization, x_perfil_id)
+    year, month = map(int, mes.split("-"))
+    start_local = datetime(year, month, 1, tzinfo=ZoneInfo("America/Mexico_City"))
+    end_local = datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=ZoneInfo("America/Mexico_City"))
+    fields = "id,status,serie,folio,uuid_sat,cfdi_json,created_at,estado_pago,fecha_pago,fecha_vencimiento,saldo_pendiente"
+    query = (_profile_invoice_query(scope, fields)
+             .gte("created_at", start_local.astimezone(timezone.utc).isoformat())
+             .lt("created_at", end_local.astimezone(timezone.utc).isoformat()))
+    status_map = {"vigentes": "timbrada", "canceladas": "cancelada", "cancelacion_en_proceso": "cancelacion_en_proceso"}
+    if estado in status_map:
+        query = query.eq("status", status_map[estado])
+    rows = query.order("created_at").limit(5000).execute().data or []
+    needle = buscar.strip().casefold()
+    if needle:
+        rows = [row for row in rows if needle in " ".join((
+            str(row.get("uuid_sat") or ""), str(row.get("serie") or ""), str(row.get("folio") or ""),
+            str(((row.get("cfdi_json") or {}).get("Receptor") or {}).get("Nombre") or ""),
+        )).casefold()]
+    if not rows:
+        raise HTTPException(404, "No hay facturas en el periodo y filtros seleccionados para generar el Excel.")
+
+    config = (_sb_list(CONFIG, scope, active_only=True, order="updated_at", desc=True) or [{}])[0]
+    company = config.get("nombre_razon_social") or "Empresa"
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Resumen"
+    detail = wb.create_sheet("Facturas emitidas")
+    wine, cream, green = "7A1E2C", "F6F1EA", "DFF2E8"
+    thin = Side(style="thin", color="E5DFD7")
+
+    detail_headers = [
+        "FECHA DE EMISIÓN", "FECHA DE COBRO", "SERIE", "FOLIO", "UUID", "RFC RECEPTOR",
+        "RECEPTOR", "MÉTODO DE PAGO", "FORMA DE PAGO", "SUBTOTAL", "DESCUENTO", "IVA",
+        "ISR RETENIDO", "IVA RETENIDO", "TOTAL", "ESTADO FISCAL", "ESTADO DE COBRO",
+        "VENCIMIENTO", "SALDO PENDIENTE",
+    ]
+    detail.append(detail_headers)
+    for cell in detail[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor=wine)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for row in rows:
+        cfdi = row.get("cfdi_json") if isinstance(row.get("cfdi_json"), dict) else {}
+        receptor = cfdi.get("Receptor") if isinstance(cfdi.get("Receptor"), dict) else {}
+        taxes = cfdi.get("Impuestos") if isinstance(cfdi.get("Impuestos"), dict) else {}
+        retentions = taxes.get("Retenciones") if isinstance(taxes.get("Retenciones"), list) else []
+        retained = {str(item.get("Impuesto") or ""): float(item.get("Importe") or 0) for item in retentions if isinstance(item, dict)}
+        issued_at = datetime.fromisoformat(str(row.get("created_at") or "").replace("Z", "+00:00"))
+        issued_local = issued_at.astimezone(ZoneInfo("America/Mexico_City")).replace(tzinfo=None)
+        paid_at = None
+        if row.get("fecha_pago"):
+            paid_at = datetime.fromisoformat(str(row["fecha_pago"]).replace("Z", "+00:00")).astimezone(ZoneInfo("America/Mexico_City")).replace(tzinfo=None)
+        detail.append([
+            issued_local, paid_at, row.get("serie") or cfdi.get("Serie") or "", row.get("folio") or cfdi.get("Folio") or "",
+            row.get("uuid_sat") or "", receptor.get("Rfc") or "", receptor.get("Nombre") or "",
+            cfdi.get("MetodoPago") or "", cfdi.get("FormaPago") or "", float(cfdi.get("SubTotal") or 0),
+            float(cfdi.get("Descuento") or 0), float(taxes.get("TotalImpuestosTrasladados") or 0),
+            retained.get("001", 0.0), retained.get("002", 0.0), float(cfdi.get("Total") or 0),
+            row.get("status") or "", row.get("estado_pago") or "pendiente", row.get("fecha_vencimiento") or "",
+            float(row.get("saldo_pendiente") if row.get("saldo_pendiente") is not None else cfdi.get("Total") or 0),
+        ])
+    detail.freeze_panes = "A2"
+    detail.auto_filter.ref = f"A1:S{detail.max_row}"
+    detail.sheet_view.showGridLines = False
+    for row in detail.iter_rows(min_row=2):
+        for cell in row:
+            cell.border = Border(bottom=thin)
+            cell.alignment = Alignment(vertical="top")
+        row[0].number_format = "dd/mm/yyyy hh:mm"
+        row[1].number_format = "dd/mm/yyyy hh:mm"
+        for index in range(9, 15): row[index].number_format = '$#,##0.00'
+        row[18].number_format = '$#,##0.00'
+    widths = (21, 21, 10, 12, 39, 18, 36, 18, 18, 16, 16, 16, 16, 16, 16, 18, 18, 16, 18)
+    for index, width in enumerate(widths, 1): detail.column_dimensions[get_column_letter(index)].width = width
+
+    summary.sheet_view.showGridLines = False
+    summary.merge_cells("A1:D1"); summary["A1"] = "Corte mensual de ingresos"
+    summary["A1"].font = Font(size=18, bold=True, color="FFFFFF")
+    summary["A1"].fill = PatternFill("solid", fgColor=wine)
+    summary["A1"].alignment = Alignment(horizontal="left")
+    summary.append(["Empresa", company]); summary.append(["Periodo", mes]); summary.append(["Filtro fiscal", estado.capitalize()])
+    summary.append(["Fecha del corte", datetime.now(ZoneInfo("America/Mexico_City")).replace(tzinfo=None)])
+    summary["B5"].number_format = "dd/mm/yyyy hh:mm"
+    summary.append([])
+    summary.append(["CONCEPTO", "IMPORTE"])
+    for cell in summary[7]:
+        cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor=wine)
+    last = detail.max_row
+    summary.append(["Facturas incluidas", f"=COUNTA('Facturas emitidas'!E2:E{last})"])
+    summary.append(["Subtotal", f"=SUM('Facturas emitidas'!J2:J{last})"])
+    summary.append(["Descuentos", f"=SUM('Facturas emitidas'!K2:K{last})"])
+    summary.append(["IVA trasladado", f"=SUM('Facturas emitidas'!L2:L{last})"])
+    summary.append(["ISR retenido", f"=SUM('Facturas emitidas'!M2:M{last})"])
+    summary.append(["IVA retenido", f"=SUM('Facturas emitidas'!N2:N{last})"])
+    summary.append(["Total facturado", f"=SUM('Facturas emitidas'!O2:O{last})"])
+    summary.append(["Total cobrado", f'=SUMIF(\'Facturas emitidas\'!Q2:Q{last},"pagada",\'Facturas emitidas\'!O2:O{last})'])
+    summary.append(["Saldo pendiente", f"=SUM('Facturas emitidas'!S2:S{last})"])
+    for row in range(9, 17): summary.cell(row, 2).number_format = '$#,##0.00'
+    summary["A14"].font = summary["B14"].font = Font(bold=True, color=wine)
+    summary["A15"].fill = summary["B15"].fill = PatternFill("solid", fgColor=green)
+    summary.column_dimensions["A"].width = 28; summary.column_dimensions["B"].width = 24
+    summary.oddFooter.center.text = f"{company} · {mes}"
+    detail.oddFooter.center.text = f"{company} · {mes}"
+
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="corte-ingresos-{mes}.xlsx"'},
+    )
 
 
 @router.post("/facturas/sincronizar-pac")
