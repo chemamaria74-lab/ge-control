@@ -17,6 +17,14 @@ def _money_decimal(value: Decimal | int | float | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _unit_value(value: Decimal | int | float | str) -> str:
+    """Precio unitario con precisión SAT, conservando al menos dos decimales."""
+    whole, fraction = format(
+        Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f"
+    ).split(".")
+    return f"{whole}.{fraction.rstrip('0').ljust(2, '0')}"
+
+
 def _sat_rate(value: Decimal | int | float | str) -> str:
     """SAT c_TasaOCuota values are serialized with exactly six decimals."""
     return format(Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f")
@@ -112,10 +120,10 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     if errors:
         raise ValueError("; ".join(errors))
     bases = [
-        _money_decimal(
+        Decimal(str(
             item.valor_unitario / (Decimal("1") + item.iva_tasa)
             if item.iva_incluido and item.iva_tasa > 0 else item.valor_unitario
-        )
+        )).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
         for item in payload.conceptos
     ]
     receptor = {
@@ -156,7 +164,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
             **({"NoIdentificacion": item.no_identificacion} if item.no_identificacion else {}),
             # SW representa los nodos repetibles del XSD como arreglos JSON.
             **({"CuentaPredial": [{"Numero": item.cuenta_predial}]} if item.cuenta_predial else {}),
-            "ValorUnitario": _money(base),
+            "ValorUnitario": _unit_value(base),
             "Importe": _money(importe),
             **({"Descuento": _money(descuento)} if descuento > 0 else {}),
             "ObjetoImp": item.objeto_imp,
