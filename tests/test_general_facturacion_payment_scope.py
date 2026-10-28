@@ -1,6 +1,9 @@
 from pathlib import Path
 from decimal import Decimal
+from io import BytesIO
+import asyncio
 from xml.etree import ElementTree as ET
+from openpyxl import load_workbook
 
 
 SOURCE = (Path(__file__).parents[1] / "routes/general_facturacion.py").read_text()
@@ -40,6 +43,61 @@ def test_invoice_list_uses_the_same_company_scope_as_payment_updates():
     endpoint = SOURCE.split("async def listar_facturas_generales", 1)[1].split("@router.patch", 1)[0]
 
     assert "_profile_invoice_query(" in endpoint
+
+
+def test_invoice_accounting_export_is_scoped_and_exposed_in_the_portal():
+    endpoint = SOURCE.split("async def exportar_facturas_generales_excel", 1)[1].split("@router.post", 1)[0]
+    template = (Path(__file__).parents[1] / "templates/control_administrativo_facturacion.html").read_text(encoding="utf-8")
+
+    assert "_scope_required(authorization, x_perfil_id)" in endpoint
+    assert "_profile_invoice_query(scope" in endpoint
+    assert 'filename="corte-ingresos-{mes}.xlsx"' in endpoint
+    assert 'id="exportInvoicesExcel"' in template
+    assert "`/facturas/export.xlsx?${params}`" in FRONTEND
+    assert "Subtotal" in endpoint and "Descuentos" in endpoint and "Total cobrado" in endpoint
+
+
+def test_invoice_accounting_export_produces_summary_and_fiscal_detail(monkeypatch):
+    from routes import general_facturacion as module
+
+    rows = [{
+        "id": 33, "status": "timbrada", "serie": "F", "folio": "33",
+        "uuid_sat": "5db4a2d4-e249-47a8-a671-c6fcf6053dff",
+        "created_at": "2026-10-28T15:22:00+00:00", "estado_pago": "pagada",
+        "fecha_pago": "2026-10-28T16:00:00+00:00", "saldo_pendiente": 0,
+        "cfdi_json": {
+            "Serie": "F", "Folio": "33", "SubTotal": "377.59", "Total": "438.00",
+            "MetodoPago": "PUE", "FormaPago": "04",
+            "Receptor": {"Rfc": "XAXX010101000", "Nombre": "PUBLICO EN GENERAL"},
+            "Impuestos": {"TotalImpuestosTrasladados": "60.41", "Retenciones": []},
+        },
+    }]
+
+    class Query:
+        def gte(self, *_): return self
+        def lt(self, *_): return self
+        def eq(self, *_): return self
+        def order(self, *_args, **_kwargs): return self
+        def limit(self, *_): return self
+        def execute(self): return type("Result", (), {"data": rows})()
+
+    monkeypatch.setattr(module, "_scope_required", lambda *_: {"tenant_id": "t", "perfil_id": 1})
+    monkeypatch.setattr(module, "_profile_invoice_query", lambda *_: Query())
+    monkeypatch.setattr(module, "_sb_list", lambda *_args, **_kwargs: [{"nombre_razon_social": "EMPRESA DEMO"}])
+    response = asyncio.run(module.exportar_facturas_generales_excel(
+        mes="2026-10", estado="vigentes", buscar="", authorization="token", x_perfil_id="1"
+    ))
+
+    async def collect():
+        chunks = []
+        async for chunk in response.body_iterator: chunks.append(chunk)
+        return b"".join(chunks)
+
+    workbook = load_workbook(BytesIO(asyncio.run(collect())), data_only=False)
+    assert workbook.sheetnames == ["Resumen", "Facturas emitidas"]
+    assert workbook["Resumen"]["B14"].value == "=SUM('Facturas emitidas'!O2:O2)"
+    assert workbook["Facturas emitidas"]["O2"].value == 438
+    assert workbook["Facturas emitidas"]["Q2"].value == "pagada"
 
 
 def test_invoice_payment_sends_json_serializable_balance_to_supabase():

@@ -209,7 +209,7 @@ def test_manual_invoice_uses_cfdi_cent_rounding_and_allows_period_description():
 
     assert "const roundMoney=" in SOURCE
     discount_calculation = SOURCE.split("function invoiceDiscountAmounts", 1)[1].split("function calculateTotals", 1)[0]
-    assert "unitBase=roundMoney" in discount_calculation
+    assert "unitBase=c.includeIva&&rate?price/(1+rate):price" in discount_calculation
     assert "taxableBase=roundMoney(Math.max(0,row.base-calculation.discounts[index]))" in calculation
     assert "vat=roundMoney(taxableBase*row.rate)" in calculation
     assert "roundMoney(base*isrRate)" in calculation
@@ -245,7 +245,11 @@ def test_global_percentage_discount_is_separate_from_aligned_concept_rows():
 
     assert 'id="invoiceDiscountPercent"' in TEMPLATE
     assert 'data-field="discount"' not in SOURCE
-    assert ".invoice-discount-control" in styles
+    assert ".discount-percent-row" in styles
+    summary = TEMPLATE.split('class="card invoice-summary"', 1)[1].split('class="card today-card"', 1)[0]
+    concepts = TEMPLATE.split('class="card invoice-step concepts-card"', 1)[1].split('class="invoice-side"', 1)[0]
+    assert 'id="invoiceDiscountPercent"' in summary
+    assert 'id="invoiceDiscountPercent"' not in concepts
     assert ".concept-row { grid-template-columns:" in styles
     assert "align-items:start" in styles
     assert ".concept-row > .icon-btn { margin-top:29px; }" in styles

@@ -240,10 +240,24 @@ def test_global_percentage_with_iva_included_uses_the_serialized_unit_price():
     ))
 
     concept = payload["Conceptos"][0]
-    assert concept["ValorUnitario"] == "21.55"
-    assert concept["Importe"] == "86.20"
+    assert concept["ValorUnitario"] == "21.551724"
+    assert concept["Importe"] == "86.21"
     assert concept["Descuento"] == "8.62"
-    assert concept["Impuestos"]["Traslados"][0]["Base"] == "77.58"
+    assert concept["Impuestos"]["Traslados"][0]["Base"] == "77.59"
+
+
+def test_two_units_at_219_with_iva_included_total_exactly_438():
+    payload = build_general_cfdi(base(
+        conceptos=[{
+            "clave_prod_serv": "47131811", "cantidad": "2", "clave_unidad": "H87",
+            "descripcion": "Detergente", "valor_unitario": "219", "iva_tasa": "0.16", "iva_incluido": True,
+        }],
+    ))
+
+    assert payload["Conceptos"][0]["ValorUnitario"] == "188.793103"
+    assert payload["SubTotal"] == "377.59"
+    assert payload["Impuestos"]["TotalImpuestosTrasladados"] == "60.41"
+    assert payload["Total"] == "438.00"
 
 
 def test_global_invoice_adds_sat_information_global():
