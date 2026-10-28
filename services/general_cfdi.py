@@ -51,7 +51,6 @@ class CfdiConcept(BaseModel):
     no_identificacion: Optional[str] = Field(default=None, max_length=100)
     cuenta_predial: Optional[str] = Field(default=None, pattern=r"^\d{1,150}$")
     valor_unitario: Decimal = Field(ge=0)
-    descuento: Decimal = Field(default=Decimal("0"), ge=0)
     objeto_imp: Literal["01", "02", "03", "04"] = "02"
     iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     iva_incluido: bool = False
@@ -78,6 +77,7 @@ class GeneralCfdiRequest(BaseModel):
     folio: Optional[str] = Field(default=None, max_length=40)
     retencion_isr_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     retencion_iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
+    descuento_porcentaje: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     informacion_global_periodicidad: Optional[str] = Field(default=None, pattern=r"^(01|02|03|04|05)$")
     informacion_global_meses: Optional[str] = Field(default=None, pattern=r"^(0[1-9]|1[0-2])$")
     informacion_global_anio: Optional[int] = Field(default=None, ge=2021, le=2100)
@@ -112,8 +112,10 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     if errors:
         raise ValueError("; ".join(errors))
     bases = [
-        item.valor_unitario / (Decimal("1") + item.iva_tasa)
-        if item.iva_incluido and item.iva_tasa > 0 else item.valor_unitario
+        _money_decimal(
+            item.valor_unitario / (Decimal("1") + item.iva_tasa)
+            if item.iva_incluido and item.iva_tasa > 0 else item.valor_unitario
+        )
         for item in payload.conceptos
     ]
     receptor = {
@@ -124,14 +126,26 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     }
     if payload.receptor.uso_cfdi:
         receptor["UsoCFDI"] = payload.receptor.uso_cfdi
+    importes = [_money_decimal(item.cantidad * base) for item, base in zip(payload.conceptos, bases)]
+    subtotal_objetivo = sum(importes, Decimal("0"))
+    descuento_objetivo = _money_decimal(subtotal_objetivo * payload.descuento_porcentaje / Decimal("100"))
+    descuentos = [
+        _money_decimal(importe * payload.descuento_porcentaje / Decimal("100"))
+        for importe in importes
+    ]
+    # El descuento solicitado es sobre el subtotal completo. Si el redondeo por
+    # concepto deja un centavo de diferencia, se ajusta en el último concepto
+    # con importe para que el comprobante conserve exactamente ese porcentaje.
+    diferencia = descuento_objetivo - sum(descuentos, Decimal("0"))
+    if diferencia:
+        ultimo = next((index for index in range(len(importes) - 1, -1, -1) if importes[index] > 0), None)
+        if ultimo is not None:
+            descuentos[ultimo] += diferencia
+
     conceptos = []
-    for item, base in zip(payload.conceptos, bases):
+    for item, base, importe, descuento in zip(payload.conceptos, bases, importes, descuentos):
         # Toda la aritmética posterior parte de los mismos centavos serializados
         # en el CFDI. Esto evita diferencias entre pantalla, JSON y validación SAT.
-        importe = _money_decimal(item.cantidad * base)
-        descuento = _money_decimal(item.descuento)
-        if descuento > importe:
-            raise ValueError("El descuento de un concepto no puede ser mayor que su importe.")
         base_gravable = importe - descuento
         concepto = {
             "ClaveProdServ": item.clave_prod_serv,
