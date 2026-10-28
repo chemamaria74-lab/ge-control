@@ -115,7 +115,8 @@
 .concepts-card { margin-bottom:0; }
 .concept-description-field { grid-column:1/-1; margin-top:2px; }
 .concept-description-field small { color:var(--muted); font-size:.76rem; font-weight:600; line-height:1.35; }
-.concept-row { grid-template-columns:minmax(220px,2.3fr) 90px 120px 120px 110px 42px; }
+.concept-row { grid-template-columns:minmax(220px,2.3fr) 90px 120px 120px 110px 42px; align-items:start; }
+.concept-row > .icon-btn { margin-top:29px; }
 .invoice-side { position:sticky; top:92px; }
 .invoice-summary { border-top:4px solid var(--wine); }
 .invoice-summary .totals { width:100%; margin:14px 0 0; }
