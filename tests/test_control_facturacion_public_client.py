@@ -238,6 +238,14 @@ def test_successful_stamp_with_email_problem_is_a_warning_not_an_error():
     assert ".message.warn" in styles
 
 
+def test_concept_fields_are_top_aligned_when_discount_help_is_visible():
+    styles = (Path(__file__).parents[1] / "static/css/control_facturacion_actions.css").read_text(encoding="utf-8")
+
+    assert ".concept-row { grid-template-columns:" in styles
+    assert "align-items:start" in styles
+    assert ".concept-row > .icon-btn { margin-top:29px; }" in styles
+
+
 def test_visible_invoice_delivery_status_refreshes_without_manual_search():
     refresh = SOURCE.split("function refreshVisibleData()", 1)[1].split("async function init()", 1)[0]
     init = SOURCE.split("async function init()", 1)[1].split("function scheduleCatalogPayload", 1)[0]
