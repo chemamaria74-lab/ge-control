@@ -51,6 +51,7 @@ class CfdiConcept(BaseModel):
     no_identificacion: Optional[str] = Field(default=None, max_length=100)
     cuenta_predial: Optional[str] = Field(default=None, pattern=r"^\d{1,150}$")
     valor_unitario: Decimal = Field(ge=0)
+    descuento: Decimal = Field(default=Decimal("0"), ge=0)
     objeto_imp: Literal["01", "02", "03", "04"] = "02"
     iva_tasa: Decimal = Field(default=Decimal("0"), ge=0, le=1)
     iva_incluido: bool = False
@@ -123,33 +124,49 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
     }
     if payload.receptor.uso_cfdi:
         receptor["UsoCFDI"] = payload.receptor.uso_cfdi
-    conceptos = [{
-        "ClaveProdServ": item.clave_prod_serv,
-        "Cantidad": str(item.cantidad),
-        "ClaveUnidad": item.clave_unidad,
-        "Unidad": item.unidad or "",
-        "Descripcion": item.descripcion,
-        **({"NoIdentificacion": item.no_identificacion} if item.no_identificacion else {}),
-        # SW representa los nodos repetibles del XSD como arreglos JSON, incluso
-        # cuando solo existe una cuenta predial. Mantener el contrato correcto
-        # desde el generador evita que cada consumidor tenga que "arreglar" el
-        # payload justo antes de enviarlo al PAC.
-        **({"CuentaPredial": [{"Numero": item.cuenta_predial}]} if item.cuenta_predial else {}),
-        "ValorUnitario": _money(base),
-        "Importe": _money(item.cantidad * base),
-        "ObjetoImp": item.objeto_imp,
-        **({"Impuestos": {"Traslados": [{"Base": _money(item.cantidad * base), "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(item.iva_tasa), "Importe": _money(item.cantidad * base * item.iva_tasa)}]} } if item.iva_tasa > 0 else {}),
-    } for item, base in zip(payload.conceptos, bases)]
+    conceptos = []
+    for item, base in zip(payload.conceptos, bases):
+        # Toda la aritmética posterior parte de los mismos centavos serializados
+        # en el CFDI. Esto evita diferencias entre pantalla, JSON y validación SAT.
+        importe = _money_decimal(item.cantidad * base)
+        descuento = _money_decimal(item.descuento)
+        if descuento > importe:
+            raise ValueError("El descuento de un concepto no puede ser mayor que su importe.")
+        base_gravable = importe - descuento
+        concepto = {
+            "ClaveProdServ": item.clave_prod_serv,
+            "Cantidad": str(item.cantidad),
+            "ClaveUnidad": item.clave_unidad,
+            "Unidad": item.unidad or "",
+            "Descripcion": item.descripcion,
+            **({"NoIdentificacion": item.no_identificacion} if item.no_identificacion else {}),
+            # SW representa los nodos repetibles del XSD como arreglos JSON.
+            **({"CuentaPredial": [{"Numero": item.cuenta_predial}]} if item.cuenta_predial else {}),
+            "ValorUnitario": _money(base),
+            "Importe": _money(importe),
+            **({"Descuento": _money(descuento)} if descuento > 0 else {}),
+            "ObjetoImp": item.objeto_imp,
+        }
+        if item.iva_tasa > 0:
+            concepto["Impuestos"] = {"Traslados": [{
+                "Base": _money(base_gravable),
+                "Impuesto": "002",
+                "TipoFactor": "Tasa",
+                "TasaOCuota": _sat_rate(item.iva_tasa),
+                "Importe": _money(base_gravable * item.iva_tasa),
+            }]}
+        conceptos.append(concepto)
     # SAT valida Total contra los importes monetarios ya redondeados que viajan
     # en el CFDI. Usar esos mismos centavos evita rechazos CFDI40119.
     subtotal = sum((Decimal(item["Importe"]) for item in conceptos), Decimal("0"))
+    descuento_total = sum((Decimal(item.get("Descuento") or 0) for item in conceptos), Decimal("0"))
     iva_total = sum((
         Decimal(tax["Importe"])
         for item in conceptos
         for tax in (item.get("Impuestos") or {}).get("Traslados", [])
     ), Decimal("0"))
-    isr_total = sum((_money_decimal(Decimal(item["Importe"]) * payload.retencion_isr_tasa) for item in conceptos), Decimal("0"))
-    iva_retenido_total = sum((_money_decimal(Decimal(item["Importe"]) * payload.retencion_iva_tasa) for item in conceptos), Decimal("0"))
+    isr_total = sum((_money_decimal((Decimal(item["Importe"]) - Decimal(item.get("Descuento") or 0)) * payload.retencion_isr_tasa) for item in conceptos), Decimal("0"))
+    iva_retenido_total = sum((_money_decimal((Decimal(item["Importe"]) - Decimal(item.get("Descuento") or 0)) * payload.retencion_iva_tasa) for item in conceptos), Decimal("0"))
     result = {
         "Version": "4.0",
         "Serie": payload.serie or "",
@@ -158,8 +175,9 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
         "FormaPago": payload.forma_pago or "",
         "MetodoPago": payload.metodo_pago or "",
         "SubTotal": _money(subtotal),
+        **({"Descuento": _money(descuento_total)} if descuento_total > 0 else {}),
         "Moneda": payload.moneda,
-        "Total": _money(subtotal + iva_total - isr_total - iva_retenido_total),
+        "Total": _money(subtotal - descuento_total + iva_total - isr_total - iva_retenido_total),
         "TipoDeComprobante": payload.tipo_comprobante,
         "Exportacion": payload.exportacion,
         "LugarExpedicion": payload.lugar_expedicion,
@@ -191,7 +209,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
                     {
                         "Impuesto": "002", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(rate),
                         "Base": _money(sum(
-                            Decimal(concept["Importe"])
+                            Decimal(concept["Importe"]) - Decimal(concept.get("Descuento") or 0)
                             for item, concept in zip(payload.conceptos, conceptos)
                             if item.iva_tasa == rate
                         )),
@@ -216,7 +234,7 @@ def build_general_cfdi(payload: GeneralCfdiRequest) -> dict:
             })
             for concept in conceptos:
                 taxes = concept.setdefault("Impuestos", {})
-                base = Decimal(concept["Importe"])
+                base = Decimal(concept["Importe"]) - Decimal(concept.get("Descuento") or 0)
                 concept_retenciones = []
                 if payload.retencion_isr_tasa > 0:
                     concept_retenciones.append({"Base": _money(base), "Impuesto": "001", "TipoFactor": "Tasa", "TasaOCuota": _sat_rate(payload.retencion_isr_tasa), "Importe": _money(base * payload.retencion_isr_tasa)})

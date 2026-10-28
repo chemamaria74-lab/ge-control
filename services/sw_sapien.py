@@ -1074,12 +1074,49 @@ def _validate_cfdi_json_before_sw(cfdi_dict: dict) -> str:
     if not isinstance(conceptos, list) or not conceptos:
         return "CFDI JSON incompleto antes de timbrar: Conceptos debe tener al menos un concepto."
     for index, concepto in enumerate(conceptos, start=1):
+        try:
+            importe = Decimal(str((concepto or {}).get("Importe") or 0))
+            descuento = Decimal(str((concepto or {}).get("Descuento") or 0))
+        except Exception:
+            return f"CFDI JSON inválido antes de timbrar: importe o descuento no numérico en el concepto {index}."
+        if descuento < 0 or descuento > importe:
+            return f"CFDI JSON inválido antes de timbrar: descuento fuera del importe en el concepto {index}."
+        if descuento > 0:
+            base_esperada = (importe - descuento).quantize(Decimal("0.01"))
+            impuestos_concepto = (concepto or {}).get("Impuestos") or {}
+            for grupo in ("Traslados", "Retenciones"):
+                for impuesto in impuestos_concepto.get(grupo) or []:
+                    try:
+                        base_impuesto = Decimal(str((impuesto or {}).get("Base") or 0)).quantize(Decimal("0.01"))
+                    except Exception:
+                        return f"CFDI JSON inválido antes de timbrar: base de impuesto no numérica en el concepto {index}."
+                    if base_impuesto != base_esperada:
+                        return f"CFDI JSON inválido antes de timbrar: la base de impuesto no considera el descuento en el concepto {index}."
         cuenta_predial = (concepto or {}).get("CuentaPredial")
         if cuenta_predial is not None and not isinstance(cuenta_predial, list):
             return (
                 "CFDI JSON inválido antes de timbrar: CuentaPredial debe enviarse "
                 f"como una lista en el concepto {index}."
             )
+    if any(Decimal(str((concepto or {}).get("Descuento") or 0)) > 0 for concepto in conceptos):
+        try:
+            descuento_conceptos = sum(
+                (Decimal(str((concepto or {}).get("Descuento") or 0)) for concepto in conceptos),
+                Decimal("0"),
+            )
+            descuento_comprobante = Decimal(str(cfdi_dict.get("Descuento") or 0))
+            subtotal = Decimal(str(cfdi_dict.get("SubTotal") or 0))
+            total = Decimal(str(cfdi_dict.get("Total") or 0))
+            impuestos = cfdi_dict.get("Impuestos") or {}
+            trasladados = Decimal(str(impuestos.get("TotalImpuestosTrasladados") or 0))
+            retenidos = Decimal(str(impuestos.get("TotalImpuestosRetenidos") or 0))
+        except Exception:
+            return "CFDI JSON inválido antes de timbrar: totales de descuento o impuestos no numéricos."
+        if descuento_comprobante != descuento_conceptos:
+            return "CFDI JSON inválido antes de timbrar: el descuento del comprobante no coincide con sus conceptos."
+        total_esperado = (subtotal - descuento_comprobante + trasladados - retenidos).quantize(Decimal("0.01"))
+        if total.quantize(Decimal("0.01")) != total_esperado:
+            return "CFDI JSON inválido antes de timbrar: el total no corresponde al subtotal, descuento e impuestos."
     return ""
 
 
