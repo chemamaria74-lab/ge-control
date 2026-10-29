@@ -54,10 +54,12 @@ def test_invoice_accounting_export_is_scoped_and_exposed_in_the_portal():
     assert 'filename="corte-ingresos-{mes}.xlsx"' in endpoint
     assert 'id="exportInvoicesExcel"' in template
     assert "`/facturas/export.xlsx?${params}`" in FRONTEND
-    assert "Subtotal" in endpoint and "Descuentos" in endpoint and "Total cobrado" in endpoint
+    assert '"SUBTOTAL", "DESCUENTO", "IVA"' in endpoint
+    assert '"TOTAL", "ESTADO DE COBRO"' in endpoint
+    assert 'summary.title = "Resumen"' not in endpoint
 
 
-def test_invoice_accounting_export_produces_summary_and_fiscal_detail(monkeypatch):
+def test_invoice_accounting_export_produces_one_simple_accounting_sheet(monkeypatch):
     from routes import general_facturacion as module
 
     rows = [{
@@ -83,7 +85,6 @@ def test_invoice_accounting_export_produces_summary_and_fiscal_detail(monkeypatc
 
     monkeypatch.setattr(module, "_scope_required", lambda *_: {"tenant_id": "t", "perfil_id": 1})
     monkeypatch.setattr(module, "_profile_invoice_query", lambda *_: Query())
-    monkeypatch.setattr(module, "_sb_list", lambda *_args, **_kwargs: [{"nombre_razon_social": "EMPRESA DEMO"}])
     response = asyncio.run(module.exportar_facturas_generales_excel(
         mes="2026-10", estado="vigentes", buscar="", authorization="token", x_perfil_id="1"
     ))
@@ -94,10 +95,15 @@ def test_invoice_accounting_export_produces_summary_and_fiscal_detail(monkeypatc
         return b"".join(chunks)
 
     workbook = load_workbook(BytesIO(asyncio.run(collect())), data_only=False)
-    assert workbook.sheetnames == ["Resumen", "Facturas emitidas"]
-    assert workbook["Resumen"]["B14"].value == "=SUM('Facturas emitidas'!O2:O2)"
-    assert workbook["Facturas emitidas"]["O2"].value == 438
-    assert workbook["Facturas emitidas"]["Q2"].value == "pagada"
+    assert workbook.sheetnames == ["Facturas"]
+    sheet = workbook["Facturas"]
+    assert [cell.value for cell in sheet[1]] == [
+        "SERIE", "FOLIO", "RFC RECEPTOR", "RECEPTOR", "SUBTOTAL", "DESCUENTO", "IVA",
+        "ISR RETENIDO", "IVA RETENIDO", "TOTAL", "ESTADO DE COBRO",
+    ]
+    assert sheet["J2"].value == 438
+    assert sheet["K2"].value == "pagada"
+    assert sheet.auto_filter.ref == "A1:K2"
 
 
 def test_invoice_payment_sends_json_serializable_balance_to_supabase():
