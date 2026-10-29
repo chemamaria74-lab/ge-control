@@ -306,6 +306,13 @@ def _bank_scope_row(scope: dict) -> dict:
         "perfil_id": scope.get("perfil_id"),
     }
 
+def _bank_audit_scope_row(scope: dict) -> dict:
+    """Campos que existen específicamente en la bitácora bancaria."""
+    return {
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+    }
+
 
 def _profile_invoice_query(scope: dict, select: str = "*"):
     return _profile_table_query(FACTURAS, scope, select)
@@ -1175,7 +1182,7 @@ async def revisar_movimiento_bancario(
         "confirmed_at": now if status in {"conciliada", "sin_factura", "ignorada"} else None,
     })
     get_supabase_admin().table(BANK_AUDIT).insert({
-        **_bank_scope_row(scope), "movement_id": movement_id, "factura_id": factura_id,
+        **_bank_audit_scope_row(scope), "movement_id": movement_id, "factura_id": factura_id,
         "actor_user_id": scope.get("user_id"), "action": payload.action,
         "details": {"previous_status": movement.get("status"), "new_status": status},
     }).execute()
