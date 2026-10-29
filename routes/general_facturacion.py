@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import logging
 import os
 from io import BytesIO
 from decimal import Decimal
@@ -31,6 +32,7 @@ from supabase_config import get_supabase_admin
 from routes.transporte_mod.core import _scope, _require_supabase_scope, _scope_row, _sb_delete, _sb_get, _sb_insert, _sb_list, _sb_query, _sb_update
 
 router = APIRouter(prefix="/general-facturacion", tags=["Facturación general"])
+logger = logging.getLogger(__name__)
 
 CONFIG = "general_fiscal_config"
 CLIENTES = "general_facturacion_clientes"
@@ -289,6 +291,20 @@ def _profile_table_query(table: str, scope: dict, select: str = "*"):
     if scope.get("tenant_id"):
         query = query.eq("tenant_id", scope["tenant_id"])
     return query
+
+
+def _bank_scope_row(scope: dict) -> dict:
+    """Campos comunes que existen en las tablas de conciliación bancaria.
+
+    No reutilizar ``_scope_row``: esa función incorpora ``source`` y
+    ``updated_at`` para tablas operativas, pero la importación y la bitácora
+    bancaria no tienen esas columnas.
+    """
+    return {
+        "user_id": scope["user_id"],
+        "tenant_id": scope.get("tenant_id"),
+        "perfil_id": scope.get("perfil_id"),
+    }
 
 
 def _profile_invoice_query(scope: dict, select: str = "*"):
@@ -971,15 +987,22 @@ async def importar_estado_cuenta(
         detected = extract_bank_statement(content, file.filename or "estado-cuenta.pdf", int(periodo[:4]))
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Conciliación bancaria: OCR no pudo analizar el PDF")
+        raise HTTPException(500, "No se pudo leer el PDF del banco. Intenta subirlo otra vez o descarga el estado de cuenta como PDF desde el banco.") from exc
     import_row = {
-        **_scope_row(scope), "bank_name": detected["bank"], "account_number": detected["account"],
+        **_bank_scope_row(scope), "bank_name": detected["bank"], "account_number": detected["account"],
         "period": periodo, "filename": (file.filename or "estado-cuenta.pdf")[:255],
         "file_sha256": digest, "movement_count": len(detected["movements"]),
     }
-    created = (sb.table(BANK_IMPORTS).insert(import_row).execute().data or [import_row])[0]
+    try:
+        created = (sb.table(BANK_IMPORTS).insert(import_row).execute().data or [import_row])[0]
+    except Exception as exc:
+        logger.exception("Conciliación bancaria: no fue posible guardar la importación")
+        raise HTTPException(500, "No se pudo guardar el análisis bancario. Actualiza la página y vuelve a intentarlo.") from exc
     stored = []
     for movement in detected["movements"]:
-        payload = {**_scope_row(scope), **movement, "import_id": created["id"], "status": "por_revisar"}
+        payload = {**_bank_scope_row(scope), **movement, "import_id": created["id"], "status": "por_revisar"}
         try:
             result = sb.table(BANK_MOVEMENTS).insert(payload).execute().data or []
             if result:
@@ -1101,7 +1124,7 @@ async def revisar_movimiento_bancario(
         "confirmed_at": now if status in {"conciliada", "sin_factura", "ignorada"} else None,
     })
     get_supabase_admin().table(BANK_AUDIT).insert({
-        **_scope_row(scope), "movement_id": movement_id, "factura_id": factura_id,
+        **_bank_scope_row(scope), "movement_id": movement_id, "factura_id": factura_id,
         "actor_user_id": scope.get("user_id"), "action": payload.action,
         "details": {"previous_status": movement.get("status"), "new_status": status},
     }).execute()
