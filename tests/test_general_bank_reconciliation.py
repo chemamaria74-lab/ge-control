@@ -18,6 +18,8 @@ def test_bbva_parser_keeps_only_credits_and_builds_stable_fingerprints():
 
     assert [row["amount"] for row in movements] == [535.47, 19685.56]
     assert movements[0]["movement_date"] == "2026-10-28"
+    assert movements[0]["reference_note"] == "SPEI RECIBIDO SHOPIFY"
+    assert "reference" not in movements[0]
     assert movements[0]["fingerprint"] == movement_fingerprint(
         "0492577593", "2026-10-28", Decimal("535.47"), "SPEI RECIBIDO SHOPIFY"
     )
@@ -37,6 +39,8 @@ def test_bank_reconciliation_is_review_first_and_audited_in_the_portal():
     assert '@router.post("/conciliacion-bancaria/{movement_id}/revisar")' in route
     assert '"pago_verificado_banco": True' in route
     assert "general_bank_reconciliation_audit" in route
+    assert "def _bank_scope_row" in route
+    assert "**_bank_scope_row(scope)" in route
     assert "Ninguna factura cambia a pagada hasta que tú la confirmes" in html
     assert "reviewBankMovement" in frontend
     assert 'data-bank-candidate' in frontend
