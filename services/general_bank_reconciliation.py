@@ -16,7 +16,7 @@ def movement_fingerprint(account: str, movement_date: str, amount: Decimal, desc
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def parse_bbva_rows(rows: list[dict], year: int, account: str = "") -> list[dict]:
+def parse_bbva_rows(rows: list[dict], year: int, account: str = "", direction: str = "credit") -> list[dict]:
     """Convierte renglones OCR posicionados de un estado BBVA en abonos bancarios."""
     movements: list[dict] = []
     for row in rows:
@@ -25,7 +25,7 @@ def parse_bbva_rows(rows: list[dict], year: int, account: str = "") -> list[dict
         match = DATE_RE.search(date_text)
         if not match:
             continue
-        credit_text = str(columns.get("credit") or "")
+        credit_text = str(columns.get(direction) or "")
         money = MONEY_RE.search(credit_text.replace(" ", ""))
         if not money:
             continue
@@ -105,14 +105,14 @@ def _ocr_lines_from_pdf(content: bytes) -> list[dict]:
     return grouped
 
 
-def extract_bank_statement(content: bytes, filename: str, year: int) -> dict:
+def extract_bank_statement(content: bytes, filename: str, year: int, direction: str = "credit") -> dict:
     if not filename.lower().endswith(".pdf"):
         raise ValueError("Por ahora carga el estado de cuenta en PDF.")
     rows = _ocr_lines_from_pdf(content)
     flat_text = " ".join(value for row in rows for value in row["columns"].values())
     account_match = re.search(r"(?:N[uú]mero\s+de\s+cuenta|Cuenta)\D{0,20}(\d{6,20})", flat_text, re.I)
     account = account_match.group(1) if account_match else ""
-    movements = parse_bbva_rows(rows, year, account)
+    movements = parse_bbva_rows(rows, year, account, direction)
     if not movements:
         raise ValueError("No se detectaron abonos. Revisa que el PDF muestre las columnas Fecha, Concepto, Cargo y Abono.")
     return {"bank": "BBVA", "account": account, "movements": movements, "ocr_rows": len(rows)}
