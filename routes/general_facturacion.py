@@ -306,8 +306,15 @@ def _bank_scope_row(scope: dict) -> dict:
         "perfil_id": scope.get("perfil_id"),
     }
 
+
 def _bank_audit_scope_row(scope: dict) -> dict:
-    """Campos que existen específicamente en la bitácora bancaria."""
+    """Campos que existen específicamente en la bitácora bancaria.
+
+    La bitácora identifica a quien realizó la acción mediante
+    ``actor_user_id``. A diferencia de importaciones y movimientos no tiene
+    la columna ``user_id``; enviarla a PostgREST hace que toda la operación
+    sea rechazada.
+    """
     return {
         "tenant_id": scope.get("tenant_id"),
         "perfil_id": scope.get("perfil_id"),
@@ -1148,17 +1155,15 @@ async def revisar_movimiento_bancario(
     now = datetime.now(timezone.utc).isoformat()
     status = {"conciliar": "conciliada", "sin_factura": "sin_factura", "ignorar": "ignorada", "reabrir": "por_revisar"}[payload.action]
     factura_id = payload.factura_id if payload.action == "conciliar" else None
+    invoice_to_reopen = None
     if payload.action == "reabrir" and movement.get("factura_id"):
         # Revertir la marca que hizo esta conciliación sin modificar una
         # factura que después haya sido vinculada a otro movimiento.
         linked = (_profile_invoice_query(scope, "id,pago_movimiento_id,pago_verificado_banco")
                   .eq("id", movement["factura_id"]).limit(1).execute().data or [])
         if linked and int(linked[0].get("pago_movimiento_id") or 0) == movement_id:
-            _profile_update(FACTURAS, int(movement["factura_id"]), scope, {
-                "estado_pago": "pendiente", "fecha_pago": None, "saldo_pendiente": None,
-                "pago_verificado_banco": False, "pago_verificado_at": None,
-                "pago_referencia_bancaria": "", "pago_movimiento_id": None,
-            })
+            invoice_to_reopen = int(movement["factura_id"])
+    invoice_to_confirm = None
     if payload.action == "conciliar":
         if not factura_id:
             raise HTTPException(400, "Selecciona la factura que corresponde al abono.")
@@ -1170,22 +1175,32 @@ async def revisar_movimiento_bancario(
         if abs(total - amount) > Decimal("0.02"):
             raise HTTPException(409, "El abono difiere más de $0.02 del total de la factura; revisa antes de conciliar.")
         payment_at = datetime.combine(date.fromisoformat(str(movement["movement_date"])[:10]), datetime.min.time(), tzinfo=ZoneInfo("America/Mexico_City")).astimezone(timezone.utc).isoformat()
-        _profile_update(FACTURAS, factura_id, scope, {
+        invoice_to_confirm = {
             "estado_pago": "pagada", "fecha_pago": payment_at, "saldo_pendiente": 0.0,
             "pago_verificado_banco": True, "pago_verificado_at": now,
             "pago_referencia_bancaria": movement.get("reference_note") or movement.get("description") or "",
             "pago_movimiento_id": movement_id,
-        })
-    _profile_update(BANK_MOVEMENTS, movement_id, scope, {
-        "status": status, "factura_id": factura_id,
-        "confirmed_by": scope.get("user_id") if status in {"conciliada", "sin_factura", "ignorada"} else None,
-        "confirmed_at": now if status in {"conciliada", "sin_factura", "ignorada"} else None,
-    })
+        }
+    # Registrar primero. Si la bitácora no acepta la acción, no tocamos ni la
+    # factura ni el movimiento: se evita el estado parcial que confundía la UI.
     get_supabase_admin().table(BANK_AUDIT).insert({
         **_bank_audit_scope_row(scope), "movement_id": movement_id, "factura_id": factura_id,
         "actor_user_id": scope.get("user_id"), "action": payload.action,
         "details": {"previous_status": movement.get("status"), "new_status": status},
     }).execute()
+    if invoice_to_reopen:
+        _profile_update(FACTURAS, invoice_to_reopen, scope, {
+            "estado_pago": "pendiente", "fecha_pago": None, "saldo_pendiente": None,
+            "pago_verificado_banco": False, "pago_verificado_at": None,
+            "pago_referencia_bancaria": "", "pago_movimiento_id": None,
+        })
+    if invoice_to_confirm:
+        _profile_update(FACTURAS, factura_id, scope, invoice_to_confirm)
+    _profile_update(BANK_MOVEMENTS, movement_id, scope, {
+        "status": status, "factura_id": factura_id,
+        "confirmed_by": scope.get("user_id") if status in {"conciliada", "sin_factura", "ignorada"} else None,
+        "confirmed_at": now if status in {"conciliada", "sin_factura", "ignorada"} else None,
+    })
     return {"ok": True, "status": status, "factura_id": factura_id}
 
 

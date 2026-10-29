@@ -9,7 +9,7 @@ import unicodedata
 from io import BytesIO
 from typing import Any, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from reportlab.lib.colors import HexColor
@@ -26,6 +26,61 @@ from supabase_config import get_supabase_admin
 
 
 router = APIRouter()
+
+
+@router.post("/gastos/payments/reconcile.xlsx")
+async def compare_bank_payments(file: UploadFile = File(...), month: str = Form(...),
+                                token: str = Query(default=""), authorization: str = Header(default=""),
+                                x_flotilla_access: str = Header(default="", alias="X-Flotilla-Access"),
+                                x_perfil_id: str = Header(default="", alias="X-Perfil-ID")):
+    from services.general_bank_reconciliation import extract_bank_statement
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise HTTPException(400, "Selecciona un mes válido.")
+    ctx = _ctx(authorization, x_flotilla_access, token, x_perfil_id)
+    if not ctx["is_admin"]:
+        raise HTTPException(403, "Sin acceso a pagos.")
+    content = await file.read(12 * 1024 * 1024 + 1)
+    if len(content) > 12 * 1024 * 1024:
+        raise HTTPException(413, "El PDF excede 12 MB.")
+    try:
+        bank = extract_bank_statement(content, file.filename or "", int(month[:4]), "debit")
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    payments = list_expense_payments(500, month, token, authorization, x_flotilla_access, x_perfil_id)["items"]
+    used = set()
+    wb = Workbook(); ws = wb.active; ws.title = "Comparación de pagos"
+    ws.append(["FECHA BANCO", "CONCEPTO BANCO", "SALIDA", "PAGO", "FECHA PAGO", "IMPORTE REGISTRADO", "REFERENCIA", "RESULTADO"])
+    for cell in ws[1]:
+        cell.fill = PatternFill("solid", fgColor="7A1E2C"); cell.font = Font(color="FFFFFF", bold=True)
+    def append(values, color):
+        ws.append(values)
+        for cell in ws[ws.max_row]:
+            cell.fill = PatternFill("solid", fgColor=color)
+            if isinstance(cell.value, str) and cell.value.startswith(("=", "+", "-", "@")):
+                cell.data_type = "s"
+    for movement in bank["movements"]:
+        if not movement["movement_date"].startswith(month):
+            continue
+        candidates = [i for i, p in enumerate(payments) if i not in used
+                      and abs(round(float(p.get("amount_mxn") or 0)*100)-round(movement["amount"]*100)) <= 2
+                      and abs((date.fromisoformat(str(p["paid_on"])[:10])-date.fromisoformat(movement["movement_date"])).days) <= 3]
+        exact = [i for i in candidates if payments[i].get("reference") and str(payments[i]["reference"]).upper() in movement["description"].upper()]
+        chosen = exact[0] if len(exact) == 1 else candidates[0] if len(candidates) == 1 else None
+        p = payments[chosen] if chosen is not None else {}
+        strong = chosen is not None and len(exact) == 1
+        if chosen is not None:
+            used.add(chosen)
+        append([movement["movement_date"], movement["description"], movement["amount"], p.get("id", ""), p.get("paid_on", ""), p.get("amount_mxn", ""), p.get("reference", ""), "Coincide importe y referencia" if strong else "Revisar coincidencia" if candidates else "Salida sin pago registrado"], "DCFCE7" if strong else "FEF3C7" if candidates else "FEE2E2")
+    for i, p in enumerate(payments):
+        if i not in used:
+            append(["", "", "", p.get("id"), p.get("paid_on"), p.get("amount_mxn"), p.get("reference", ""), "Pago sin salida identificada"], "E5E7EB")
+    ws.freeze_panes = "A2"; ws.auto_filter.ref = ws.dimensions
+    for column, width in zip("ABCDEFGH", [16, 65, 18, 14, 16, 22, 30, 38]):
+        ws.column_dimensions[column].width = width
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="comparacion-pagos-{month}.xlsx"'})
 MONEY_TOLERANCE = 0.005
 PAYMENT_BALANCE_TOLERANCE = 1.00
 
