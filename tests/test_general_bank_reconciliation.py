@@ -37,6 +37,7 @@ def test_bank_reconciliation_is_review_first_and_audited_in_the_portal():
     assert 'id="exportBankExcel"' in html
     assert '@router.post("/conciliacion-bancaria/importar")' in route
     assert '@router.post("/conciliacion-bancaria/{movement_id}/revisar")' in route
+    assert '@router.delete("/conciliacion-bancaria/importaciones")' in route
     assert '"pago_verificado_banco": True' in route
     assert "general_bank_reconciliation_audit" in route
     assert "def _bank_scope_row" in route
@@ -48,3 +49,10 @@ def test_bank_reconciliation_is_review_first_and_audited_in_the_portal():
     assert "unique (tenant_id, perfil_id, fingerprint)" in migration
     assert "enable row level security" in migration
     assert "revoke all" in migration
+    assert 'Decimal("0.02")' in route
+    assert 'id="deleteBankAnalysis"' in html
+    assert "deleteBankAnalysis" in frontend
+    assert "createPublicInvoiceFromBank" in frontend
+    assert "Facturar Público en general" in html
+    assert "data-bank-payment" in frontend
+    assert 'headers = ["FECHA", "CONCEPTO BANCARIO", "ABONO", "FACTURA", "ESTADO"]' in route
