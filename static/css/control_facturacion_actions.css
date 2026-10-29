@@ -93,6 +93,12 @@
 .bank-candidate { display:grid; gap:3px; min-width:220px; }
 .bank-candidate small { color:var(--muted); }
 .bank-actions { flex-wrap:wrap; min-width:285px; }
+.bank-upload-note { display:block; margin-top:10px; color:var(--muted); }
+.bank-delete { color:var(--bad); border-color:#e9b6bd; }
+.bank-invoice-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.bank-invoice-toolbar span { color:var(--muted); font-size:.9rem; }
+.bank-invoice-choice { display:flex; align-items:center; gap:6px; white-space:nowrap; font-weight:700; }
+.bank-actions select { min-width:175px; }
 /* El corte contable se descarga desde Conciliación bancaria, donde conserva el estado de cada abono. */
 #exportInvoicesExcel { display:none !important; }
 .sat-combobox { position:relative; display:block; min-width:0; }
