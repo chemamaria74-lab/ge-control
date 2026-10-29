@@ -86,6 +86,15 @@
 .switch-row input[type="checkbox"] { appearance:auto; flex:0 0 auto; width:18px !important; height:18px !important; margin:0; accent-color:var(--wine); }
 .field-help { display:block; margin-top:7px; color:var(--muted); font-size:.8rem; line-height:1.4; font-weight:500; }
 .message.warn { background:#fff7e6; border:1px solid #e8c77c; color:#7a5100; }
+.bank-upload-card .toolbar { align-items:end; }
+.bank-file { min-width:280px; flex:1; }
+.bank-file input { width:100%; }
+.bank-kpis { margin:18px 0; }
+.bank-candidate { display:grid; gap:3px; min-width:220px; }
+.bank-candidate small { color:var(--muted); }
+.bank-actions { flex-wrap:wrap; min-width:285px; }
+/* El corte contable se descarga desde Conciliación bancaria, donde conserva el estado de cada abono. */
+#exportInvoicesExcel { display:none !important; }
 .sat-combobox { position:relative; display:block; min-width:0; }
 .sat-combobox-toggle { width:100%; min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid #dcd4ca; border-radius:8px; background:#fff; color:var(--ink); text-align:left; cursor:pointer; }
 .sat-combobox-toggle:hover,.sat-combobox-toggle[aria-expanded="true"] { border-color:var(--wine); box-shadow:0 0 0 3px #7a1e2c18; }
