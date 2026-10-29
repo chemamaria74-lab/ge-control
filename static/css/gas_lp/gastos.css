@@ -112,3 +112,15 @@ th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
 .paid-invoice-origin strong,.paid-invoice-origin small{display:block}.paid-invoice-origin small{margin-top:3px;color:var(--muted)}
 .payment-email-status{display:inline-flex;align-items:center;gap:5px;width:max-content;margin-top:2px;color:#9d2031;font-size:10px;font-weight:800}.payment-email-status.sent{color:#12664a}
 .analytics-period-summary{margin:-2px 0 12px;padding:10px 14px;border-left:4px solid var(--wine);border-radius:8px;background:#fff8f3;color:var(--muted)}.analytics-period-summary strong{color:var(--text)}
+
+.panel[data-content="bankComparison"] .card{padding:24px;min-width:0}
+.panel[data-content="bankComparison"] .card>p{max-width:850px;line-height:1.5;margin:8px 0 24px}
+#compareBankPayments{display:grid;grid-template-columns:190px minmax(240px,1fr) auto;gap:18px;align-items:end}
+#compareBankPayments label{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0}
+#compareBankPayments input{width:100%;min-width:0;box-sizing:border-box;height:48px;margin:0}
+#compareBankPayments input[type="file"]{padding:10px;font-size:13px}
+#compareBankPayments button{height:48px;margin:0;white-space:nowrap}
+#compareBankPayments [role="status"]{grid-column:1/-1;margin:0;line-height:1.5}
+#compareBankPayments [role="status"]:empty{display:none}
+@media(max-width:850px){#compareBankPayments{grid-template-columns:1fr 2fr}#compareBankPayments button{grid-column:1/-1;justify-self:start}}
+@media(max-width:520px){#compareBankPayments{grid-template-columns:minmax(0,1fr)}#compareBankPayments button{width:100%;white-space:normal;height:auto;min-height:48px}.panel[data-content="bankComparison"] .card{padding:18px}}
