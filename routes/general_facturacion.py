@@ -966,12 +966,12 @@ def _bank_movement_suggestions(scope: dict, movements: list[dict]) -> list[dict]
                 continue
             issued = datetime.fromisoformat(str(invoice.get("created_at") or "").replace("Z", "+00:00")).date()
             days = (movement_day - issued).days
-            if days < -3 or days > 120:
+            if (issued.year, issued.month) != (movement_day.year, movement_day.month):
                 continue
             confidence = Decimal("1.00") if difference == 0 else Decimal("0.98")
-            if days <= 3:
+            if abs(days) <= 3:
                 confidence += Decimal("0.03")
-            elif days <= 15:
+            elif abs(days) <= 15:
                 confidence += Decimal("0.02")
             if invoice.get("estado_pago") == "pagada":
                 confidence -= Decimal("0.50")
