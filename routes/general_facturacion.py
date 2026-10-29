@@ -944,22 +944,36 @@ def _bank_movement_suggestions(scope: dict, movements: list[dict]) -> list[dict]
         candidates = []
         for invoice in invoices:
             total = Decimal(str((invoice.get("cfdi_json") or {}).get("Total") or 0)).quantize(Decimal("0.01"))
-            if abs(total - amount) > Decimal("1.00"):
+            difference = abs(total - amount)
+            # Una diferencia de uno o dos centavos suele provenir del banco o
+            # de redondeo fiscal. Importes más alejados no son una sugerencia
+            # confiable y nunca deben aparecer como si coincidieran.
+            if difference > Decimal("0.02"):
                 continue
             issued = datetime.fromisoformat(str(invoice.get("created_at") or "").replace("Z", "+00:00")).date()
             days = (movement_day - issued).days
             if days < -3 or days > 120:
                 continue
-            confidence = Decimal("0.98") if total == amount else Decimal("0.85")
+            confidence = Decimal("1.00") if difference == 0 else Decimal("0.98")
+            if days <= 3:
+                confidence += Decimal("0.03")
+            elif days <= 15:
+                confidence += Decimal("0.02")
             if invoice.get("estado_pago") == "pagada":
-                confidence -= Decimal("0.20")
+                confidence -= Decimal("0.50")
             candidates.append({
                 "factura_id": invoice["id"], "serie": invoice.get("serie") or "", "folio": invoice.get("folio") or "",
                 "receptor": ((invoice.get("cfdi_json") or {}).get("Receptor") or {}).get("Nombre") or "",
                 "total": float(total), "difference": float(amount - total), "confidence": float(confidence),
+                "issued_at": issued.isoformat(),
                 "already_paid": invoice.get("estado_pago") == "pagada",
             })
-        movement["suggestions"] = sorted(candidates, key=lambda item: (-item["confidence"], abs(item["difference"])))[:5]
+        candidates = sorted(candidates, key=lambda item: (-item["confidence"], abs(item["difference"])))[:5]
+        movement["suggestions"] = candidates
+        # Solo hay sugerencia automática cuando el monto identifica una única
+        # factura. Si varias suscripciones cuestan lo mismo, el usuario debe
+        # elegir: evita marcar por accidente la primera de la lista.
+        movement["requires_selection"] = len(candidates) > 1
     return movements
 
 
@@ -1028,6 +1042,33 @@ async def listar_conciliacion_bancaria(
     return {"ok": True, "movements": _bank_movement_suggestions(scope, rows)}
 
 
+@router.delete("/conciliacion-bancaria/importaciones")
+async def eliminar_analisis_bancario(
+    mes: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    authorization: str = Header(default=""), x_perfil_id: str = Header(default=""),
+):
+    """Elimina un análisis no confirmado para poder importar otro PDF.
+
+    El PDF nunca se persiste; se eliminan los movimientos extraídos y la
+    referencia de su importación. Por integridad, un pago ya verificado debe
+    reabrirse antes de borrar el análisis que lo contiene.
+    """
+    scope = _scope_required(authorization, x_perfil_id)
+    imports = (_profile_table_query(BANK_IMPORTS, scope).eq("period", mes).execute().data or [])
+    if not imports:
+        return {"ok": True, "deleted": 0}
+    import_ids = [row["id"] for row in imports]
+    reconciled = (_profile_table_query(BANK_MOVEMENTS, scope).in_("import_id", import_ids)
+                  .eq("status", "conciliada").limit(1).execute().data or [])
+    if reconciled:
+        raise HTTPException(409, "No se puede borrar este análisis porque ya tiene pagos verificados. Reabre esos movimientos primero.")
+    query = get_supabase_admin().table(BANK_IMPORTS).delete().eq("perfil_id", scope["perfil_id"]).eq("period", mes)
+    if scope.get("tenant_id"):
+        query = query.eq("tenant_id", scope["tenant_id"])
+    query.execute()
+    return {"ok": True, "deleted": len(imports)}
+
+
 @router.get("/conciliacion-bancaria/export.xlsx")
 async def exportar_conciliacion_bancaria_excel(
     mes: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
@@ -1053,7 +1094,7 @@ async def exportar_conciliacion_bancaria_excel(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Conciliación bancaria"
-    headers = ["FECHA BANCO", "CONCEPTO / REFERENCIA", "ABONO", "ESTADO", "SERIE", "FOLIO", "RFC RECEPTOR", "RECEPTOR", "TOTAL FACTURA", "PAGO VERIFICADO"]
+    headers = ["FECHA", "CONCEPTO BANCARIO", "ABONO", "FACTURA", "ESTADO"]
     sheet.append(headers)
     wine, thin = "7A1E2C", Side(style="thin", color="E5DFD7")
     labels = {"por_revisar": "Por revisar", "sugerida": "Coincidencia sugerida", "conciliada": "Pago verificado", "sin_factura": "Falta facturar", "ignorada": "Ignorada"}
@@ -1063,16 +1104,16 @@ async def exportar_conciliacion_bancaria_excel(
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for movement in movements:
         invoice = invoices.get(int(movement["factura_id"])) if movement.get("factura_id") else {}
-        cfdi = invoice.get("cfdi_json") if isinstance(invoice.get("cfdi_json"), dict) else {}
-        receptor = cfdi.get("Receptor") if isinstance(cfdi.get("Receptor"), dict) else {}
+        factura = ""
+        if invoice:
+            factura = " ".join(str(value) for value in (invoice.get("serie"), invoice.get("folio")) if value not in (None, ""))
         sheet.append([
             date.fromisoformat(str(movement["movement_date"])[:10]), movement.get("description") or movement.get("reference_note") or "",
-            float(movement.get("amount") or 0), labels.get(str(movement.get("status") or ""), movement.get("status") or ""),
-            invoice.get("serie") or "", invoice.get("folio") or "", receptor.get("Rfc") or "", receptor.get("Nombre") or "",
-            float(cfdi.get("Total") or 0) if invoice else None, "Sí" if invoice.get("pago_verificado_banco") else "No",
+            float(movement.get("amount") or 0), factura,
+            labels.get(str(movement.get("status") or ""), movement.get("status") or ""),
         ])
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:J{sheet.max_row}"
+    sheet.auto_filter.ref = f"A1:E{sheet.max_row}"
     sheet.sheet_view.showGridLines = False
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
@@ -1080,8 +1121,7 @@ async def exportar_conciliacion_bancaria_excel(
             cell.alignment = Alignment(vertical="top")
         row[0].number_format = "dd/mm/yyyy"
         row[2].number_format = '$#,##0.00'
-        row[8].number_format = '$#,##0.00'
-    for index, width in enumerate((14, 48, 16, 22, 10, 12, 20, 34, 18, 19), 1):
+    for index, width in enumerate((14, 54, 16, 18, 22), 1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     output = BytesIO(); workbook.save(output); output.seek(0)
     return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1101,6 +1141,17 @@ async def revisar_movimiento_bancario(
     now = datetime.now(timezone.utc).isoformat()
     status = {"conciliar": "conciliada", "sin_factura": "sin_factura", "ignorar": "ignorada", "reabrir": "por_revisar"}[payload.action]
     factura_id = payload.factura_id if payload.action == "conciliar" else None
+    if payload.action == "reabrir" and movement.get("factura_id"):
+        # Revertir la marca que hizo esta conciliación sin modificar una
+        # factura que después haya sido vinculada a otro movimiento.
+        linked = (_profile_invoice_query(scope, "id,pago_movimiento_id,pago_verificado_banco")
+                  .eq("id", movement["factura_id"]).limit(1).execute().data or [])
+        if linked and int(linked[0].get("pago_movimiento_id") or 0) == movement_id:
+            _profile_update(FACTURAS, int(movement["factura_id"]), scope, {
+                "estado_pago": "pendiente", "fecha_pago": None, "saldo_pendiente": None,
+                "pago_verificado_banco": False, "pago_verificado_at": None,
+                "pago_referencia_bancaria": "", "pago_movimiento_id": None,
+            })
     if payload.action == "conciliar":
         if not factura_id:
             raise HTTPException(400, "Selecciona la factura que corresponde al abono.")
@@ -1109,8 +1160,8 @@ async def revisar_movimiento_bancario(
             raise HTTPException(404, "La factura seleccionada no está vigente para conciliación.")
         total = Decimal(str((invoice_rows[0].get("cfdi_json") or {}).get("Total") or 0)).quantize(Decimal("0.01"))
         amount = Decimal(str(movement.get("amount") or 0)).quantize(Decimal("0.01"))
-        if abs(total - amount) > Decimal("1.00"):
-            raise HTTPException(409, "El abono difiere más de $1.00 del total de la factura; revisa antes de conciliar.")
+        if abs(total - amount) > Decimal("0.02"):
+            raise HTTPException(409, "El abono difiere más de $0.02 del total de la factura; revisa antes de conciliar.")
         payment_at = datetime.combine(date.fromisoformat(str(movement["movement_date"])[:10]), datetime.min.time(), tzinfo=ZoneInfo("America/Mexico_City")).astimezone(timezone.utc).isoformat()
         _profile_update(FACTURAS, factura_id, scope, {
             "estado_pago": "pagada", "fecha_pago": payment_at, "saldo_pendiente": 0.0,
