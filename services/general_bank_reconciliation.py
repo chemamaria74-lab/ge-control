@@ -39,7 +39,10 @@ def parse_bbva_rows(rows: list[dict], year: int, account: str = "") -> list[dict
             "movement_date": movement_date,
             "description": description,
             "amount": float(amount),
-            "reference": description,
+            # El esquema persistente usa ``reference_note``. Mantener el
+            # nombre de la columna aquí evita que PostgREST reciba un campo
+            # inexistente al guardar el movimiento.
+            "reference_note": description,
             "fingerprint": movement_fingerprint(account, movement_date, amount, description),
         })
     return movements
