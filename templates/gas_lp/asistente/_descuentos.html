@@ -6,8 +6,10 @@
         </div>
         <div class="toolbar">
           <div><label>Mes</label><input id="descuentosMes" type="month" onchange="applyDescuentosMonthFilter()"></div>
-          <button class="btn ghost" type="button" onclick="clearDescuentosMonth()">Limpiar</button>
-          <button class="btn ghost" type="button" onclick="refreshDescuentosData()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+          <div class="discount-filter-actions" role="group" aria-label="Consulta de descuentos del mes">
+            <button class="btn ghost" type="button" onclick="clearDescuentosMonth()"><i class="fa-solid fa-eraser"></i> Limpiar</button>
+            <button class="btn" type="button" onclick="refreshDescuentosData()"><i class="fa-solid fa-magnifying-glass"></i> Buscar</button>
+          </div>
         </div>
       </div>
       <div class="dashboard-grid">
