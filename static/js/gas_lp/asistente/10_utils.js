@@ -252,7 +252,7 @@ function assistantStationChart(days){
   const chartDays = (days || []).slice(-14);
   if(!chartDays.length) return '';
   const width = 720, height = 210, left = 52, right = 12, top = 16, bottom = 32;
-  const values = chartDays.flatMap(d => [Number(d.inventario_final || 0), Number(d.inventario_inicio || 0), Number(d.traspasos_recibidos || 0), -Number(d.ventas || 0), 0]);
+  const values = chartDays.flatMap(d => [Number(d.inventario_final || 0), Number(d.inventario_inicio || 0), Number(d.recepciones || 0) + Number(d.traspasos_recibidos || 0), -(Number(d.ventas || 0) + Number(d.traspasos_enviados || 0) + Number(d.autoconsumo || 0)), 0]);
   const low = Math.min(0, ...values), high = Math.max(1, ...values);
   const span = Math.max(1, high - low);
   const x = i => left + (chartDays.length === 1 ? (width-left-right)/2 : i * (width-left-right)/(chartDays.length-1));
@@ -260,13 +260,18 @@ function assistantStationChart(days){
   const baseline = y(0);
   const linePoints = chartDays.map((d, i) => `${x(i).toFixed(1)},${y(Number(d.inventario_final || 0)).toFixed(1)}`).join(' ');
   const bars = chartDays.map((d, i) => {
-    const received = Number(d.traspasos_recibidos || 0), sales = Number(d.ventas || 0), center = x(i);
-    const receivedY = y(received), salesY = y(-sales), barWidth = Math.max(5, Math.min(18, (width-left-right) / Math.max(chartDays.length * 3, 1)));
-    const title = `${d.fecha}: ventas ${assistantStationLiters(sales)}, recibidos ${assistantStationLiters(received)}, inventario final ${assistantStationLiters(d.inventario_final)}`;
+    const received = Number(d.recepciones || 0) + Number(d.traspasos_recibidos || 0), sales = Number(d.ventas || 0), autoconsumo = Number(d.autoconsumo || 0), sent = Number(d.traspasos_enviados || 0), outputs = sales + autoconsumo + sent, center = x(i);
+    const receivedY = y(received), salesY = y(-outputs), barWidth = Math.max(5, Math.min(18, (width-left-right) / Math.max(chartDays.length * 3, 1)));
+    const title = `${d.fecha}: ventas ${assistantStationLiters(sales)}, autoconsumo ${assistantStationLiters(autoconsumo)}, traspasos enviados ${assistantStationLiters(sent)}, recibidos ${assistantStationLiters(received)}, inventario final ${assistantStationLiters(d.inventario_final)}`;
     return `<g><title>${esc(title)}</title><rect x="${(center-barWidth-2).toFixed(1)}" y="${Math.min(receivedY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-receivedY).toFixed(1)}" rx="2" fill="#10b981"/><rect x="${(center+2).toFixed(1)}" y="${Math.min(salesY,baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline-salesY).toFixed(1)}" rx="2" fill="#ef4444"/><text x="${center.toFixed(1)}" y="${height-9}" text-anchor="middle" font-size="10" fill="#64748b">${esc(String(d.fecha || '').slice(8,10))}</text></g>`;
   }).join('');
   const dots = chartDays.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(Number(d.inventario_final || 0)).toFixed(1)}" r="3.5" fill="#2563eb"><title>${esc(`${d.fecha}: inventario final ${assistantStationLiters(d.inventario_final)}`)}</title></circle>`).join('');
-  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width-right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top+8).toFixed(1)}" font-size="10" fill="#64748b">${assistantStationLiters(high)}</text><text x="4" y="${(baseline-4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height-bottom).toFixed(1)}" font-size="10" fill="#dc2626">${assistantStationLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
+  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width-right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top+8).toFixed(1)}" font-size="10" fill="#64748b">${assistantStationLiters(high)}</text><text x="4" y="${(baseline-4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height-bottom).toFixed(1)}" font-size="10" fill="#dc2626">${assistantStationLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Salidas (ventas + traspasos + autoconsumo)</span> · día del mes</div>`;
+}
+function assistantStationDailyTable(days){
+  if(!(days || []).length) return '';
+  const cell = value => assistantStationLiters(value);
+  return `<details style="margin-top:10px" open><summary style="cursor:pointer;font-weight:800;color:#475569">Desglose diario</summary><div style="overflow:auto;margin-top:8px"><table style="width:100%;min-width:980px;font-size:12px"><thead><tr><th>Fecha</th><th>Apertura</th><th>Recepciones</th><th>Traspasos recibidos</th><th>Ventas</th><th>Traspasos enviados</th><th>Autoconsumo</th><th>Cierre</th></tr></thead><tbody>${days.map(day => `<tr><td>${esc(day.fecha)}</td><td>${cell(day.inventario_inicio)}</td><td>${cell(day.recepciones)}</td><td>${cell(day.traspasos_recibidos)}</td><td>${cell(day.ventas)}</td><td>${cell(day.traspasos_enviados)}</td><td>${cell(day.autoconsumo)}</td><td><b>${cell(day.inventario_final)}</b></td></tr>`).join('')}</tbody></table></div></details>`;
 }
 async function loadAssistantStationControl(options={}){
   const host = document.getElementById('assistantStationControl');
@@ -281,6 +286,9 @@ async function loadAssistantStationControl(options={}){
     if(!stations.length){ host.textContent = 'No hay instalaciones configuradas para esta empresa.'; return; }
     host.className = '';
     host.innerHTML = stations.map(s => {
+      if(s.inventario_pendiente){
+        return `<div class="card" style="margin-bottom:10px;border-left:4px solid #d97706"><b>${esc(s.nombre)}</b><div style="margin-top:8px;color:#92400e;font-weight:900">Inventario inicial pendiente</div><div class="muted" style="margin-top:5px;font-size:12px">No existe inventario inicial capturado para el mes ni un cierre del mes anterior. Captura el inventario inicial antes de usar este saldo para decisiones operativas.</div></div>`;
+      }
       if(ASSISTANT_STATION_VIEW === 'fisico'){
         return `<div class="card" style="margin-bottom:10px"><b>${esc(s.nombre)}</b>${assistantStationPhysicalTable(s)}</div>`;
       }
@@ -288,8 +296,11 @@ async function loadAssistantStationControl(options={}){
       const overCapacity = Number(s.capacidad || 0) > 0 && Number(s.inventario || 0) > Number(s.capacidad || 0) * 1.03;
       const tone = negative || overCapacity ? '#991b1b' : '#166534';
       const msg = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
-      const detail = assistantStationChart(s.dias);
-      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes enviar</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
+      const initialSource = s.inventario_inicial_fuente === 'previous_closed_report'
+        ? `cierre de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
+        : 'capturado para el mes';
+      const detail = assistantStationChart(s.dias) + assistantStationDailyTable(s.dias);
+      return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes recibir</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Inventario inicial: <b>${assistantStationLiters(s.inventario_inicial)}</b> (${esc(initialSource)}). Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
     }).join('');
   } catch(error) { host.textContent = error.message || 'No fue posible consultar las estaciones.'; }
 }
@@ -303,16 +314,21 @@ function assistantStationPhysicalTable(station){
     .filter(({transfer}) => transfer.control_fisico && Object.keys(transfer.control_fisico).length);
   if(!rows.length) return '<div class="muted" style="padding:12px 0">No hay controles físicos capturados para esta estación en el mes seleccionado.</div>';
   const value = (raw, suffix=' L') => raw === null || raw === undefined || raw === '' ? '—' : `${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}${suffix}`;
-  return `<div class="muted" style="font-size:12px;margin:10px 0 7px">Lecturas y litros capturados por la asistente para cada traspaso.</div><div style="overflow:auto"><table style="width:100%;min-width:1080px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros reportados por el chofer</th><th>Litros facturados (CFDI)</th><th>Diferencia chofer vs. CFDI</th><th>Capacidad del tanque</th><th>Inventario teórico</th><th>Nivel teórico</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
+  return `<div class="muted" style="font-size:12px;margin:10px 0 7px">Las lecturas antes y después son porcentajes capturados manualmente; los litros se calculan con la capacidad configurada del tanque.</div><div style="overflow:auto"><table style="width:100%;min-width:1220px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes (%)</th><th>Antes (L)</th><th>Después (%)</th><th>Después (L)</th><th>Litros reportados por el chofer</th><th>Litros facturados (CFDI)</th><th>Diferencia chofer vs. CFDI</th><th>Inventario teórico</th><th>Nivel teórico</th></tr></thead><tbody>${rows.map(({day, transfer}) => {
     const c = transfer.control_fisico;
     const capacity = Number(c.capacidad_litros || station.capacidad || 0);
+    const beforeLiters = c.antes_litros ?? (capacity > 0 ? capacity * Number(c.antes_pct || 0) / 100 : null);
+    const afterLiters = c.despues_litros ?? (capacity > 0 ? capacity * Number(c.despues_pct || 0) / 100 : null);
     const theoretical = Number(day.inventario_final || 0);
-    const driverLiters = Number(c.litros_declarados || 0);
+    const driverCaptured = c.litros_chofer_capturados === true;
+    const driverLiters = driverCaptured ? Number(c.litros_declarados) : null;
     const cfdiLiters = Number(c.litros_cfdi || 0);
-    const declaredDifference = driverLiters - cfdiLiters;
-    const differenceColor = Math.abs(declaredDifference) > 0.01 ? '#b91c1c' : '#166534';
+    const declaredDifference = driverCaptured ? driverLiters - cfdiLiters : null;
+    const differenceColor = !driverCaptured ? '#92400e' : (Math.abs(declaredDifference) > 0.01 ? '#b91c1c' : '#166534');
     const signed = raw => raw === null || raw === undefined ? '—' : `${raw > 0 ? '+' : ''}${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}`;
-    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(c.despues_pct, '%')}</td><td>${value(c.litros_declarados)}</td><td>${value(c.litros_cfdi)}</td><td style="font-weight:800;color:${differenceColor}">${signed(declaredDifference)} L</td><td>${value(capacity)}</td><td>${value(theoretical)}</td><td style="font-weight:800">${assistantStationPercent(theoretical,capacity)}</td></tr>`;
+    const driverCell = driverCaptured ? value(driverLiters) : '<span style="color:#92400e;font-weight:800">No verificable (legado)</span>';
+    const differenceCell = driverCaptured ? `${signed(declaredDifference)} L` : 'Sin dato independiente';
+    return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(beforeLiters)}</td><td>${value(c.despues_pct, '%')}</td><td>${value(afterLiters)}</td><td>${driverCell}</td><td>${value(c.litros_cfdi)}</td><td style="font-weight:800;color:${differenceColor}">${differenceCell}</td><td>${value(theoretical)}</td><td style="font-weight:800">${assistantStationPercent(theoretical,capacity)}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
@@ -343,6 +359,12 @@ async function refreshTransferInventoryHint(){
     }
     const station = TRANSFER_INVENTORY_STATIONS.find(s => String(s.id) === String(destination.value));
     if(!station){ hint.classList.add('hide'); return; }
+    if(station.inventario_pendiente){
+      hint.classList.remove('hide');
+      hint.style.cssText = 'border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px;font-size:13px;font-weight:800';
+      hint.textContent = 'Inventario inicial pendiente: captura el saldo del mes o cierra el mes anterior para validar la capacidad de esta estación.';
+      return;
+    }
     const liters = Number(litersInput?.value || 0);
     const projected = Number(station.inventario || 0) + liters;
     const exceeds = liters > Number(station.disponible || 0);
@@ -369,6 +391,7 @@ function previewTransferPhysicalControl(){
   const afterInput = document.getElementById('transferTankAfterPct');
   const beforeRaw = beforeInput?.value ?? '';
   const afterRaw = afterInput?.value ?? '';
+  const driverRaw = document.getElementById('transferDriverLiters')?.value ?? '';
   const before = Number(beforeRaw);
   const after = Number(afterRaw);
   const destinationId = String(document.getElementById('destinoFacilitySelect')?.value || '');
@@ -384,7 +407,11 @@ function previewTransferPhysicalControl(){
   const difference = measured - cfdi;
   const alert = Math.abs(difference) > Math.max(capacity * Number(station.incertidumbre_medidor || 0.05), cfdi * 0.05);
   hint.style.color = alert ? '#991b1b' : '#166534';
-  hint.textContent = `Por lectura de tanque: ${assistantStationLiters(measured)}. CFDI: ${assistantStationLiters(cfdi)}. Diferencia: ${assistantStationLiters(difference)}.${alert ? ' Revisa la descarga: la diferencia es mayor a la tolerancia.' : ''}`;
+  const driver = driverRaw === '' ? null : Number(driverRaw);
+  const driverText = driver === null
+    ? ' Litros del chofer: pendientes.'
+    : ` Chofer: ${assistantStationLiters(driver)}; diferencia chofer vs. CFDI: ${assistantStationLiters(driver - cfdi)}.`;
+  hint.textContent = `Por lectura de tanque: ${assistantStationLiters(measured)}. CFDI: ${assistantStationLiters(cfdi)}. Diferencia física: ${assistantStationLiters(difference)}.${driverText}${alert ? ' Revisa la descarga: la diferencia es mayor a la tolerancia.' : ''}`;
 }
 function switchClientsTab(tab){
   const active = ['clientes','credito','descuentos'].includes(tab) ? tab : 'clientes';

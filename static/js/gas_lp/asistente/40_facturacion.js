@@ -19,6 +19,9 @@ function updateOperacionUI(){
   facturaGlobalField.classList.add('hide');
   transferPanel.classList.toggle('hide', !traspaso);
   document.getElementById('transferPhysicalPanel')?.classList.toggle('hide', !traspaso);
+  document.getElementById('transferOperationDateField')?.classList.toggle('hide', !traspaso);
+  const operationDate = document.getElementById('transferOperationDate');
+  if(traspaso && operationDate && !operationDate.value) operationDate.value = localDateTimeValue();
   cartaPorteNotice.classList.toggle('hide', !cartaPorte);
   publicoGeneralToolbar.classList.toggle('hide', traspaso || cartaPorte);
   btnPublicoGeneral.disabled = traspaso || cartaPorte;
@@ -304,6 +307,7 @@ function confirmTransferStamp(summary){
     ['Destino', summary.destino],
     ['Correo CFDI', summary.correo],
     ['Fecha emisión', summary.fecha],
+    ['Descarga efectiva', summary.fechaOperacion],
     ['Litros', summary.litros],
     ['Precio', money(summary.precio)],
     ...(Number(summary.precioSimbolicoLitro || 0) > 0 ? [['Precio simbólico CFDI', `${Number(summary.precioSimbolicoLitro).toFixed(6)} por litro`]] : []),
@@ -364,7 +368,7 @@ function resetFacturaFormAfterSuccess(opts={}){
   rutaSelect.value = '';
   facturaGlobal.value = '0';
   transferEmail.value = defaultTransferEmail();
-  ['transferTankBeforePct','transferTankAfterPct','transferDriverLiters'].forEach(id => {
+  ['transferTankBeforePct','transferTankAfterPct','transferDriverLiters','transferOperationDate'].forEach(id => {
     const field = document.getElementById(id);
     if(field) field.value = '';
   });
@@ -474,6 +478,9 @@ async function crearFactura(){
     return;
   }
   if(isTraspaso && !destinoFacilitySelect.value){ setStatus('facturaMsg','Selecciona la estación destino.',false); return; }
+  const transferOperationDate = document.getElementById('transferOperationDate');
+  if(isTraspaso && !transferOperationDate?.value){ setStatus('facturaMsg','Captura la fecha y hora efectiva en que se realizó la descarga.',false); transferOperationDate?.focus(); return; }
+  if(isTraspaso && Number(document.getElementById('transferDriverLiters')?.value || 0) <= 0){ setStatus('facturaMsg','Captura los litros reportados por el chofer antes de timbrar el traspaso.',false); document.getElementById('transferDriverLiters')?.focus(); return; }
   if(isTraspaso && String(facilitySelect.value) === String(destinoFacilitySelect.value)){ setStatus('facturaMsg','Origen y destino deben ser distintos.',false); return; }
   if(isTraspaso && !validEmailList(transferEmail.value)){ setStatus('facturaMsg','Captura correos de traspaso válidos, separados por coma.',false); transferEmail.focus(); return; }
   const saveTransferEmailDefaultField = document.getElementById('saveTransferEmailDefault');
@@ -566,6 +573,7 @@ async function crearFactura(){
       destino: destino?.nombre || destinoFacilitySelect.value,
       correo: transferEmail.value.trim() || 'Sin envío automático',
       fecha: (fechaEmision.value || '').replace('T',' '),
+      fechaOperacion: (document.getElementById('transferOperationDate')?.value || '').replace('T',' '),
       litros: invoicePreview.litros,
       precio: precioVal,
       total: totalVal,
@@ -634,6 +642,7 @@ async function crearFactura(){
       facility_id: Number(facilitySelect.value),
       tipo_operacion: tipoOperacion.value,
       destino_facility_id: isTraspaso ? Number(destinoFacilitySelect.value) : null,
+      fecha_operacion: isTraspaso ? (document.getElementById('transferOperationDate')?.value || '') : '',
       lectura_tanque_antes_pct: isTraspaso && document.getElementById('transferTankBeforePct')?.value !== '' ? Number(document.getElementById('transferTankBeforePct').value) : null,
       lectura_tanque_despues_pct: isTraspaso && document.getElementById('transferTankAfterPct')?.value !== '' ? Number(document.getElementById('transferTankAfterPct').value) : null,
       litros_descarga_declarados: isTraspaso && document.getElementById('transferDriverLiters')?.value !== '' ? Number(document.getElementById('transferDriverLiters').value) : null,
