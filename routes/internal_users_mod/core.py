@@ -28,7 +28,7 @@ from routes.auth import (
     verify_token as _auth_verify_token,
 )
 from routes.perfiles import _tenant_id_for_user as _perfiles_tenant_id_for_user
-from services.database import get_facilities, get_reports
+from services.database import get_facilities, get_reports, report_is_closed
 from services.email_delivery import send_gas_lp_invoice_email, send_gas_lp_payment_complement_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
@@ -409,6 +409,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     facility_id: Optional[int] = None
     tipo_operacion: str = "venta"
     destino_facility_id: Optional[int] = None
+    fecha_operacion: str = ""
     lectura_tanque_antes_pct: Optional[float] = None
     lectura_tanque_despues_pct: Optional[float] = None
     litros_descarga_declarados: Optional[float] = None
@@ -2725,6 +2726,77 @@ def _gas_lp_factura_estado_excel(factura: dict) -> str:
     return "Vigente - PPD / Crédito" if str(metodo or "").upper() == "PPD" else "Vigente"
 
 
+def _gas_lp_previous_month(month: str) -> str:
+    try:
+        year, month_number = (int(part) for part in str(month).split("-", 1))
+        if month_number == 1:
+            return f"{year - 1}-12"
+        return f"{year}-{month_number - 1:02d}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _gas_lp_next_month(month: str) -> str:
+    try:
+        year, month_number = (int(part) for part in str(month).split("-", 1))
+        if month_number == 12:
+            return f"{year + 1}-01"
+        return f"{year}-{month_number + 1:02d}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _gas_lp_resolve_initial_inventory(user: dict, month: str, facility_id: int) -> dict:
+    """Resuelve el inventario inicial sin asumir cero silenciosamente."""
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = user.get("perfil_id")
+    try:
+        current_reports = get_reports(
+            owner_user_id,
+            month,
+            facility_id=facility_id,
+            perfil_id=perfil_id,
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_initial_inventory_current_failed facility=%s month=%s err=%s", facility_id, month, exc)
+        current_reports = []
+    if current_reports:
+        value = current_reports[0].get("inventario_inicial")
+        if value is not None:
+            return {"value": float(value), "source": "current_report", "pending": False}
+
+    previous_month = _gas_lp_previous_month(month)
+    if previous_month:
+        try:
+            previous_reports = get_reports(
+                owner_user_id,
+                previous_month,
+                facility_id=facility_id,
+                perfil_id=perfil_id,
+            )
+        except Exception as exc:
+            logger.warning("gas_lp_initial_inventory_previous_failed facility=%s month=%s err=%s", facility_id, previous_month, exc)
+            previous_reports = []
+        previous_closed = next(
+            (report for report in previous_reports if report_is_closed(report, previous_month)),
+            None,
+        )
+        if previous_closed and previous_closed.get("vol_existencias") is not None:
+            return {
+                "value": float(previous_closed["vol_existencias"]),
+                "source": "previous_closed_report",
+                "source_month": previous_month,
+                "pending": False,
+            }
+
+    return {
+        "value": None,
+        "source": "pending",
+        "source_month": previous_month,
+        "pending": True,
+    }
+
+
 def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> dict:
     """Valida con el mismo libro operativo que se muestra al asistente."""
     try:
@@ -2739,14 +2811,16 @@ def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> d
         capacity = Decimal("0")
     if not facility_id or qty <= 0 or capacity <= 0:
         return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
-    initial = Decimal("0")
     month = datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m")
-    try:
-        reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility_id, perfil_id=user.get("perfil_id"))
-        if reports:
-            initial = Decimal(str(reports[0].get("inventario_inicial") or 0))
-    except Exception:
-        pass
+    initial_state = _gas_lp_resolve_initial_inventory(user, month, facility_id)
+    if initial_state["pending"]:
+        return {
+            "ok": True,
+            "code": "gas_lp_inventory_initial_pending",
+            "available": None,
+            "initial_source": initial_state["source"],
+        }
+    initial = Decimal(str(initial_state["value"]))
     try:
         from services.gas_lp_inventory_control import build_station_ledger
 
@@ -2756,9 +2830,9 @@ def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> d
             include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
             company_fallback=True, visibility_log=False,
         )
-        ledger = build_station_ledger(
-            facility=destino, invoices=rows, initial_inventory=initial,
-        )
+        movements = _gas_lp_inventory_movements(sb, user, month)
+        adjustments = _gas_lp_inventory_adjustments(sb, user, month)
+        ledger = build_station_ledger(facility=destino, invoices=rows, movements=movements, adjustments=adjustments, initial_inventory=initial)
     except Exception as exc:
         logger.warning("gas_lp_transfer_inventory_check_failed facility=%s err=%s", facility_id, exc)
         return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
@@ -2766,12 +2840,52 @@ def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> d
     projected = (current + qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     maximum = (capacity * Decimal("1.03")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     available = max(Decimal("0"), maximum - current).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    result = {"current": float(current), "projected": float(projected), "capacity": float(capacity), "maximum": float(maximum), "available": float(available)}
+    result = {"current": float(current), "projected": float(projected), "capacity": float(capacity), "maximum": float(maximum), "available": float(available), "initial_inventory": float(initial), "initial_source": initial_state["source"]}
     if projected > maximum:
         return {"ok": False, "code": "gas_lp_inventory_over_capacity", **result}
     if current < 0:
         return {"ok": True, "code": "gas_lp_inventory_negative", **result}
     return {"ok": True, "code": "gas_lp_inventory_ok", **result}
+
+
+def _gas_lp_inventory_movements(sb, user: dict, month: str) -> list[dict]:
+    """Carga salidas operativas sin CFDI que deben afectar el libro teórico."""
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = _safe_int_id(user.get("perfil_id"))
+    if not owner_user_id or not perfil_id:
+        return []
+
+
+def _gas_lp_inventory_adjustments(sb, user: dict, month: str) -> list[dict]:
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = _safe_int_id(user.get("perfil_id"))
+    if not owner_user_id or not perfil_id:
+        return []
+    try:
+        return (
+            sb.table("gas_lp_inventory_adjustments")
+            .select("id,facility_id,fecha,inventario_teorico,inventario_fisico,diferencia_litros,motivo,status,approved_at")
+            .eq("user_id", owner_user_id)
+            .eq("perfil_id", perfil_id)
+            .gte("fecha", f"{month}-01")
+            .lt("fecha", f"{_gas_lp_next_month(month)}-01")
+            .execute().data or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_inventory_adjustments_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
+        return []
+    try:
+        return (
+            sb.table("records")
+            .select("id,facility_id,fecha,fecha_operacion,periodo,tipo,volumen_litros,file_path,es_autoconsumo,created_at")
+            .eq("user_id", owner_user_id)
+            .eq("perfil_id", perfil_id)
+            .eq("periodo", month)
+            .execute().data or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_inventory_movements_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
+        return []
 
 
 def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFacturaPayload) -> dict:
@@ -2783,6 +2897,8 @@ def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFactu
         return {}
     if before is None or after is None:
         raise HTTPException(400, "Captura la lectura del tanque antes y después de la descarga.")
+    if declared is None:
+        raise HTTPException(400, "Captura los litros reportados por el chofer; no se tomarán automáticamente de los litros del CFDI.")
     if not 0 <= float(before) <= 100 or not 0 <= float(after) <= 100:
         raise HTTPException(400, "Las lecturas del tanque deben estar entre 0% y 100%.")
     capacity = destino.get("cap_operativa_tanque") or destino.get("cap_util_tanque") or destino.get("capacidad_tanque") or destino.get("cap_total_tanque")
@@ -2790,12 +2906,17 @@ def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFactu
         raise HTTPException(400, "La estación destino no tiene capacidad configurada en Administración.")
     measured = round(float(capacity) * (float(after) - float(before)) / 100, 2)
     expected = float(payload.litros or 0)
-    declared_value = float(declared) if declared is not None else expected
+    declared_value = float(declared)
+    if declared_value <= 0:
+        raise HTTPException(400, "Los litros reportados por el chofer deben ser mayores a cero.")
     tolerance = max(float(capacity) * float(destino.get("incertidumbre_medidor") or 0.05), expected * 0.05)
     difference = round(measured - expected, 2)
     return {
         "antes_pct": float(before), "despues_pct": float(after), "capacidad_litros": float(capacity),
+        "antes_litros": round(float(capacity) * float(before) / 100, 2),
+        "despues_litros": round(float(capacity) * float(after) / 100, 2),
         "litros_medidos": measured, "litros_cfdi": expected, "litros_declarados": declared_value,
+        "litros_chofer_capturados": True,
         "diferencia_litros": difference, "tolerancia_litros": round(tolerance, 2),
         "alerta": abs(difference) > tolerance,
     }

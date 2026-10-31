@@ -375,19 +375,36 @@ async def gas_lp_internal_station_inventory(token: str, mes: str | None = None, 
     except Exception as exc:
         raise _safe_internal_error("gas_lp_station_inventory", exc)
     stations = []
+    movements = _gas_lp_inventory_movements(sb, user, month)
+    adjustments = _gas_lp_inventory_adjustments(sb, user, month)
     for facility in _gas_lp_admin_facilities(user):
-        initial = 0.0
-        try:
-            reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility.get("id"), perfil_id=user.get("perfil_id"))
-            if reports: initial = float(reports[0].get("inventario_inicial") or 0)
-        except Exception:
-            pass
-        ledger = build_station_ledger(facility=facility, invoices=rows, initial_inventory=initial)
+        initial_state = _gas_lp_resolve_initial_inventory(user, month, int(facility.get("id")))
+        initial = initial_state["value"]
+        if initial_state["pending"]:
+            stations.append({
+                "id": facility.get("id"),
+                "nombre": facility.get("nombre") or "Estación",
+                "inventario": None,
+                "capacidad": float(station_capacity(facility)),
+                "disponible": None,
+                "alertas": [],
+                "dias": [],
+                "inventario_inicial": None,
+                "inventario_inicial_fuente": initial_state["source"],
+                "inventario_inicial_mes_fuente": initial_state.get("source_month"),
+                "inventario_pendiente": True,
+            })
+            continue
+        ledger = build_station_ledger(facility=facility, invoices=rows, movements=movements, adjustments=adjustments, initial_inventory=initial)
         stations.append({
             "id": facility.get("id"), "nombre": facility.get("nombre") or "Estación",
             "inventario": ledger["current_inventory"], "capacidad": ledger["capacity"],
             "disponible": ledger["available_to_transfer"], "alertas": ledger["alerts"],
             "dias": ledger["days"],
+            "inventario_inicial": initial,
+            "inventario_inicial_fuente": initial_state["source"],
+            "inventario_inicial_mes_fuente": initial_state.get("source_month"),
+            "inventario_pendiente": False,
         })
     return JSONResponse({"mes": month, "stations": stations})
 

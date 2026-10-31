@@ -104,6 +104,13 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
     destino = facilities_by_id.get(int(payload.destino_facility_id or 0), {})
     transfer_physical_control = {}
     if is_transfer:
+        operation_date_text = str(payload.fecha_operacion or "").strip()
+        if not operation_date_text:
+            raise HTTPException(400, "Captura la fecha y hora efectiva en que se realizó la descarga.")
+        try:
+            datetime.fromisoformat(operation_date_text.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(400, "La fecha y hora efectiva de descarga no tiene un formato válido.")
         if not destino:
             raise HTTPException(400, "Selecciona la estación destino para el traspaso.")
         if int(payload.facility_id or 0) == int(payload.destino_facility_id or 0):
@@ -627,6 +634,7 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
             "folio_usuario": folio_factura,
             "comentarios": payload.comentarios,
             "fecha_emision": totals["fecha"],
+            "fecha_operacion": str(payload.fecha_operacion or "").strip() if is_transfer else "",
             "clave_prod_serv": clave_prod_serv,
             "gas_lp_hyp_mode": hyp_mode,
             "gas_lp_hyp_warning": "",
