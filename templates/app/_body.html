@@ -398,8 +398,8 @@
         <input id="ac_volumen" type="number" min="0.01" step="0.01" placeholder="Ej. 500.00">
       </div>
       <div class="field">
-        <label>Fecha del movimiento <span style="color:#e63946">*</span></label>
-        <input id="ac_fecha" type="date">
+        <label>Fecha y hora efectiva del movimiento <span style="color:#e63946">*</span></label>
+        <input id="ac_fecha" type="datetime-local">
       </div>
     </div>
 
@@ -1119,8 +1119,32 @@
 <div class="main-panel active" id="mpanel-historial">
 <div class="card" id="histCard">
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.8rem">
-    <h2 style="margin:0"><i class="fa-solid fa-file-circle-check" style="margin-right:.4rem"></i> <span data-en="SAT Monthly Report">Reporte SAT Mensual</span></h2>
+    <h2 style="margin:0"><i class="fa-solid fa-file-circle-check" style="margin-right:.4rem"></i> <span>Reportes SAT</span></h2>
   </div>
+  <div style="display:flex;gap:.5rem;margin-bottom:1rem;border-bottom:1px solid #e2e8f0;padding-bottom:.65rem">
+    <button type="button" id="satReportTabMonthly" class="btn-save" style="width:auto;padding:.48rem .9rem"><i class="fa-solid fa-calendar-days" style="margin-right:.35rem"></i>Mensuales</button>
+    <button type="button" id="satReportTabDaily" style="width:auto;padding:.48rem .9rem;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:8px;font-weight:700;cursor:pointer"><i class="fa-solid fa-calendar-day" style="margin-right:.35rem"></i>Diarios</button>
+  </div>
+  <div id="histDailyPanel" style="display:none">
+    <div style="padding:.85rem 1rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;margin-bottom:1rem;color:#1e3a8a;font-size:.78rem;line-height:1.5">
+      El diario se calcula con la apertura, movimientos ordenados por fecha/hora efectiva, autoconsumo y cierre conciliado. Una captura atrasada recalcula automáticamente los días posteriores.
+    </div>
+    <div class="hist-selector">
+      <div class="field" style="max-width:300px"><label>Instalación</label>
+        <select id="dailySatFacility" style="padding:.42rem .6rem;border:1px solid #e2e8f0;border-radius:7px;font-size:.86rem;width:100%"><option value="">Selecciona planta...</option></select>
+      </div>
+      <div class="field" style="max-width:180px"><label>Fecha efectiva</label><input id="dailySatDate" type="date"></div>
+      <div style="display:flex;align-items:flex-end;gap:.5rem;flex-wrap:wrap">
+        <button type="button" class="btn-save" id="btnLoadDailySat"><i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i>Consultar día</button>
+        <button type="button" class="btn-xml" id="btnDownloadDailyJson" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem"><i class="fa-solid fa-file-code" style="margin-right:.35rem"></i>Descargar JSON</button>
+        <button type="button" class="btn-zip" id="btnDownloadDailyZip" style="display:none;width:auto;padding:.52rem 1rem;font-size:.84rem"><i class="fa-solid fa-file-zipper" style="margin-right:.35rem"></i>Descargar ZIP</button>
+      </div>
+    </div>
+    <div id="dailySatStatus" style="display:none;margin:.7rem 0;padding:.7rem .85rem;border-radius:8px;font-size:.78rem"></div>
+    <div id="dailySatSummary" style="display:none"></div>
+    <pre id="dailySatPreview" style="display:none;max-height:480px;overflow:auto;background:#0f172a;color:#dbeafe;border-radius:9px;padding:1rem;font-size:.72rem;line-height:1.5"></pre>
+  </div>
+  <div id="histMonthlyPanel">
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.7rem;margin-bottom:1rem">
     <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:.8rem .95rem;color:#1e3a8a">
       <div style="font-size:.78rem;font-weight:800;margin-bottom:.25rem"><i class="fa-solid fa-truck-ramp-box" style="margin-right:.35rem"></i>Subir pendientes de proveedor</div>
@@ -1269,6 +1293,7 @@
       </table>
     </div>
   </div>
+  </div><!-- /histMonthlyPanel -->
 </div>
 </div><!-- /mpanel-historial -->
 
