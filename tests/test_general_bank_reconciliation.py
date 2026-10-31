@@ -41,6 +41,8 @@ def test_bank_reconciliation_is_review_first_and_audited_in_the_portal():
     assert '"pago_verificado_banco": True' in route
     assert "general_bank_reconciliation_audit" in route
     assert "def _bank_scope_row" in route
+    assert "def _bank_audit_scope_row" in route
+    assert "**_bank_audit_scope_row(scope)" in route
     assert "**_bank_scope_row(scope)" in route
     assert "Ninguna factura cambia a pagada hasta que tú la confirmes" in html
     assert "reviewBankMovement" in frontend
@@ -55,4 +57,7 @@ def test_bank_reconciliation_is_review_first_and_audited_in_the_portal():
     assert "createPublicInvoiceFromBank" in frontend
     assert "Facturar Público en general" in html
     assert "data-bank-payment" in frontend
+    assert "isPlatformSettlement" in frontend
+    assert "Liquidación neta de plataforma" in frontend
+    assert "refreshBankMovements" in frontend
     assert 'headers = ["FECHA", "CONCEPTO BANCARIO", "ABONO", "FACTURA", "ESTADO"]' in route
