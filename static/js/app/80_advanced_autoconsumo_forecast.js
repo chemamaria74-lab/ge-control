@@ -240,7 +240,8 @@ function toggleAutoconsumoSwitch() {
     status.textContent   = rfcEmpresa ? `RFC: ${rfcEmpresa}` : (window._lang === 'en' ? 'Configure your RFC in Settings' : 'Configura tu RFC en Configuración');
     status.style.color   = rfcEmpresa ? '#16a34a' : '#dc2626';
     if (!document.getElementById('ac_fecha').value) {
-      document.getElementById('ac_fecha').value = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      document.getElementById('ac_fecha').value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     }
   } else {
     sw.style.background = '#cbd5e1';
@@ -278,7 +279,7 @@ async function registrarAutoconsumo() {
   const loadEl  = document.getElementById('loadAutoconsumo');
 
   if (!volumen || volumen <= 0) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent=window._lang === 'en' ? 'Enter a valid volume greater than 0.' : 'Ingresa un volumen válido mayor a 0.'; return; }
-  if (!fecha) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent=window._lang === 'en' ? 'Select the movement date.' : 'Selecciona la fecha del movimiento.'; return; }
+  if (!fecha) { resultEl.style.display=''; resultEl.style.background='#fef2f2'; resultEl.style.border='1px solid #fca5a5'; resultEl.textContent=window._lang === 'en' ? 'Select the effective movement date and time.' : 'Selecciona la fecha y hora efectiva del movimiento.'; return; }
 
   // Inferir periodo desde la fecha
   const periodo = fecha.slice(0, 7);  // YYYY-MM
@@ -397,7 +398,7 @@ async function cargarAutoconsumos() {
         <tbody>
           ${acs.map(a => `
             <tr style="border-bottom:1px solid #f1f5f9">
-              <td style="padding:.3rem .5rem">${displayDate(a.fecha)}</td>
+              <td style="padding:.3rem .5rem">${a.fecha_operacion ? new Date(a.fecha_operacion).toLocaleString('es-MX') : displayDate(a.fecha)}</td>
               <td style="padding:.3rem .5rem">${(a.nombre_contraparte||'').replace('AUTOCONSUMO — ','')}</td>
               <td style="padding:.3rem .5rem;text-align:right;font-weight:600;color:#dc2626">−${parseFloat(a.volumen_litros).toLocaleString('es-MX',{minimumFractionDigits:2})}</td>
               <td style="padding:.3rem .5rem;font-family:monospace;color:#64748b;font-size:.68rem">${(a.uuid||'').slice(0,16)}…</td>

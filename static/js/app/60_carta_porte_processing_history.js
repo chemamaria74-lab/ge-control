@@ -265,7 +265,7 @@ function _transferChart(days) {
   const chartDays = (days || []).slice(-14);
   if (!chartDays.length) return '<div style="color:#64748b;padding:1rem 0">Sin movimientos en este mes.</div>';
   const width = 720, height = 210, left = 52, right = 12, top = 16, bottom = 32;
-  const values = chartDays.flatMap(d => [_transferNumber(d.inventario_final), _transferNumber(d.inventario_inicio), _transferNumber(d.traspasos_recibidos), -_transferNumber(d.ventas), 0]);
+  const values = chartDays.flatMap(d => [_transferNumber(d.inventario_final), _transferNumber(d.inventario_inicio), _transferNumber(d.recepciones) + _transferNumber(d.traspasos_recibidos), -(_transferNumber(d.ventas) + _transferNumber(d.traspasos_enviados) + _transferNumber(d.autoconsumo)), 0]);
   const low = Math.min(0, ...values), high = Math.max(1, ...values);
   const span = Math.max(1, high - low);
   const x = index => left + (chartDays.length === 1 ? (width - left - right) / 2 : index * (width - left - right) / (chartDays.length - 1));
@@ -273,14 +273,14 @@ function _transferChart(days) {
   const baseline = y(0);
   const linePoints = chartDays.map((day, index) => `${x(index).toFixed(1)},${y(_transferNumber(day.inventario_final)).toFixed(1)}`).join(' ');
   const bars = chartDays.map((day, index) => {
-    const received = _transferNumber(day.traspasos_recibidos), sales = _transferNumber(day.ventas), center = x(index);
-    const receivedY = y(received), salesY = y(-sales);
+    const received = _transferNumber(day.recepciones) + _transferNumber(day.traspasos_recibidos), sales = _transferNumber(day.ventas), autoconsumo = _transferNumber(day.autoconsumo), sent = _transferNumber(day.traspasos_enviados), outputs = sales + autoconsumo + sent, center = x(index);
+    const receivedY = y(received), salesY = y(-outputs);
     const barWidth = Math.max(5, Math.min(18, (width - left - right) / Math.max(chartDays.length * 3, 1)));
-    const title = escapeHtml(`${day.fecha}: ventas ${_transferLiters(sales)}, recibidos ${_transferLiters(received)}, inventario final ${_transferLiters(day.inventario_final)}`);
+    const title = escapeHtml(`${day.fecha}: ventas ${_transferLiters(sales)}, autoconsumo ${_transferLiters(autoconsumo)}, traspasos enviados ${_transferLiters(sent)}, recibidos ${_transferLiters(received)}, inventario final ${_transferLiters(day.inventario_final)}`);
     return `<g><title>${title}</title><rect x="${(center - barWidth - 2).toFixed(1)}" y="${Math.min(receivedY, baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline - receivedY).toFixed(1)}" rx="2" fill="#10b981"/><rect x="${(center + 2).toFixed(1)}" y="${Math.min(salesY, baseline).toFixed(1)}" width="${barWidth}" height="${Math.abs(baseline - salesY).toFixed(1)}" rx="2" fill="#ef4444"/><text x="${center.toFixed(1)}" y="${height - 9}" text-anchor="middle" font-size="10" fill="#64748b">${escapeHtml(String(day.fecha || '').slice(8, 10))}</text></g>`;
   }).join('');
   const dots = chartDays.map((day, index) => `<circle cx="${x(index).toFixed(1)}" cy="${y(_transferNumber(day.inventario_final)).toFixed(1)}" r="3.5" fill="#2563eb"><title>${escapeHtml(`${day.fecha}: inventario final ${_transferLiters(day.inventario_final)}`)}</title></circle>`).join('');
-  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width - right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top + 8).toFixed(1)}" font-size="10" fill="#64748b">${_transferLiters(high)}</text><text x="4" y="${(baseline - 4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height - bottom).toFixed(1)}" font-size="10" fill="#dc2626">${_transferLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Ventas</span> · día del mes</div>`;
+  return `<div style="margin:12px 0 7px"><div style="font-size:12px;color:#64748b;margin-bottom:5px">Movimiento diario: las barras verdes suman, las rojas restan y la línea muestra el inventario teórico al cierre.</div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Movimiento diario de inventario teórico" style="display:block;width:100%;height:210px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc"><line x1="${left}" y1="${baseline.toFixed(1)}" x2="${width - right}" y2="${baseline.toFixed(1)}" stroke="#94a3b8"/><text x="4" y="${(top + 8).toFixed(1)}" font-size="10" fill="#64748b">${_transferLiters(high)}</text><text x="4" y="${(baseline - 4).toFixed(1)}" font-size="10" fill="#64748b">0</text><text x="4" y="${(height - bottom).toFixed(1)}" font-size="10" fill="#dc2626">${_transferLiters(low)}</text>${bars}<polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg></div><div style="font-size:12px;color:#64748b"><span style="color:#2563eb">━ Inventario teórico</span> &nbsp; <span style="color:#10b981">■ Recibidos</span> &nbsp; <span style="color:#ef4444">■ Salidas (ventas + traspasos + autoconsumo)</span> · día del mes</div>`;
 }
 
 function _transferPhysicalTable(days, stationCapacity = 0) {
@@ -302,6 +302,45 @@ function _transferPhysicalTable(days, stationCapacity = 0) {
   return `<div style="font-size:12px;color:#64748b;margin:10px 0 7px">Lecturas y litros capturados por la asistente para cada traspaso.</div><div style="overflow:auto"><table style="width:100%;min-width:1080px;font-size:12px"><thead><tr><th>Fecha</th><th>Antes</th><th>Después</th><th>Litros reportados por el chofer</th><th>Litros facturados (CFDI)</th><th>Diferencia chofer vs. CFDI</th><th>Capacidad del tanque</th><th>Inventario teórico</th><th>Nivel teórico</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+function _transferDailyTable(days, facilityId) {
+  if (!(days || []).length) return '';
+  const rows = days.map(day => {
+    const physical = day.lectura_fisica;
+    const adjustment = day.ajuste_fisico || null;
+    const diff = day.diferencia_fisica;
+    const physicalCell = physical == null ? '<span style="color:#64748b">Sin lectura</span>' : _transferLiters(physical);
+    const diffCell = diff == null ? '—' : `<b style="color:${Math.abs(diff) > .01 ? '#991b1b' : '#166534'}">${diff > 0 ? '+' : ''}${_transferLiters(diff)}</b>`;
+    let action = '<span style="color:#64748b">No requiere decisión</span>';
+    if (physical != null) {
+      const state = adjustment?.status === 'accepted' ? '<b style="color:#166534">Ajuste aceptado</b>' : adjustment?.status === 'rejected' ? '<b style="color:#92400e">No aplicado</b>' : '<b style="color:#475569">Pendiente</b>';
+      action = `${state}<div style="display:flex;gap:5px;margin-top:4px"><button type="button" class="btn-save" style="padding:.25rem .45rem;font-size:11px;background:#166534" onclick="saveInventoryPhysicalDecision(${Number(facilityId)},'${escapeHtml(day.fecha)}','accepted')">Aceptar ajuste</button><button type="button" class="btn-save" style="padding:.25rem .45rem;font-size:11px;background:#92400e" onclick="saveInventoryPhysicalDecision(${Number(facilityId)},'${escapeHtml(day.fecha)}','rejected')">No aplicar</button></div>`;
+    }
+    return `<tr><td>${escapeHtml(day.fecha)}</td><td>${_transferLiters(day.inventario_inicio)}</td><td>${_transferLiters(day.recepciones)}</td><td>${_transferLiters(day.traspasos_recibidos)}</td><td>${_transferLiters(day.ventas)}</td><td>${_transferLiters(day.traspasos_enviados)}</td><td>${_transferLiters(day.autoconsumo)}</td><td>${_transferLiters(day.inventario_teorico)}</td><td>${physicalCell}</td><td>${diffCell}</td><td><b>${_transferLiters(day.inventario_final)}</b></td><td>${action}</td></tr>`;
+  }).join('');
+  return `<details open style="margin-top:12px"><summary style="cursor:pointer;font-weight:800;color:#475569">Desglose diario y comparación física</summary><div style="font-size:11px;color:#64748b;margin:6px 0">Aceptar usa la lectura física como cierre del día y recalcula automáticamente los días posteriores. No aplicar conserva el teórico. Ninguna opción bloquea facturación.</div><div style="overflow:auto"><table style="width:100%;min-width:1450px;font-size:11px"><thead><tr><th>Fecha</th><th>Apertura</th><th>Recepciones</th><th>Trasp. recibidos</th><th>Ventas</th><th>Trasp. enviados</th><th>Autoconsumo</th><th>Cierre teórico</th><th>Última lectura física</th><th>Diferencia</th><th>Cierre aplicado</th><th>Administración</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+
+async function saveInventoryPhysicalDecision(facilityId, dayKey, status) {
+  const station = (transferAnalysisData?.stations || []).find(item => Number(item.facility?.id) === Number(facilityId));
+  const day = (station?.ledger?.days || []).find(item => item.fecha === dayKey);
+  if (!day || day.lectura_fisica == null) return alert('No existe una lectura física disponible para ese día.');
+  const reason = prompt(status === 'accepted' ? 'Motivo para aceptar el ajuste físico:' : 'Motivo para conservar el inventario teórico:');
+  if (!reason || reason.trim().length < 3) return;
+  try {
+    const response = await fetch('/api/history/inventory-adjustments', {
+      method: 'POST', headers: {'Content-Type':'application/json', ...authHeader()},
+      body: JSON.stringify({
+        facility_id: Number(facilityId), fecha: dayKey,
+        inventario_teorico: Number(day.inventario_teorico), inventario_fisico: Number(day.lectura_fisica),
+        status, motivo: reason.trim(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || 'No fue posible guardar la decisión.');
+    document.getElementById('btnLoadTransferAnalysis')?.click();
+  } catch (error) { alert(error.message || 'No fue posible guardar la decisión.'); }
+}
+
 function renderTransferAnalysis(data) {
   const host = document.getElementById('transferAnalysisResults');
   if (!host) return;
@@ -316,8 +355,8 @@ function renderTransferAnalysis(data) {
     const tone = negative || overCapacity ? '#991b1b' : '#166534';
     const message = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
     const level = capacity > 0 ? `${(inventory / capacity * 100).toLocaleString('es-MX', {maximumFractionDigits: 1})}%` : '—';
-    const content = transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days, ledger.capacity) : _transferChart(ledger.days);
-    return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${tone};border-radius:8px;padding:14px;margin-bottom:10px;background:#fff"><b>${escapeHtml(facility.nombre || 'Instalación')}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small style="color:#64748b">Inventario teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${_transferLiters(inventory)}</b></div><div><small style="color:#64748b">Nivel teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${level}</b></div><div><small style="color:#64748b">Capacidad</small><br><b>${_transferLiters(capacity)}</b></div><div><small style="color:#64748b">Puedes enviar</small><br><b>${_transferLiters(ledger.available_to_transfer)}</b></div></div><div style="margin-top:8px;color:#64748b;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${escapeHtml(message)}</div>${content}</div>`;
+    const content = (transferAnalysisView === 'fisico' ? _transferPhysicalTable(ledger.days, ledger.capacity) : _transferChart(ledger.days)) + _transferDailyTable(ledger.days, facility.id);
+    return `<div style="border:1px solid #e5e7eb;border-left:4px solid ${tone};border-radius:8px;padding:14px;margin-bottom:10px;background:#fff"><b>${escapeHtml(facility.nombre || 'Instalación')}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small style="color:#64748b">Inventario teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${_transferLiters(inventory)}</b></div><div><small style="color:#64748b">Nivel teórico</small><br><b style="${negative ? 'color:#dc2626' : ''}">${level}</b></div><div><small style="color:#64748b">Capacidad</small><br><b>${_transferLiters(capacity)}</b></div><div><small style="color:#64748b">Puedes recibir</small><br><b>${_transferLiters(ledger.available_to_transfer)}</b></div></div><div style="margin-top:8px;color:#64748b;font-size:12px">Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${escapeHtml(message)}</div>${content}</div>`;
   }).join('');
 }
 
@@ -1751,6 +1790,147 @@ async function downloadHistZIP() {
     }
   }
 }
+
+function setSatReportTab(tab) {
+  const daily = tab === 'daily';
+  const monthlyPanel = document.getElementById('histMonthlyPanel');
+  const dailyPanel = document.getElementById('histDailyPanel');
+  const monthlyBtn = document.getElementById('satReportTabMonthly');
+  const dailyBtn = document.getElementById('satReportTabDaily');
+  if (monthlyPanel) monthlyPanel.style.display = daily ? 'none' : '';
+  if (dailyPanel) dailyPanel.style.display = daily ? '' : 'none';
+  [monthlyBtn, dailyBtn].forEach(btn => {
+    if (!btn) return;
+    btn.classList.remove('btn-save');
+    btn.style.background = '#fff';
+    btn.style.color = '#475569';
+    btn.style.border = '1px solid #cbd5e1';
+  });
+  const active = daily ? dailyBtn : monthlyBtn;
+  if (active) {
+    active.classList.add('btn-save');
+    active.style.background = '#7A1E2C';
+    active.style.color = '#fff';
+    active.style.border = '1px solid #7A1E2C';
+  }
+  if (daily) syncDailySatFacilities();
+}
+
+function syncDailySatFacilities() {
+  const select = document.getElementById('dailySatFacility');
+  if (!select) return;
+  const selected = select.value || document.getElementById('histFacility')?.value || '';
+  select.innerHTML = '<option value="">Selecciona planta...</option>';
+  (_facilities || []).forEach(facility => {
+    const option = document.createElement('option');
+    option.value = facility.id;
+    option.textContent = `${facility.nombre || facility.clave_instalacion || 'Instalación'}${facility.clave_instalacion ? ` [${facility.clave_instalacion}]` : ''}`;
+    select.appendChild(option);
+  });
+  if ([...select.options].some(option => String(option.value) === String(selected))) select.value = selected;
+  const dateInput = document.getElementById('dailySatDate');
+  if (dateInput && !dateInput.value) {
+    const now = new Date();
+    dateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+}
+
+function dailySatRequest() {
+  const facilityId = document.getElementById('dailySatFacility')?.value || '';
+  const fecha = document.getElementById('dailySatDate')?.value || '';
+  if (!facilityId || !fecha) throw new Error('Selecciona una instalación y una fecha efectiva.');
+  return { facilityId, fecha, query: `facility_id=${encodeURIComponent(facilityId)}&fecha=${encodeURIComponent(fecha)}` };
+}
+
+function showDailySatStatus(message, ok) {
+  const el = document.getElementById('dailySatStatus');
+  if (!el) return;
+  el.style.display = '';
+  el.style.background = ok ? '#f0fdf4' : '#fef2f2';
+  el.style.border = `1px solid ${ok ? '#86efac' : '#fecaca'}`;
+  el.style.color = ok ? '#166534' : '#991b1b';
+  el.innerHTML = message;
+}
+
+async function loadDailySatReport() {
+  const btn = document.getElementById('btnLoadDailySat');
+  const jsonBtn = document.getElementById('btnDownloadDailyJson');
+  const zipBtn = document.getElementById('btnDownloadDailyZip');
+  const preview = document.getElementById('dailySatPreview');
+  if (jsonBtn) jsonBtn.style.display = 'none';
+  if (zipBtn) zipBtn.style.display = 'none';
+  try {
+    const { query } = dailySatRequest();
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:.35rem"></i>Calculando...'; }
+    const response = await fetch(`/api/history/daily-report?${query}`, { headers: authHeader() });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = data?.detail;
+      throw new Error(typeof detail === 'string' ? detail : (detail?.message || 'No fue posible generar el reporte diario.'));
+    }
+    const day = data.summary || {};
+    const errors = data.errors || [];
+    const metrics = [
+      ['Apertura', day.inventario_inicio],
+      ['Recepciones', day.recepciones],
+      ['Trasp. recibidos', day.traspasos_recibidos],
+      ['Ventas', day.ventas],
+      ['Trasp. enviados', day.traspasos_enviados],
+      ['Autoconsumo', day.autoconsumo],
+      ['Cierre', day.inventario_final],
+    ];
+    const summary = document.getElementById('dailySatSummary');
+    if (summary) {
+      summary.style.display = 'grid';
+      summary.style.gridTemplateColumns = 'repeat(auto-fit,minmax(130px,1fr))';
+      summary.style.gap = '.5rem';
+      summary.style.margin = '.8rem 0';
+      summary.innerHTML = metrics.map(([label, value]) => `<div class="hist-total-box"><div class="label">${label}</div><div class="value" style="font-size:.9rem">${Number(value || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })} L</div></div>`).join('');
+    }
+    if (preview) { preview.style.display = ''; preview.textContent = JSON.stringify(data.report, null, 2); }
+    if (errors.length) {
+      showDailySatStatus(`<strong>No se puede descargar todavía:</strong><br>${errors.map(error => `• ${escapeHtml(error)}`).join('<br>')}`, false);
+    } else {
+      showDailySatStatus('Reporte diario listo. La suma apertura + recepciones − entregas coincide con el cierre mostrado.', true);
+      if (jsonBtn) jsonBtn.style.display = '';
+      if (zipBtn) zipBtn.style.display = '';
+    }
+  } catch (error) {
+    if (preview) preview.style.display = 'none';
+    showDailySatStatus(escapeHtml(error.message || 'Error al generar el reporte diario.'), false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-magnifying-glass" style="margin-right:.35rem"></i>Consultar día'; }
+  }
+}
+
+async function downloadDailySat(fmt) {
+  try {
+    const { query, fecha } = dailySatRequest();
+    const response = await fetch(`/api/history/daily-report/download?${query}&fmt=${fmt}`, { headers: authHeader() });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const detail = data?.detail;
+      const errors = detail?.errors || [];
+      throw new Error(errors.join(' · ') || detail?.message || detail || 'No fue posible descargar el reporte diario.');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const disposition = response.headers.get('content-disposition') || '';
+    link.download = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `reporte_diario_${fecha}.${fmt}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showDailySatStatus(escapeHtml(error.message || 'Error al descargar.'), false);
+  }
+}
+
+document.getElementById('satReportTabMonthly')?.addEventListener('click', () => setSatReportTab('monthly'));
+document.getElementById('satReportTabDaily')?.addEventListener('click', () => setSatReportTab('daily'));
+document.getElementById('btnLoadDailySat')?.addEventListener('click', loadDailySatReport);
+document.getElementById('btnDownloadDailyJson')?.addEventListener('click', () => downloadDailySat('json'));
+document.getElementById('btnDownloadDailyZip')?.addEventListener('click', () => downloadDailySat('zip'));
 
 // ── Modal de confirmación genérico ────────────────────────────────────────
 let _confirmCallback = null;
