@@ -22,6 +22,7 @@
 
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from uuid import uuid4
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -160,9 +161,11 @@ async def registrar_autoconsumo(
     if volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
     try:
-        fecha_dt = datetime.strptime(payload.fecha, "%Y-%m-%d")
+        fecha_dt = datetime.fromisoformat(str(payload.fecha).replace("Z", "+00:00"))
     except ValueError:
-        raise HTTPException(400, "La fecha debe ser real y usar formato YYYY-MM-DD.")
+        raise HTTPException(400, "La fecha y hora efectiva del movimiento no es válida.")
+    if fecha_dt.tzinfo is None:
+        fecha_dt = fecha_dt.replace(tzinfo=ZoneInfo("America/Monterrey"))
     if payload.periodo != fecha_dt.strftime("%Y-%m"):
         raise HTTPException(400, "El periodo debe coincidir con el mes de la fecha.")
     if payload.tipo_movimiento not in TIPO_MOVIMIENTO_VALIDOS:
@@ -186,7 +189,8 @@ async def registrar_autoconsumo(
             "facility_id":        payload.facility_id,
             "periodo":            payload.periodo,
             "tipo":               "salida",
-            "fecha":              payload.fecha,
+            "fecha":              fecha_dt.strftime("%Y-%m-%d"),
+            "fecha_operacion":    fecha_dt.isoformat(),
             "volumen_litros":     round(volumen_litros, 4),
             "uuid":               uuid_sintetico,
             "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),
@@ -217,7 +221,8 @@ async def registrar_autoconsumo(
         "volumen_litros":  round(volumen_litros, 4),
         "tipo_movimiento": payload.tipo_movimiento,
         "periodo":         payload.periodo,
-        "fecha":           payload.fecha,
+        "fecha":           fecha_dt.strftime("%Y-%m-%d"),
+        "fecha_operacion": fecha_dt.isoformat(),
         "tipo_evento_sat": TIPO_EVENTO_AUTOCONSUMO,   # 4 (entrega sin CFDI)
         "descripcion_sat": DESC_AUTOCONSUMO,
         "record_id":       saved_record.get("id"),
@@ -257,7 +262,7 @@ async def listar_autoconsumos(
         if facility_id is not None:
             q = q.eq("facility_id", facility_id)
         q = q.eq("perfil_id", perfil_id)
-        rows = q.order("fecha", desc=True).execute().data or []
+        rows = q.order("fecha_operacion", desc=True).order("fecha", desc=True).execute().data or []
         return JSONResponse(content={"autoconsumos": rows, "total": len(rows)})
     except Exception as e:
         logger.error("listar_autoconsumos: %s", e)

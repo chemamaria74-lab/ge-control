@@ -5,11 +5,14 @@
 import os
 import json
 import logging
+import io
+import zipfile
 import xml.etree.ElementTree as ET
+from datetime import date, datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 
 from services.database import (
     get_records, get_reports, get_available_periods, get_period_totals, get_facilities,
@@ -24,6 +27,7 @@ from services.sat_transformer import (
     sat_dict_to_xml,
 )
 from services.gas_lp_inventory_control import build_station_ledger
+from services.sat_daily_transformer import build_sat_daily_report, daily_filename
 from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
 from routes.facilities import validate_sat_installation_key
 from routes.settings import _load as load_settings
@@ -35,6 +39,15 @@ router = APIRouter()
 
 class InitialInventoryPayload(BaseModel):
     inventory_liters: float = Field(ge=0)
+
+
+class InventoryAdjustmentPayload(BaseModel):
+    facility_id: int = Field(gt=0)
+    fecha: str = Field(min_length=10, max_length=10)
+    inventario_teorico: float
+    inventario_fisico: float = Field(ge=0)
+    status: str
+    motivo: str = Field(min_length=3, max_length=500)
 
 
 class DeliveryOriginPayload(BaseModel):
@@ -615,6 +628,9 @@ async def inventory_control(
     from routes.internal_users_mod.core import (
         GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
         _gas_lp_company_facturas_rows,
+        _gas_lp_inventory_adjustments,
+        _gas_lp_inventory_movements,
+        _gas_lp_resolve_initial_inventory,
     )
     admin = get_supabase_admin()
     profile_rows = (
@@ -635,19 +651,34 @@ async def inventory_control(
         select=GAS_LP_FACTURAS_LIST_SELECT, company_fallback=True,
         visibility_log=False,
     )
+    movements = _gas_lp_inventory_movements(admin, inventory_user, periodo)
+    adjustments = _gas_lp_inventory_adjustments(admin, inventory_user, periodo)
     stations = []
     for facility in facilities:
         station_id = _safe_int(facility.get("id"))
         if facility_id is not None and station_id != facility_id:
             continue
-        initial = 0.0
-        try:
-            reports = get_reports(data_user_id, periodo, facility_id=station_id, perfil_id=perfil_id)
-            if reports:
-                initial = float(reports[0].get("inventario_inicial") or 0)
-        except Exception:
-            pass
-        ledger = build_station_ledger(facility=facility, invoices=invoices, initial_inventory=initial)
+        initial_state = _gas_lp_resolve_initial_inventory(inventory_user, periodo, station_id)
+        if initial_state.get("pending"):
+            stations.append({
+                "facility": facility,
+                "ledger": {
+                    "facility_id": station_id,
+                    "current_inventory": None,
+                    "capacity": float(facility.get("capacidad_tanque") or facility.get("cap_total_tanque") or 0),
+                    "available_to_transfer": None,
+                    "initial_pending": True,
+                    "initial_source": initial_state.get("source"),
+                    "alerts": [{
+                        "level": "warning",
+                        "message": "Inventario inicial pendiente: captura la apertura del mes o cierra el mes anterior.",
+                    }],
+                    "days": [],
+                },
+            })
+            continue
+        initial = float(initial_state["value"])
+        ledger = build_station_ledger(facility=facility, invoices=invoices, movements=movements, adjustments=adjustments, initial_inventory=initial)
         stations.append({
             "facility": facility,
             "ledger": {
@@ -656,10 +687,198 @@ async def inventory_control(
                 "capacity": ledger.get("capacity") or 0,
                 "available_to_transfer": ledger.get("available_to_transfer") or 0,
                 "alerts": ledger.get("alerts") or [],
+                "initial_pending": False,
+                "initial_source": initial_state.get("source"),
                 "days": ledger.get("days") or [],
             },
         })
     return JSONResponse(content={"periodo": periodo, "stations": stations})
+
+
+@router.post("/history/inventory-adjustments")
+async def save_inventory_adjustment(
+    payload: InventoryAdjustmentPayload,
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    """Acepta o rechaza en Administración una comparación física diaria."""
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    if payload.status not in {"accepted", "rejected"}:
+        raise HTTPException(400, "El estado debe ser accepted o rejected.")
+    try:
+        datetime.strptime(payload.fecha, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "La fecha de conciliación no es válida.")
+    facilities = get_facilities(data_user_id, "gas_lp", perfil_id=perfil_id)
+    if not any(int(item.get("id") or 0) == payload.facility_id for item in facilities):
+        raise HTTPException(404, "La instalación no pertenece a la empresa seleccionada.")
+    admin = get_supabase_admin()
+    profile_rows = admin.table("perfiles_empresa").select("tenant_id").eq("id", perfil_id).limit(1).execute().data or []
+    difference = round(float(payload.inventario_fisico) - float(payload.inventario_teorico), 4)
+    row = {
+        "user_id": data_user_id,
+        "tenant_id": profile_rows[0].get("tenant_id") if profile_rows else None,
+        "perfil_id": perfil_id,
+        "facility_id": payload.facility_id,
+        "fecha": payload.fecha,
+        "inventario_teorico": round(float(payload.inventario_teorico), 4),
+        "inventario_fisico": round(float(payload.inventario_fisico), 4),
+        "diferencia_litros": difference,
+        "motivo": payload.motivo.strip(),
+        "status": payload.status,
+        "approved_by": uid,
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    saved = admin.table("gas_lp_inventory_adjustments").upsert(
+        row, on_conflict="user_id,perfil_id,facility_id,fecha"
+    ).execute().data or [row]
+    return JSONResponse(content={"ok": True, "adjustment": saved[0]})
+
+
+def _daily_sat_context(uid: str, token: str, perfil_id: int, facility_id: int, fecha: str) -> dict:
+    """Obtiene el mismo libro cronológico y configuración usados por Inventario."""
+    try:
+        report_date = datetime.strptime(fecha, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "La fecha del reporte diario no es válida.")
+    periodo = report_date.strftime("%Y-%m")
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    data_user_id = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    facility = get_facility(facility_id, data_user_id, perfil_id=perfil_id)
+    if not facility:
+        raise HTTPException(404, "La instalación no pertenece a la empresa seleccionada.")
+
+    from routes.internal_users_mod.core import (
+        GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
+        _gas_lp_company_facturas_rows,
+        _gas_lp_inventory_adjustments,
+        _gas_lp_inventory_movements,
+        _gas_lp_resolve_initial_inventory,
+    )
+    admin = get_supabase_admin()
+    profiles = admin.table("perfiles_empresa").select("id,user_id,tenant_id,nombre,rfc").eq("id", perfil_id).limit(1).execute().data or []
+    if not profiles:
+        raise HTTPException(404, "La empresa seleccionada no está disponible.")
+    profile = profiles[0]
+    inventory_user = {
+        "id": uid,
+        "owner_user_id": data_user_id,
+        "tenant_id": profile.get("tenant_id"),
+        "perfil_id": perfil_id,
+    }
+    initial_state = _gas_lp_resolve_initial_inventory(inventory_user, periodo, facility_id)
+    if initial_state.get("pending"):
+        raise HTTPException(
+            409,
+            "Inventario inicial pendiente: captura la apertura del mes o cierra el mes anterior antes de generar el diario.",
+        )
+    invoices = _gas_lp_company_facturas_rows(
+        admin, inventory_user, profile, month=periodo,
+        limit=GAS_LP_LIST_LIMIT_MAX, include_carta_porte=False,
+        select=GAS_LP_FACTURAS_LIST_SELECT, company_fallback=True,
+        visibility_log=False,
+    )
+    movements = _gas_lp_inventory_movements(admin, inventory_user, periodo)
+    adjustments = _gas_lp_inventory_adjustments(admin, inventory_user, periodo)
+    ledger = build_station_ledger(
+        facility=facility,
+        invoices=invoices,
+        movements=movements,
+        adjustments=adjustments,
+        initial_inventory=float(initial_state["value"]),
+    )
+    matching = next((day for day in ledger.get("days") or [] if day.get("fecha") == fecha), None)
+    if matching is None:
+        opening = float(initial_state["value"])
+        for prior in ledger.get("days") or []:
+            if str(prior.get("fecha") or "") >= fecha:
+                break
+            opening = float(prior.get("inventario_final") or opening)
+        matching = {
+            "fecha": fecha,
+            "inventario_inicio": opening,
+            "inventario_teorico": opening,
+            "inventario_final": opening,
+            "recepciones": 0,
+            "traspasos_recibidos": 0,
+            "ventas": 0,
+            "traspasos_enviados": 0,
+            "autoconsumo": 0,
+            "movimientos": [],
+        }
+    settings = load_settings(data_user_id, perfil_id)
+    settings, _ = _apply_facility_settings(settings, data_user_id, perfil_id, facility_id)
+    settings["ClaveInstalacion"] = validate_sat_installation_key(
+        str(settings.get("ModalidadPermiso") or "PER40"),
+        settings.get("ClaveInstalacion", ""),
+    )
+    report, errors = build_sat_daily_report(settings, facility, matching, report_date)
+    return {
+        "fecha": fecha,
+        "facility": facility,
+        "day": matching,
+        "report": report,
+        "errors": errors,
+        "settings": settings,
+    }
+
+
+@router.get("/history/daily-report")
+async def preview_daily_report(
+    fecha: str = Query(...),
+    facility_id: int = Query(..., gt=0),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    context = _daily_sat_context(uid, token, perfil_id, facility_id, fecha)
+    return JSONResponse(content={
+        "ok": not context["errors"],
+        "fecha": context["fecha"],
+        "facility_id": facility_id,
+        "facility_name": context["facility"].get("nombre") or "",
+        "errors": context["errors"],
+        "summary": context["day"],
+        "report": context["report"],
+    })
+
+
+@router.get("/history/daily-report/download")
+async def download_daily_report(
+    fecha: str = Query(...),
+    facility_id: int = Query(..., gt=0),
+    fmt: str = Query(default="json"),
+    authorization: str = Header(default=""),
+    x_perfil_id: str = Header(default=""),
+):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    context = _daily_sat_context(uid, token, perfil_id, facility_id, fecha)
+    if context["errors"]:
+        raise HTTPException(409, {"message": "El reporte diario tiene errores de configuración.", "errors": context["errors"]})
+    report_date = datetime.strptime(fecha, "%Y-%m-%d").date()
+    raw = json.dumps(context["report"], ensure_ascii=False, indent=2).encode("utf-8")
+    base = daily_filename(context["settings"], report_date, "JSON")
+    if fmt.lower() == "zip":
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(f"{base}.json", raw)
+        return Response(
+            content=buffer.getvalue(), media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{base}.zip"'},
+        )
+    return Response(
+        content=raw, media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{base}.json"'},
+    )
 
 
 @router.get("/history/periods")

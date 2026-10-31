@@ -31,6 +31,8 @@ from routes.internal_users_mod.core import (
     GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
     _gas_lp_admin_facilities, _gas_lp_cfdi_timezone,
     _gas_lp_company_facturas_rows,
+    _gas_lp_inventory_adjustments,
+    _gas_lp_inventory_movements,
 )
 from services.flotilla_portal_auth import (
     FlotillaPortalAuthError,
@@ -307,6 +309,8 @@ def manager_inventory(
         include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
         company_fallback=True, visibility_log=False,
     )
+    movements = _gas_lp_inventory_movements(sb, user, month)
+    adjustments = _gas_lp_inventory_adjustments(sb, user, month)
     stations = []
     for facility in facilities:
         initial = 0.0
@@ -316,7 +320,7 @@ def manager_inventory(
                 initial = float(reports[0].get("inventario_inicial") or 0)
         except Exception:
             pass
-        ledger = build_station_ledger(facility=facility, invoices=rows, initial_inventory=initial)
+        ledger = build_station_ledger(facility=facility, invoices=rows, movements=movements, adjustments=adjustments, initial_inventory=initial)
         stations.append({
             "id": facility.get("id"), "name": facility.get("nombre") or "Estación",
             "inventory": ledger["current_inventory"], "capacity": ledger["capacity"],
