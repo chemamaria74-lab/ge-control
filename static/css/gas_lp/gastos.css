@@ -112,7 +112,6 @@ th,td{font-size:14px;padding:10px 11px}th{font-size:11px}
 .paid-invoice-origin strong,.paid-invoice-origin small{display:block}.paid-invoice-origin small{margin-top:3px;color:var(--muted)}
 .payment-email-status{display:inline-flex;align-items:center;gap:5px;width:max-content;margin-top:2px;color:#9d2031;font-size:10px;font-weight:800}.payment-email-status.sent{color:#12664a}
 .analytics-period-summary{margin:-2px 0 12px;padding:10px 14px;border-left:4px solid var(--wine);border-radius:8px;background:#fff8f3;color:var(--muted)}.analytics-period-summary strong{color:var(--text)}
-
 .panel[data-content="bankComparison"] .card{padding:24px;min-width:0}
 .panel[data-content="bankComparison"] .card>p{max-width:850px;line-height:1.5;margin:8px 0 24px}
 #compareBankPayments{display:grid;grid-template-columns:190px minmax(240px,1fr) auto;gap:18px;align-items:end}
