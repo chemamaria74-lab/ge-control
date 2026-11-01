@@ -1089,7 +1089,14 @@ async function saveHistInventory() {
       body: JSON.stringify({ inventory_liters: liters }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || 'No fue posible guardar el inventario.');
+    if (!res.ok) {
+      const detail = data.detail;
+      throw new Error(
+        typeof detail === 'string'
+          ? detail
+          : (detail && detail.message) || 'No fue posible guardar el inventario.'
+      );
+    }
     closeHistInventoryModal();
     await loadHistorial();
     setHistCloseInfo(`Inventario inicial actualizado: ${liters.toLocaleString('es-MX')} L. Se incluirá en el JSON del mes.`, true);
@@ -1546,7 +1553,7 @@ async function loadHistorial() {
     if (!_histMonthClosed && invIni != null) {
       // Un borrador siempre refleja los movimientos vigentes, incluidos
       // autoconsumos y traspasos agregados después de generar el último archivo.
-      invFin = Math.max(0, invIni + liveRecepciones - liveEntregas);
+      invFin = invIni + liveRecepciones - liveEntregas;
     }
     if (invIni == null && hasReport && invFin != null) {
       const calc = invFin + (rep.total_entregas || 0) - (rep.total_recepciones || 0);
