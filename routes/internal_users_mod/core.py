@@ -2849,10 +2849,34 @@ def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> d
 
 
 def _gas_lp_inventory_movements(sb, user: dict, month: str) -> list[dict]:
-    """Carga salidas operativas sin CFDI que deben afectar el libro teórico."""
+    """Carga el libro mayor canónico; conserva fallback mientras despliega la migración."""
     owner_user_id = user.get("owner_user_id") or user.get("id")
     perfil_id = _safe_int_id(user.get("perfil_id"))
-    if not owner_user_id or not perfil_id:
+    if not owner_user_id or not perfil_id: return []
+    try:
+        rows = (
+            sb.table("gas_lp_movement_ledger_canonical")
+            .select("id,source_id,facility_id,effective_at,movement_type,direction,liters,metadata")
+            .eq("user_id", str(owner_user_id))
+            .eq("perfil_id", perfil_id)
+            .gte("effective_at", f"{month}-01T00:00:00-06:00")
+            .lt("effective_at", f"{_gas_lp_next_month(month)}-01T00:00:00-06:00")
+            .order("effective_at")
+            .execute().data or []
+        )
+        for row in rows: row["_canonical_ledger"] = True
+        return rows
+    except Exception as exc:
+        logger.warning("gas_lp_canonical_ledger_unavailable perfil=%s month=%s err=%s", perfil_id, month, exc)
+    try:
+        return (
+            sb.table("records")
+            .select("id,facility_id,fecha,fecha_operacion,periodo,tipo,volumen_litros,file_path,es_autoconsumo,created_at")
+            .eq("user_id", owner_user_id).eq("perfil_id", perfil_id).eq("periodo", month)
+            .execute().data or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_inventory_movements_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
         return []
 
 
@@ -2873,18 +2897,6 @@ def _gas_lp_inventory_adjustments(sb, user: dict, month: str) -> list[dict]:
         )
     except Exception as exc:
         logger.warning("gas_lp_inventory_adjustments_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
-        return []
-    try:
-        return (
-            sb.table("records")
-            .select("id,facility_id,fecha,fecha_operacion,periodo,tipo,volumen_litros,file_path,es_autoconsumo,created_at")
-            .eq("user_id", owner_user_id)
-            .eq("perfil_id", perfil_id)
-            .eq("periodo", month)
-            .execute().data or []
-        )
-    except Exception as exc:
-        logger.warning("gas_lp_inventory_movements_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
         return []
 
 
