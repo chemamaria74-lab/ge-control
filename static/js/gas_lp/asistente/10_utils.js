@@ -210,12 +210,13 @@ function switchCartaPorteTab(tab){
   }
 }
 function switchBillingTab(tab){
-  const active = ['facturar','facturas','complementos'].includes(tab) ? tab : 'facturar';
-  ['facturar','facturas','complementos'].forEach(name => {
+  const active = ['facturar','autoconsumo','facturas','complementos'].includes(tab) ? tab : 'facturar';
+  ['facturar','autoconsumo','facturas','complementos'].forEach(name => {
     document.getElementById(`billing-tab-${name}`)?.classList.toggle('active', name === active);
     document.getElementById(`billing-panel-${name}`)?.classList.toggle('active', name === active);
   });
   if(active === 'facturas') applyFacturasFilters();
+  if(active === 'autoconsumo' && typeof prepararAutoconsumo === 'function') prepararAutoconsumo();
   if(active === 'complementos') {
     if(!compFechaPago.value) compFechaPago.value = localDateTimeValue();
     renderComplementosPago();
