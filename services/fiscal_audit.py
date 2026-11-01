@@ -69,7 +69,9 @@ def record_pac_response(
         row = {
             "request_id": request_id,
             "provider": provider,
-            "response_payload": _safe_json(response_payload),
+            # El XML se conserva en su columna dedicada. Mantenerlo también
+            # dentro del JSON del PAC triplicaba cada CFDI sin aportar evidencia.
+            "response_payload": _compact_pac_response_payload(response_payload),
             "uuid_sat": uuid_sat or parsed["uuid_sat"],
             "xml_original": xml_original,
             "xml_timbrado": xml_timbrado or parsed["xml_timbrado"],
@@ -104,7 +106,7 @@ def version_xml(
         sb = get_supabase_admin()
         current = (
             sb.table("xml_versions")
-            .select("version")
+            .select("version,xml_hash")
             .eq("module", module)
             .eq("entity_type", entity_type)
             .eq("entity_id", str(entity_id))
@@ -115,6 +117,9 @@ def version_xml(
             .data
             or []
         )
+        xml_hash = hashlib.sha256(xml_content.encode("utf-8")).hexdigest()
+        if current and str(current[0].get("xml_hash") or "") == xml_hash:
+            return
         version = int(current[0].get("version") or 0) + 1 if current else 1
         sb.table("xml_versions").insert({
             "tenant_id": tenant_id,
@@ -127,12 +132,35 @@ def version_xml(
             "version": version,
             "xml_kind": xml_kind,
             "xml_content": xml_content,
-            "xml_hash": hashlib.sha256(xml_content.encode("utf-8")).hexdigest(),
+            "xml_hash": xml_hash,
             "source": source,
             "created_by": user_id or None,
         }).execute()
     except Exception as exc:
         logger.info("XML version audit skipped: %s", exc)
+
+
+_PAC_XML_KEYS = {"cfdi", "xml", "xml_original", "xml_timbrado", "xmlTimbrado"}
+
+
+def _compact_pac_response_payload(value: Any) -> Any:
+    """Retira XML duplicado del sobre PAC y conserva una huella verificable."""
+    if isinstance(value, dict):
+        compact = {}
+        for key, item in value.items():
+            if key in _PAC_XML_KEYS and isinstance(item, str) and item.lstrip().startswith("<"):
+                raw = item.encode("utf-8")
+                compact[key] = {
+                    "stored_in_dedicated_xml_column": True,
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "bytes": len(raw),
+                }
+            else:
+                compact[key] = _compact_pac_response_payload(item)
+        return compact
+    if isinstance(value, list):
+        return [_compact_pac_response_payload(item) for item in value]
+    return _safe_json(value)
 
 
 def _extract_sw_response(payload: Any) -> dict[str, str]:
