@@ -27,6 +27,7 @@ from services.sat_transformer import (
     sat_dict_to_xml,
 )
 from services.gas_lp_inventory_control import build_station_ledger
+from services.gas_lp_initial_inventory import resolve_initial_inventory
 from services.sat_daily_transformer import build_sat_daily_report, daily_filename
 from routes.auth import obtener_acceso_modulo, require_profile_access, resolve_profile_scope, verify_token
 from routes.facilities import validate_sat_installation_key
@@ -630,7 +631,6 @@ async def inventory_control(
         _gas_lp_company_facturas_rows,
         _gas_lp_inventory_adjustments,
         _gas_lp_inventory_movements,
-        _gas_lp_resolve_initial_inventory,
     )
     admin = get_supabase_admin()
     profile_rows = (
@@ -658,7 +658,7 @@ async def inventory_control(
         station_id = _safe_int(facility.get("id"))
         if facility_id is not None and station_id != facility_id:
             continue
-        initial_state = _gas_lp_resolve_initial_inventory(inventory_user, periodo, station_id)
+        initial_state = resolve_initial_inventory(inventory_user, periodo, station_id)
         if initial_state.get("pending"):
             stations.append({
                 "facility": facility,
@@ -758,7 +758,6 @@ def _daily_sat_context(uid: str, token: str, perfil_id: int, facility_id: int, f
         _gas_lp_company_facturas_rows,
         _gas_lp_inventory_adjustments,
         _gas_lp_inventory_movements,
-        _gas_lp_resolve_initial_inventory,
     )
     admin = get_supabase_admin()
     profiles = admin.table("perfiles_empresa").select("id,user_id,tenant_id,nombre,rfc").eq("id", perfil_id).limit(1).execute().data or []
@@ -771,7 +770,7 @@ def _daily_sat_context(uid: str, token: str, perfil_id: int, facility_id: int, f
         "tenant_id": profile.get("tenant_id"),
         "perfil_id": perfil_id,
     }
-    initial_state = _gas_lp_resolve_initial_inventory(inventory_user, periodo, facility_id)
+    initial_state = resolve_initial_inventory(inventory_user, periodo, facility_id)
     if initial_state.get("pending"):
         raise HTTPException(
             409,
