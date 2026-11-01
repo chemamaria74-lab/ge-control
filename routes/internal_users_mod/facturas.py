@@ -12,7 +12,7 @@ from services.carta_porte_pdf import (
     extraer_info_pdf as carta_porte_pdf_info,
     generar_pdf_carta_porte_desde_xml,
 )
-from services.gas_lp_inventory_control import build_station_ledger
+from services.gas_lp_inventory_control import build_station_ledger, station_capacity
 from services.gas_lp_initial_inventory import resolve_initial_inventory as _gas_lp_resolve_initial_inventory
 from services.database import get_reports
 
@@ -363,6 +363,12 @@ async def gas_lp_internal_station_inventory(token: str, mes: str | None = None, 
     ctx = _gas_lp_factura_access_context(token, perfil_id=perfil_id)
     user = ctx["user"]
     profile = _gas_lp_profile(user)
+    inventory_user = {
+        **user,
+        "owner_user_id": profile.get("user_id") or user.get("owner_user_id") or user.get("id"),
+        "perfil_id": profile.get("id") or user.get("perfil_id"),
+        "tenant_id": profile.get("tenant_id") or user.get("tenant_id"),
+    }
     month = str(mes or datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m"))[:7]
     if len(month) != 7 or month[4] != "-":
         raise HTTPException(400, "Mes inválido.")
@@ -379,7 +385,7 @@ async def gas_lp_internal_station_inventory(token: str, mes: str | None = None, 
     movements = _gas_lp_inventory_movements(sb, user, month)
     adjustments = _gas_lp_inventory_adjustments(sb, user, month)
     for facility in _gas_lp_admin_facilities(user):
-        initial_state = _gas_lp_resolve_initial_inventory(user, month, int(facility.get("id")))
+        initial_state = _gas_lp_resolve_initial_inventory(inventory_user, month, int(facility.get("id")))
         initial = initial_state["value"]
         if initial_state["pending"]:
             stations.append({
