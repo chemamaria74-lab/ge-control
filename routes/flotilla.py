@@ -26,7 +26,8 @@ from services.fleet_reports import (
 from services.fleet_management_exports import build_comparison_excel, build_comparison_pdf, build_zone_pdf
 from services.fleet_alerts import store_webhook_event
 from services.database import get_reports
-from services.gas_lp_inventory_control import build_station_ledger
+from services.gas_lp_inventory_control import build_station_ledger, station_capacity
+from services.gas_lp_initial_inventory import resolve_initial_inventory
 from routes.internal_users_mod.core import (
     GAS_LP_FACTURAS_LIST_SELECT, GAS_LP_LIST_LIMIT_MAX,
     _gas_lp_admin_facilities, _gas_lp_cfdi_timezone,
@@ -313,19 +314,23 @@ def manager_inventory(
     adjustments = _gas_lp_inventory_adjustments(sb, user, month)
     stations = []
     for facility in facilities:
-        initial = 0.0
-        try:
-            reports = get_reports(profile.get("user_id"), month, facility_id=facility.get("id"), perfil_id=profile.get("id"))
-            if reports:
-                initial = float(reports[0].get("inventario_inicial") or 0)
-        except Exception:
-            pass
+        initial_state = resolve_initial_inventory(user, month, int(facility.get("id")))
+        if initial_state.get("pending"):
+            stations.append({
+                "id": facility.get("id"), "name": facility.get("nombre") or "Estación",
+                "inventory": None, "capacity": float(station_capacity(facility)),
+                "available": None, "alerts": [], "days": [],
+                "initial_pending": True,
+            })
+            continue
+        initial = float(initial_state["value"])
         ledger = build_station_ledger(facility=facility, invoices=rows, movements=movements, adjustments=adjustments, initial_inventory=initial)
         stations.append({
             "id": facility.get("id"), "name": facility.get("nombre") or "Estación",
             "inventory": ledger["current_inventory"], "capacity": ledger["capacity"],
             "available": ledger["available_to_transfer"], "alerts": ledger["alerts"],
-            "days": ledger["days"],
+            "days": ledger["days"], "initial_pending": False,
+            "initial_inventory": initial, "initial_source": initial_state.get("source"),
         })
     return {"month": month, "group": group, "stations": stations}
 
