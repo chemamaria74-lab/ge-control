@@ -1500,7 +1500,6 @@ def _close_operator_trip_on_schedule(sb: Any, row: dict[str, Any]) -> None:
     metadata["finalizado_programado_source"] = "carta_porte_fecha_fin"
     payload = {
         "defaults_json": metadata,
-        "status": "finalizado",
         "operacion_status": "cerrado",
         "closed_at": closed_at,
         "updated_at": _now_iso(),
@@ -4764,6 +4763,11 @@ def _legacy_trip_patch_row(data: dict[str, Any]) -> dict[str, Any]:
             value = data[key]
             if isinstance(value, str):
                 value = value.strip()
+            # `status` es el estado fiscal/documental y está restringido por
+            # tr_viajes_status_check. Los cierres pertenecen al estado operativo.
+            if key == "estatus" and str(value).lower() in {"finalizado", "cerrado", "entregado"}:
+                row["operacion_status"] = "cerrado"
+                continue
             row[column] = value
     return row
 
@@ -7982,7 +7986,6 @@ async def transporte_v2_operator_dashboard_finalize(
     metadata["finalizado_administracion_por"] = uid
     update_payload = {
         "defaults_json": metadata,
-        "status": "finalizado",
         "operacion_status": "cerrado",
         "closed_at": finalized_at,
         "updated_at": finalized_at,
@@ -8858,7 +8861,6 @@ async def transporte_v2_operator_bitacora(payload: dict[str, Any], authorization
     if bitacora.get("estado") == "FINALIZADO":
         metadata["finalizado_operador_at"] = events[-1]["created_at"]
         update_payload.update({
-            "status": "finalizado",
             "operacion_status": "cerrado",
             "closed_at": events[-1]["created_at"],
         })
