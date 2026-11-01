@@ -13,6 +13,7 @@ from services.carta_porte_pdf import (
     generar_pdf_carta_porte_desde_xml,
 )
 from services.gas_lp_inventory_control import build_station_ledger
+from services.gas_lp_initial_inventory import resolve_initial_inventory as _gas_lp_resolve_initial_inventory
 from services.database import get_reports
 
 
