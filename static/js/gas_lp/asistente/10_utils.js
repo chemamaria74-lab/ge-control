@@ -272,7 +272,7 @@ function assistantStationChart(days){
 function assistantStationDailyTable(days){
   if(!(days || []).length) return '';
   const cell = value => assistantStationLiters(value);
-  return `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:800;color:#475569">Desglose diario</summary><div style="overflow:auto;margin-top:8px"><table style="width:100%;min-width:980px;font-size:12px"><thead><tr><th>Fecha</th><th>Apertura</th><th>Recepciones</th><th>Traspasos recibidos</th><th>Ventas</th><th>Traspasos enviados</th><th>Autoconsumo</th><th>Cierre</th></tr></thead><tbody>${days.map(day => `<tr><td>${esc(day.fecha)}</td><td>${cell(day.inventario_inicio)}</td><td>${cell(day.recepciones)}</td><td>${cell(day.traspasos_recibidos)}</td><td>${cell(day.ventas)}</td><td>${cell(day.traspasos_enviados)}</td><td>${cell(day.autoconsumo)}</td><td><b>${cell(day.inventario_final)}</b></td></tr>`).join('')}</tbody></table></div></details>`;
+  return `<details style="margin-top:10px" open><summary style="cursor:pointer;font-weight:800;color:#475569">Desglose diario</summary><div style="overflow:auto;margin-top:8px"><table style="width:100%;min-width:980px;font-size:12px"><thead><tr><th>Fecha</th><th>Apertura</th><th>Recepciones</th><th>Traspasos recibidos</th><th>Ventas</th><th>Traspasos enviados</th><th>Autoconsumo</th><th>Cierre</th></tr></thead><tbody>${days.map(day => `<tr><td>${esc(day.fecha)}</td><td>${cell(day.inventario_inicio)}</td><td>${cell(day.recepciones)}</td><td>${cell(day.traspasos_recibidos)}</td><td>${cell(day.ventas)}</td><td>${cell(day.traspasos_enviados)}</td><td>${cell(day.autoconsumo)}</td><td><b>${cell(day.inventario_final)}</b></td></tr>`).join('')}</tbody></table></div></details>`;
 }
 async function loadAssistantStationControl(options={}){
   const host = document.getElementById('assistantStationControl');
@@ -298,10 +298,8 @@ async function loadAssistantStationControl(options={}){
       const tone = negative || overCapacity ? '#991b1b' : '#166534';
       const msg = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
       const initialSource = s.inventario_inicial_fuente === 'previous_closed_report'
-        ? `cierre oficial de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
-        : s.inventario_inicial_fuente === 'previous_calculated_report'
-          ? `cierre teórico recalculado de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
-          : 'capturado para el mes';
+        ? `cierre de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
+        : 'capturado para el mes';
       const detail = assistantStationChart(s.dias) + assistantStationDailyTable(s.dias);
       return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes recibir</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Inventario inicial: <b>${assistantStationLiters(s.inventario_inicial)}</b> (${esc(initialSource)}). Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
     }).join('');

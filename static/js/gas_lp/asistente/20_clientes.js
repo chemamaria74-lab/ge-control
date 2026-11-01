@@ -506,9 +506,6 @@ async function loadFacilities(){
     if(!(CATALOGOS.instalaciones || []).length) CATALOGOS.instalaciones = FACILITIES;
     if(!FACILITIES.length) setStatus('facturaMsg','Primero crea una instalación en GE Control. Es obligatoria para control y operación.',false);
     renderDestinoFacilities();
-    // Autoconsumo puede abrirse mientras este catálogo aún está cargando.
-    // Sincronízalo aquí, cuando FACILITIES ya contiene los datos reales.
-    if(typeof prepararAutoconsumo === 'function') prepararAutoconsumo({loadRows:false});
     if(document.getElementById('panel-carta-porte')?.classList.contains('active')){
       if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
       else renderCartaPorteWizard();
@@ -517,7 +514,6 @@ async function loadFacilities(){
     FACILITIES = [];
     facilitySelect.innerHTML = '<option value="">No se pudieron cargar instalaciones</option>';
     renderDestinoFacilities();
-    if(typeof prepararAutoconsumo === 'function') prepararAutoconsumo({loadRows:false});
     throw e;
   }
 }

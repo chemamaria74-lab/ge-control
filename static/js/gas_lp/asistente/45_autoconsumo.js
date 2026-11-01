@@ -14,18 +14,19 @@ function autoconsumoFacilityName(id){
   return facility?.nombre || facility?.name || `Instalación ${id || '—'}`;
 }
 
-function prepararAutoconsumo(options={}){
+function prepararAutoconsumo(){
   const select = document.getElementById('autoconsumoFacility');
   if(!select) return;
-  const billingFacility = document.getElementById('facilitySelect')?.value;
-  const assigned = (FACILITIES || []).filter(item => item?.id);
   const previous = select.value;
-  select.innerHTML = '<option value="">Selecciona instalación</option>' + assigned.map(item => `<option value="${esc(item.id)}">${esc(item.nombre || item.name || `Instalación ${item.id}`)}</option>`).join('');
-  select.value = billingFacility || previous || (assigned.length === 1 ? assigned[0].id : '');
+  select.innerHTML = '<option value="">Selecciona instalación</option>' + (FACILITIES || []).map(item => {
+    const name = item.nombre || item.name || `Instalación ${item.id}`;
+    const key = item.clave_instalacion ? ` [${item.clave_instalacion}]` : '';
+    return `<option value="${esc(item.id)}">${esc(name)}${esc(key)}</option>`;
+  }).join('');
+  if(previous && [...select.options].some(option => option.value === previous)) select.value = previous;
   if(!autoconsumoFecha.value) autoconsumoFecha.value = localDateTimeValue();
-  autoconsumoUnidades.value = autoconsumoUnidades.value || '1';
   if(!autoconsumoMes.value) autoconsumoMes.value = todayKey().slice(0,7);
-  if(options.loadRows !== false) cargarAutoconsumos();
+  cargarAutoconsumos();
 }
 
 function limpiarAutoconsumo(){
@@ -40,7 +41,7 @@ async function guardarAutoconsumo(){
   const liters = Number(autoconsumoLitros.value || 0);
   const units = Number(autoconsumoUnidades.value || 0);
   const effectiveAt = String(autoconsumoFecha.value || '').trim();
-  if(!facilityId || liters <= 0 || units <= 0 || !effectiveAt){
+  if(!facilityId || liters <= 0 || !Number.isInteger(units) || units <= 0 || !effectiveAt){
     setStatus('autoconsumoMsg', 'Selecciona instalación y captura litros, camionetas y fecha/hora.', false);
     return;
   }
@@ -88,7 +89,7 @@ async function cargarAutoconsumos(){
     body.innerHTML = rows.map(row => {
       const effective = row.fecha_operacion || row.fecha || '—';
       const displayDate = String(effective).replace('T', ' ').slice(0,16);
-      const units = Number(row.unidades_autoconsumo || 1).toLocaleString('es-MX');
+      const units = row.unidades_autoconsumo == null ? '—' : Number(row.unidades_autoconsumo).toLocaleString('es-MX');
       return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
     }).join('') || '<tr><td colspan="5">Sin autoconsumos en este mes.</td></tr>';
   }catch(error){
