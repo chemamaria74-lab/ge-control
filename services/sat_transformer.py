@@ -293,7 +293,7 @@ def build_sat_report(
     mes:  Optional[int] = None,
     capacidad_tanque: Optional[float] = None,
     capacidad_margen_pct: float = 0.20,
-    aplicar_ajuste_capacidad: bool = True,
+    aplicar_ajuste_capacidad: bool = False,
     inventario_final_medido: Optional[float] = None,
     temperatura_medicion: float = 20.0,
     composicion_propano: Optional[float] = None,
@@ -433,13 +433,11 @@ def build_sat_report(
     margen_pct = max(0.0, float(capacidad_margen_pct or 0.0))
     cap_limit = round(capacidad_fisica * (1.0 + margen_pct), 2)
     cap_exceeded = vol_existencias_raw > cap_limit
-    cap_applied = bool(cap_exceeded and aplicar_ajuste_capacidad)
-    # En borrador se conserva el cálculo real para que autoconsumos y movimientos
-    # posteriores sigan actualizando el balance. El ajuste solo ocurre al cerrar.
-    vol_existencias = round(
-        min(vol_existencias_raw, cap_limit) if aplicar_ajuste_capacidad else vol_existencias_raw,
-        2,
-    )
+    # La capacidad es una validación, nunca una fuente de inventario. Recortar el
+    # saldo al tamaño del tanque fabrica una existencia que no proviene de ningún
+    # movimiento o medición. El cierre se bloquea arriba si este valor es imposible.
+    cap_applied = False
+    vol_existencias = round(vol_existencias_raw, 2)
 
     # ── Tolerancia dinámica por incertidumbre del medidor ─────────────────────
     _incert  = incertidumbre_medidor if (incertidumbre_medidor and 0 < incertidumbre_medidor < 0.1) else 0.005
@@ -605,23 +603,6 @@ def build_sat_report(
             "DescripcionEvento":  desc_ev,
         }); n += 1
 
-    # 7. Alarma si el inventario supera la capacidad física
-    if cap_applied:
-        variacion_cap = ((vol_existencias_raw - cap_limit) / cap_limit * 100) if cap_limit > 0 else 0
-        bitacora.append({
-            "NumeroRegistro":     n,
-            "FechaYHoraEvento":   fin_mes_iso,
-            "UsuarioResponsable": _usuario_resp,
-            "TipoEvento":         7,
-            "DescripcionEvento":  (
-                f"AJUSTE DE CAPACIDAD: inventario calculado {vol_existencias_raw:,.2f} L "
-                f"supera capacidad fisica del tanque {cap_limit:,.2f} L "
-                f"(variacion {variacion_cap:.4f}%). "
-                f"VolumenExistenciasMes ajustado a {vol_existencias:,.2f} L."
-            ),
-            "IdentificacionComponenteAlarma": f"Tanque {_clave_tanque}",
-        }); n += 1
-
     # ── VCM — Compensación Volumétrica a 20°C ────────────────────────────────
     vol_neto_rec   = round(total_rec        * factor_vcm, 2)
     vol_neto_ent   = round(total_ent        * factor_vcm, 2)
@@ -658,11 +639,7 @@ def build_sat_report(
                     f"Ajuste justificado incluido en el reporte mensual de controles volumétricos SAT."
                 ),
             }); n += 1
-            vol_existencias = round(
-                min(inventario_final_medido, cap_limit)
-                if aplicar_ajuste_capacidad else inventario_final_medido,
-                2,
-            )
+            vol_existencias = round(inventario_final_medido, 2)
 
     # 2. Cierre del periodo — CORRECCIÓN: ahora incluye UsuarioResponsable
     bitacora.append({
@@ -673,19 +650,23 @@ def build_sat_report(
         "DescripcionEvento":  TIPO_EVENTO_DESC[2],
     }); n += 1
 
-    # 6. Generación del reporte
+    total_autoconsumo = round(sum(
+        g["volumen_litros"] for g in ventas.values()
+        if str(g.get("uuid") or "").startswith("AUTO-")
+    ), 2)
+    total_entregas_cfdi = round(total_ent - total_autoconsumo, 2)
+
+    # 6. Generación del reporte. Sin marca comercial ni valores técnicos
+    # predeterminados: solo la conciliación que explica apertura y cierre.
     bitacora.append({
         "NumeroRegistro":     n,
         "FechaYHoraEvento":   now_cst,
         "UsuarioResponsable": _usuario_resp,
         "TipoEvento":         6,
         "DescripcionEvento":  (
-            f"Reporte mensual Z-Control v3.5. "
-            f"Rec: {cnt_rec}, Ent: {cnt_ent}, Exist: {vol_existencias:,.2f} L. "
-            f"Temp: {temp_base}°C, Presion: {pres_base} kPa. "
-            f"Gas LP: {compos_propano}% propano / {compos_butano}% butano "
-            f"{'real' if es_composicion_real else 'default'}. "
-            f"Coef: {coef_exp:.5f}. VCM: {factor_vcm:.6f}."
+            f"Generacion del reporte mensual. Apertura: {inventario_inicial_litros:,.2f} L. "
+            f"Recepciones: {total_rec:,.2f} L. Entregas CFDI: {total_entregas_cfdi:,.2f} L. "
+            f"Autoconsumo: {total_autoconsumo:,.2f} L. Cierre calculado: {vol_existencias:,.2f} L."
         ),
     })
 
