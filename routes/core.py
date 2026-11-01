@@ -28,7 +28,7 @@ from routes.auth import (
     verify_token as _auth_verify_token,
 )
 from routes.perfiles import _tenant_id_for_user as _perfiles_tenant_id_for_user
-from services.database import get_facilities, get_reports
+from services.database import get_facilities, get_reports, report_is_closed
 from services.email_delivery import send_gas_lp_invoice_email, send_gas_lp_payment_complement_email
 from services.fiscal_pdf import fiscal_pdf_info, generar_pdf_gas_lp_desde_xml
 from services.cfdi_cancellation import cancel_cfdi_universal
@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 _GAS_LP_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
 _GAS_LP_CP_RE = re.compile(r"^\d{5}$")
+GAS_LP_LIST_LIMIT_DEFAULT = 300
+GAS_LP_LIST_LIMIT_MAX = 1000
 _GAS_LP_REGIMENES_PERSONA_MORAL = {"601", "603", "610", "620", "622", "623", "624", "626"}
 _GAS_LP_REGIMENES_PERSONA_FISICA = {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
 _GAS_LP_RFC_PRUEBAS_SAT = {
@@ -63,11 +65,42 @@ GAS_LP_FACTURAS_LIST_SELECT = ",".join([
     "rfc_receptor",
     "uuid_sat",
     "fecha_timbrado",
+    "fecha_emision",
     "status",
     "tipo_comprobante",
     "volumen_litros",
     "importe",
     "pdf_url",
+    "rfc_emisor",
+    "empresa_rfc",
+    "empresa_nombre",
+    "metodo_pago",
+    "forma_pago",
+    "saldo_insoluto",
+    "total",
+    "subtotal",
+    "iva",
+    "descuento_total",
+    "tipo_operacion",
+    "is_transfer",
+    "cliente_id",
+    "cliente_nombre",
+    "receptor_nombre",
+    "origen_nombre",
+    "destino_nombre",
+    "serie",
+    "folio_usuario",
+    "tipo_descuento",
+    "descuento_confirmado",
+    "descuento_por_litro",
+    "precio_unitario",
+    "precio_unitario_original",
+    "litros_confirmados",
+    "clave_prod_serv",
+    "unidad",
+    "no_identificacion",
+    "created_from",
+    "generar_carta_porte",
     "metadata",
     "created_at",
     "updated_at",
@@ -103,6 +136,26 @@ GAS_LP_COMPLEMENTO_FACTURAS_LIST_SELECT = ",".join([
     "saldo_insoluto",
     "status",
     "created_at",
+])
+GAS_LP_COMPLEMENTOS_LIST_SELECT = ",".join([
+    "id",
+    "tenant_id",
+    "perfil_id",
+    "user_id",
+    "factura_id",
+    "uuid_sat",
+    "status",
+    "monto",
+    "fecha_pago",
+    "created_at",
+    "updated_at",
+    "email_enviado",
+    "email_destinatario",
+    "email_error",
+    "email_last_attempt_at",
+    "created_by_internal",
+    "created_by_internal_name",
+    "metadata",
 ])
 GAS_LP_CLIENTES_LIST_SELECT = ",".join([
     "id",
@@ -228,7 +281,11 @@ def get_supabase_for_user(token: str):
     return _supabase_get_supabase_for_user(token)
 
 
-ROLES = {"admin", "operador", "asistente_facturacion", "asistente_operativo", "conciliacion", "planta", "solo_lectura"}
+ROLES = {
+    "admin", "operador", "asistente_facturacion", "asistente_operativo",
+    "conciliacion", "planta", "solo_lectura",
+    "flotilla_gerente", "flotilla_direccion",
+}
 SECTIONS = {"transporte", "gas_lp"}
 MAX_FAILED_ATTEMPTS = 5
 LOCK_MINUTES = 15
@@ -251,7 +308,11 @@ class InternalUserCreate(BaseModel):
     chofer_id: Optional[int] = None
     code: Optional[str] = ""
     pin: Optional[str] = ""
+    pin_confirmation: Optional[str] = None
     permissions: Optional[dict] = None
+    portal_scope: Optional[str] = None
+    fleet_access_level: Optional[str] = None
+    fleet_group_ids: Optional[list[int]] = None
 
 
 class InternalUserStatus(BaseModel):
@@ -261,6 +322,14 @@ class InternalUserStatus(BaseModel):
 class InternalUserUpdate(BaseModel):
     role: Optional[str] = None
     display_name: Optional[str] = None
+    fleet_access_level: Optional[str] = None
+    fleet_group_ids: Optional[list[int]] = None
+
+
+class FleetProfileScopeUpdate(BaseModel):
+    perfil_id: int
+    root_group_id: int
+    zone_group_ids: list[int]
 
 
 class InternalResetPin(BaseModel):
@@ -269,6 +338,11 @@ class InternalResetPin(BaseModel):
 
 class InternalLogin(BaseModel):
     section: str = "transporte"
+    code: str
+    pin: str
+
+
+class FleetInternalLogin(BaseModel):
     code: str
     pin: str
 
@@ -335,6 +409,7 @@ class GasLpInternalFacturaPayload(BaseModel):
     facility_id: Optional[int] = None
     tipo_operacion: str = "venta"
     destino_facility_id: Optional[int] = None
+    fecha_operacion: str = ""
     lectura_tanque_antes_pct: Optional[float] = None
     lectura_tanque_despues_pct: Optional[float] = None
     litros_descarga_declarados: Optional[float] = None
@@ -550,8 +625,12 @@ def _clean_code(value: str) -> str:
     return code[:24]
 
 
+def _normalize_gas_lp_username(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())[:24]
+
+
 def _clean_login(value: str) -> str:
-    return str(value or "").strip().upper()
+    return re.sub(r"\s+", " ", str(value or "").strip().upper())
 
 
 def _matches_login(row: dict, login: str, allow_display_name: bool = False) -> bool:
@@ -837,7 +916,7 @@ def _gas_lp_operational_profile_ids(sb, tenant_ids: list[str]) -> set[int]:
                 q = q.eq(key, value)
             if tenant_filter and tenant_ids:
                 q = q.in_("tenant_id", tenant_ids)
-            rows = q.limit(10000).execute().data or []
+            rows = q.limit(GAS_LP_LIST_LIMIT_MAX).execute().data or []
             for row in rows:
                 add(row.get("perfil_id"))
         except Exception as exc:
@@ -872,11 +951,14 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
     rows_by_id: dict[int, dict] = {}
     operational_profile_ids = _gas_lp_operational_profile_ids(sb, tenant_ids)
 
-    def add(rows: list[dict]) -> None:
+    def add(rows: list[dict], *, trusted_profile_ids: set[int] | None = None) -> None:
         for row in rows or []:
-            if not _gas_lp_conciliacion_profile_allowed(row, operational_profile_ids):
-                continue
             rid = _safe_int_id(row.get("id"))
+            # The profile explicitly assigned by the Gas LP access record is
+            # authoritative even when an older company row predates module
+            # markers and has not created facilities/invoices yet.
+            if rid not in (trusted_profile_ids or set()) and not _gas_lp_conciliacion_profile_allowed(row, operational_profile_ids):
+                continue
             if not rid:
                 continue
             rows_by_id[rid] = {
@@ -892,7 +974,7 @@ def _gas_lp_conciliacion_visible_profiles(uid: str, access: dict, token: str) ->
         q = sb.table("perfiles_empresa").select(fields).eq("id", assigned_id).eq("activo", True)
         if tenant_id:
             q = q.eq("tenant_id", tenant_id)
-        add(q.limit(1).execute().data or [])
+        add(q.limit(1).execute().data or [], trusted_profile_ids={assigned_id})
 
     if tenant_ids:
         add(
@@ -1126,7 +1208,7 @@ def _folio_number(value: object) -> int:
     return int(text) if text.isdigit() else 0
 
 
-def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation: bool = False):
+def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation: bool = False, source_table: str = "gas_lp_facturas"):
     params = {
         "p_user_id": user.get("owner_user_id"),
         "p_tenant_id": user.get("tenant_id"),
@@ -1139,7 +1221,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
             value = value[0] if value else 0
         number = int(value or 0)
         if number > 0:
-            folio = f"{number:06d}"
+            folio = str(number)
             if return_reservation:
                 return folio, {
                     "reserved": True,
@@ -1153,9 +1235,10 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
         logger.warning("gas_lp_folio_counter_rpc_unavailable: serie=%s err=%s", serie, exc)
 
     try:
+        select_fields = "record_uuid,metadata" if source_table == "gas_lp_facturas" else "metadata"
         rows = (
-            sb.table("gas_lp_facturas")
-            .select("record_uuid,metadata")
+            sb.table(source_table)
+            .select(select_fields)
             .eq("user_id", user.get("owner_user_id"))
             .eq("tenant_id", user.get("tenant_id"))
             .eq("perfil_id", user.get("perfil_id"))
@@ -1173,7 +1256,7 @@ def _gas_lp_next_invoice_folio(sb, user: dict, serie: str, *, return_reservation
         if str(md.get("serie") or "").strip().upper() != serie:
             continue
         current = max(current, _folio_number(md.get("folio_usuario")), _folio_number(row.get("record_uuid")))
-    folio = f"{current + 1:06d}"
+    folio = str(current + 1)
     if return_reservation:
         return folio, {
             "reserved": False,
@@ -1942,22 +2025,46 @@ def _factura_payment_info(factura: dict) -> dict:
     xml_unit_net = _xml_attr(concepto, "ValorUnitario") if concepto is not None else ""
     xml_rate = _xml_attr(traslado, "TasaOCuota") if traslado is not None else ""
     fallback_total = _money(factura.get("importe")) * Decimal("1.16")
-    total = _money(xml_total if xml_total not in {None, ""} else (md.get("total") if md.get("total") not in {None, ""} else fallback_total))
-    saldo = _money(md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
-    subtotal = _money(xml_subtotal if xml_subtotal not in {None, ""} else (md.get("subtotal") if md.get("subtotal") not in {None, ""} else factura.get("importe")))
-    iva = _money(xml_iva if xml_iva not in {None, ""} else (md.get("iva") if md.get("iva") not in {None, ""} else (total - subtotal)))
-    descuento = _money(xml_descuento if xml_descuento not in {None, ""} else (md.get("descuento") if md.get("descuento") not in {None, ""} else 0))
+    total = _money(
+        factura.get("total")
+        if factura.get("total") not in {None, ""}
+        else (xml_total if xml_total not in {None, ""} else (md.get("total") if md.get("total") not in {None, ""} else fallback_total))
+    )
+    saldo = _money(
+        factura.get("saldo_insoluto")
+        if factura.get("saldo_insoluto") not in {None, ""}
+        else (md.get("saldo_insoluto") if md.get("saldo_insoluto") not in {None, ""} else total)
+    )
+    subtotal = _money(
+        factura.get("subtotal")
+        if factura.get("subtotal") not in {None, ""}
+        else (xml_subtotal if xml_subtotal not in {None, ""} else (md.get("subtotal") if md.get("subtotal") not in {None, ""} else factura.get("importe")))
+    )
+    iva = _money(
+        factura.get("iva")
+        if factura.get("iva") not in {None, ""}
+        else (xml_iva if xml_iva not in {None, ""} else (md.get("iva") if md.get("iva") not in {None, ""} else (total - subtotal)))
+    )
+    descuento = _money(
+        factura.get("descuento_total")
+        if factura.get("descuento_total") not in {None, ""}
+        else (xml_descuento if xml_descuento not in {None, ""} else (md.get("descuento") if md.get("descuento") not in {None, ""} else 0))
+    )
     try:
-        litros = Decimal(str(xml_litros if xml_litros not in {None, ""} else (factura.get("volumen_litros") or md.get("litros") or 0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        litros = Decimal(str(factura.get("litros_confirmados") or xml_litros or factura.get("volumen_litros") or md.get("litros") or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     except Exception:
         litros = Decimal("0.0000")
     try:
         rate = Decimal(str(xml_rate or 0))
         precio_unitario = (Decimal(str(xml_unit_net or 0)) * (Decimal("1") + rate)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
     except Exception:
-        precio_unitario = Decimal(str(md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        precio_unitario = Decimal(str(factura.get("precio_unitario") or md.get("precio_unitario") or 0)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    metodo_pago = str(factura.get("metodo_pago") or xml_metodo_pago or md.get("metodo_pago") or "").upper()
+    payment_status = str(factura.get("payment_status") or md.get("payment_status") or ("pendiente_complemento" if metodo_pago == "PPD" else "pagado_pue"))
+    if metodo_pago == "PPD" and payment_status == "pagado_pue" and saldo > 0:
+        payment_status = "pendiente_complemento"
     return {
-        "metodo_pago": str(xml_metodo_pago or md.get("metodo_pago") or "").upper(),
+        "metodo_pago": metodo_pago,
         "forma_pago": str(xml_forma_pago or md.get("forma_pago") or ""),
         "subtotal": subtotal,
         "descuento": descuento,
@@ -1966,7 +2073,7 @@ def _factura_payment_info(factura: dict) -> dict:
         "saldo_insoluto": saldo,
         "litros": litros,
         "precio_unitario": precio_unitario,
-        "payment_status": str(md.get("payment_status") or ("pendiente_complemento" if str(md.get("metodo_pago") or "").upper() == "PPD" else "pagado_pue")),
+        "payment_status": payment_status,
     }
 
 
@@ -2028,9 +2135,56 @@ def _gas_lp_factura_fiscal_status_info(factura: dict) -> dict:
     return {"code": "pendiente", "label": "Pendiente", "class": "pending"}
 
 
+def _gas_lp_factura_is_pending_ppd(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
+    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    is_transfer = (
+        factura.get("tipo_operacion") == "traspaso"
+        or md.get("tipo_operacion") == "traspaso"
+        or factura.get("is_transfer")
+        or md.get("is_transfer")
+    )
+    if metodo_pago != "PPD" or is_transfer:
+        return False
+    if _gas_lp_factura_fiscal_status_info(factura).get("code") == "cancelada":
+        return False
+    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
+    if latest.get("saldo_insoluto") not in {None, ""}:
+        return _money(latest.get("saldo_insoluto")) > 0
+    return _money(payment_info.get("saldo_insoluto")) > 0
+
+
+def _gas_lp_factura_pending_ppd_reason(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
+    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
+    if metodo_pago != "PPD":
+        return "no_ppd"
+    is_transfer = (
+        factura.get("tipo_operacion") == "traspaso"
+        or md.get("tipo_operacion") == "traspaso"
+        or factura.get("is_transfer")
+        or md.get("is_transfer")
+    )
+    if is_transfer:
+        return "traspaso"
+    if _gas_lp_factura_fiscal_status_info(factura).get("code") == "cancelada":
+        return "cancelada"
+    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
+    if latest.get("saldo_insoluto") not in {None, ""} and _money(latest.get("saldo_insoluto")) <= 0:
+        return "complementada"
+    status = str(payment_info.get("payment_status") or factura.get("payment_status") or md.get("payment_status") or "").lower()
+    if status in {"pagado_con_complemento", "pagado_manual"}:
+        return "complementada"
+    if _money(payment_info.get("saldo_insoluto")) <= 0:
+        return "sin_saldo"
+    return "pendiente"
+
+
 def _gas_lp_factura_date_key(factura: dict) -> str:
     md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    for value in (md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
+    for value in (factura.get("fecha_emision"), md.get("fecha_emision"), md.get("fecha_cfdi"), factura.get("fecha_timbrado"), factura.get("created_at")):
         text = str(value or "")
         if len(text) >= 10:
             return text[:10]
@@ -2058,10 +2212,25 @@ def _gas_lp_month_created_range(month: str) -> tuple[str, str] | None:
     return start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")
 
 
+def _gas_lp_realized_day_range(day: str) -> tuple[str, str] | None:
+    """Convierte un día civil de México al rango UTC almacenado en fecha_timbrado."""
+    try:
+        start = datetime.strptime(str(day or "")[:10], "%Y-%m-%d").replace(tzinfo=_gas_lp_cfdi_timezone())
+    except ValueError:
+        return None
+    end = start + timedelta(days=1)
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+    return start_utc.isoformat().replace("+00:00", "Z"), end_utc.isoformat().replace("+00:00", "Z")
+
+
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
-    if not created_range or not hasattr(query, "gte") or not hasattr(query, "lt"):
+    if not created_range:
         return query, False
-    return query.gte("created_at", created_range[0]).lt("created_at", created_range[1]), True
+    if not (hasattr(query, "gte") and hasattr(query, "lt")):
+        return query, False
+    start, end = created_range
+    return query.gte("fecha_emision", start).lt("fecha_emision", end), True
 
 
 def _gas_lp_factura_xml_root(factura: dict) -> Optional[ET.Element]:
@@ -2193,20 +2362,23 @@ def _gas_lp_factura_razon_social(factura: dict) -> str:
 
 
 def _gas_lp_factura_emisor_rfc(factura: dict) -> str:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    rfc = _clean_rfc(
+        factura.get("rfc_emisor")
+        or factura.get("empresa_rfc")
+        or md.get("rfc_emisor")
+        or md.get("empresa_rfc")
+        or md.get("empresa_asignada_rfc")
+        or ""
+    )
+    if rfc:
+        return rfc
     root = _gas_lp_factura_xml_root(factura)
     emisor = _xml_first(root, "Emisor") if root is not None else None
     rfc_xml = _clean_rfc(_xml_attr(emisor, "Rfc"))
     if rfc_xml:
         return rfc_xml
-    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    rfc = _clean_rfc(
-        md.get("rfc_emisor")
-        or md.get("empresa_rfc")
-        or md.get("empresa_asignada_rfc")
-        or factura.get("rfc_emisor")
-        or ""
-    )
-    return rfc
+    return ""
 
 
 def _gas_lp_factura_emisor_nombre(factura: dict) -> str:
@@ -2361,7 +2533,7 @@ def _gas_lp_company_facturas_rows_impl(
     profile: dict,
     *,
     month: str = "",
-    limit: int = 10000,
+    limit: int = GAS_LP_LIST_LIMIT_DEFAULT,
     include_carta_porte: bool = True,
     select: str = "*",
     company_fallback: bool = True,
@@ -2369,75 +2541,146 @@ def _gas_lp_company_facturas_rows_impl(
     ppd_pending: bool = False,
     discounted_only: bool = False,
     receptor_rfc: str = "",
+    realized_date: str = "",
+    fetch_all: bool = False,
 ) -> list[dict]:
-    filters = []
-    candidate_rows: list[dict] = []
+    filters: list[dict] = []
     created_range = _gas_lp_month_created_range(month)
-    base_query = sb.table("gas_lp_facturas").select(select).eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
-    base_query, range_applied = _gas_lp_apply_created_range(base_query, created_range)
-    filters.append({"source": "tenant_perfil", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id"), "date_filter": "created_at_range" if range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-    rows = base_query.order("created_at", desc=True).limit(limit).execute().data or []
-    candidate_rows.extend(rows)
-
+    realized_range = _gas_lp_realized_day_range(realized_date) if realized_date else None
     profile_rfc = _gas_lp_company_rfc(user, profile)
-    match_profile = {**profile, "rfc": profile_rfc or profile.get("rfc")}
-    if profile_rfc and company_fallback:
-        # Rescata facturas timbradas por otro usuario/perfil de la misma empresa fiscal.
-        rfc_rows = []
-        for rfc_field in ("metadata->>rfc_emisor", "metadata->>empresa_rfc", "metadata->>empresa_asignada_rfc"):
-            try:
-                query = (
-                    sb.table("gas_lp_facturas")
-                    .select(select)
-                    .eq("tenant_id", user.get("tenant_id"))
-                    .eq(rfc_field, profile_rfc)
-                )
-                query, rfc_range_applied = _gas_lp_apply_created_range(query, created_range)
-                found = query.order("created_at", desc=True).limit(limit).execute().data or []
-                rfc_rows.extend(found)
-                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "date_filter": "created_at_range" if rfc_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-            except Exception as exc:
-                logger.warning("gas_lp_facturas_rfc_lookup_failed field=%s rfc=%s err=%s", rfc_field, profile_rfc, exc)
-                filters.append({"source": f"tenant_{rfc_field}", "tenant_id": user.get("tenant_id"), rfc_field: profile_rfc, "error": str(exc)})
-        candidate_rows.extend(rfc_rows)
-
-        tenant_scan_limit = max(limit, int(os.environ.get("GAS_LP_FACTURAS_TENANT_SCAN_LIMIT", "10000") or "10000"))
-        try:
-            query = (
-                sb.table("gas_lp_facturas")
-                .select(select)
-                .eq("tenant_id", user.get("tenant_id"))
-            )
-            query, scan_range_applied = _gas_lp_apply_created_range(query, created_range)
-            company_rows = query.order("created_at", desc=True).limit(tenant_scan_limit).execute().data or []
-            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "match": "same tenant/perfil OR same issuer RFC from row/metadata/xml", "date_filter": "created_at_range" if scan_range_applied else "python:fecha_emision|fecha_cfdi|fecha_timbrado|created_at|xml.Fecha"})
-        except Exception as exc:
-            company_rows = []
-            logger.warning("gas_lp_facturas_tenant_scan_failed tenant=%s err=%s", user.get("tenant_id"), exc)
-            filters.append({"source": "tenant_scan_rfc_fallback", "tenant_id": user.get("tenant_id"), "limit": tenant_scan_limit, "error": str(exc)})
-        candidate_rows.extend(company_rows)
-        rows.extend(row for row in rfc_rows if _gas_lp_factura_matches_company(row, user, match_profile))
-        rows.extend(row for row in company_rows if _gas_lp_factura_matches_company(row, user, match_profile))
-
-    rows = _dedupe_rows_by_id(rows)
-    rows = [row for row in rows if _gas_lp_factura_matches_company(row, user, match_profile)]
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
+    page_limit = max(1, min(int(limit or GAS_LP_LIST_LIMIT_DEFAULT), GAS_LP_LIST_LIMIT_MAX))
+
+    query = sb.table("gas_lp_facturas").select(select)
+    if profile_rfc and company_fallback:
+        query = query.or_(f"empresa_rfc.eq.{profile_rfc},rfc_emisor.eq.{profile_rfc}")
+        filters.append({"company": "empresa_rfc OR rfc_emisor", "rfc": profile_rfc})
+    else:
+        query = query.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        filters.append({"company": "tenant_id + perfil_id", "tenant_id": user.get("tenant_id"), "perfil_id": user.get("perfil_id")})
+    range_applied = False
+    if realized_range and hasattr(query, "gte") and hasattr(query, "lt"):
+        query = query.gte("fecha_timbrado", realized_range[0]).lt("fecha_timbrado", realized_range[1])
+        range_applied = True
+        filters.append({"date_filter": "fecha_timbrado", "start": realized_range[0], "end": realized_range[1], "applied": True})
+    else:
+        query, range_applied = _gas_lp_apply_created_range(query, created_range)
+    if created_range and not realized_range:
+        filters.append({"date_filter": "fecha_emision", "start": created_range[0], "end": created_range[1], "applied": range_applied})
     if clean_receptor_rfc:
-        rows = [row for row in rows if _clean_rfc(row.get("rfc_receptor") or (row.get("metadata") if isinstance(row.get("metadata"), dict) else {}).get("rfc_receptor") or "") == clean_receptor_rfc]
+        query = query.eq("rfc_receptor", clean_receptor_rfc)
+        filters.append({"receptor_rfc": clean_receptor_rfc})
     if not include_carta_porte:
-        rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
+        query = query.or_("tipo_comprobante.is.null,tipo_comprobante.neq.T")
+        filters.append({"tipo_comprobante": "not T"})
+    if ppd_pending:
+        filters.append({"payment": "PPD pending resolved after metadata/payment normalization", "operation": "not transfer"})
+    if discounted_only:
+        query = query.or_("descuento_total.gt.0,descuento_confirmado.gt.0,descuento_por_litro.gt.0")
+        filters.append({"discount": "descuento_total/descuento_confirmado/descuento_por_litro > 0"})
+
+    try:
+        ordered_query = (
+            query
+            .order("fecha_timbrado" if realized_range else "fecha_emision", desc=True)
+            .order("created_at", desc=True)
+        )
+        if ppd_pending or fetch_all:
+            # Supabase/PostgREST entrega como máximo 1,000 filas por solicitud.
+            # La cartera PPD y la carga mensual completa deben recorrer todas
+            # las páginas antes de normalizar pagos o construir filtros.
+            rows = []
+            offset = 0
+            while True:
+                page = (
+                    ordered_query
+                    .range(offset, offset + GAS_LP_LIST_LIMIT_MAX - 1)
+                    .execute()
+                    .data
+                    or []
+                )
+                rows.extend(page)
+                if len(page) < GAS_LP_LIST_LIMIT_MAX:
+                    break
+                offset += GAS_LP_LIST_LIMIT_MAX
+        else:
+            rows = ordered_query.limit(page_limit).execute().data or []
+    except Exception as exc:
+        msg = str(exc)
+        schema_fallback = any(
+            marker in msg.lower()
+            for marker in ("fecha_emision", "schema cache", "could not find", "column", "pgrst")
+        )
+        if not schema_fallback:
+            raise
+        logger.warning("gas_lp_facturas_compat_query_fallback perfil=%s select=%s err=%s", user.get("perfil_id"), select, exc)
+        fallback = sb.table("gas_lp_facturas").select(GAS_LP_FACTURAS_COMPAT_LIST_SELECT)
+        fallback = fallback.eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id"))
+        if clean_receptor_rfc:
+            fallback = fallback.eq("rfc_receptor", clean_receptor_rfc)
+        try:
+            rows = (
+                fallback
+                .order("created_at", desc=True)
+                .limit(page_limit)
+                .execute()
+                .data
+                or []
+            )
+            if realized_range:
+                start_key, end_key = realized_range[0][:10], realized_range[1][:10]
+                rows = [row for row in rows if start_key <= str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10] < end_key]
+            elif created_range:
+                start_key, end_key = created_range[0][:10], created_range[1][:10]
+                rows = [row for row in rows if start_key <= _gas_lp_factura_date_key(row) < end_key]
+            if not include_carta_porte:
+                rows = [row for row in rows if not _gas_lp_factura_is_carta_porte(row)]
+        except Exception:
+            raise exc
+    rows = _dedupe_rows_by_id(rows)
+    if ppd_pending:
+        # El saldo definitivo se resuelve después de adjuntar los complementos;
+        # aquí solo reducimos la cartera a candidatos PPD válidos.
+        ppd_candidates = []
+        for row in rows:
+            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            is_transfer = (
+                row.get("tipo_operacion") == "traspaso"
+                or row.get("is_transfer")
+                or md.get("tipo_operacion") == "traspaso"
+                or md.get("is_transfer")
+            )
+            if _gas_lp_factura_metodo_pago(row) == "PPD" and not _gas_lp_factura_cancelada(row) and not is_transfer:
+                ppd_candidates.append(row)
+        rows = ppd_candidates
     if discounted_only:
         rows = [row for row in rows if _gas_lp_factura_has_discount(row)]
-    candidate_rows = _dedupe_rows_by_id(candidate_rows)
-    if month:
-        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
-    if ppd_pending:
-        rows = [row for row in rows if _gas_lp_factura_is_pending_ppd(row)]
-    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
-    rows = rows[:limit]
     if visibility_log:
-        _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=candidate_rows, included=rows)
+        _gas_lp_log_facturas_visibility(user=user, profile={**profile, "rfc": profile_rfc or profile.get("rfc")}, month=month, filters=filters, candidates=rows, included=rows)
     return rows
+
+
+def _gas_lp_factura_has_discount(factura: dict) -> bool:
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    raw_values = [
+        factura.get("descuento_total"),
+        factura.get("descuento_confirmado"),
+        factura.get("descuento_por_litro"),
+        md.get("descuento_total"),
+        md.get("descuento_confirmado"),
+        md.get("descuento_por_litro"),
+        md.get("descuento"),
+        md.get("descuento_capturado"),
+    ]
+    for value in raw_values:
+        if _money(value) > 0:
+            return True
+    policy = md.get("descuento_facturacion") or md.get("descuento_cliente") or {}
+    if isinstance(policy, dict):
+        tipo = str(policy.get("tipo") or policy.get("tipo_descuento") or "").strip().lower()
+        if tipo and tipo != "sin_descuento" and _money(policy.get("valor") or policy.get("descuento_valor") or policy.get("monto")) > 0:
+            return True
+    return False
 
 
 def _gas_lp_factura_metodo_pago(factura: dict) -> str:
@@ -2448,56 +2691,6 @@ def _gas_lp_factura_metodo_pago(factura: dict) -> str:
         return method
     root = _gas_lp_factura_xml_root(factura)
     return _xml_attr(root, "MetodoPago").upper() if root is not None else method
-
-
-def _gas_lp_factura_is_pending_ppd(factura: dict) -> bool:
-    return _gas_lp_factura_pending_ppd_reason(factura) == "pendiente"
-
-
-def _gas_lp_factura_pending_ppd_reason(factura: dict) -> str:
-    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    payment_info = factura.get("payment_info") if isinstance(factura.get("payment_info"), dict) else _factura_payment_info(factura)
-    metodo_pago = str(payment_info.get("metodo_pago") or factura.get("metodo_pago") or md.get("metodo_pago") or "").upper()
-    if metodo_pago != "PPD":
-        return "no_ppd"
-    is_transfer = (
-        factura.get("tipo_operacion") == "traspaso"
-        or md.get("tipo_operacion") == "traspaso"
-        or factura.get("is_transfer")
-        or md.get("is_transfer")
-    )
-    if is_transfer:
-        return "traspaso"
-    if _gas_lp_factura_cancelada(factura):
-        return "cancelada"
-    latest = factura.get("latest_complemento_pago") if isinstance(factura.get("latest_complemento_pago"), dict) else {}
-    if latest.get("saldo_insoluto") not in {None, ""} and _money(latest.get("saldo_insoluto")) <= 0:
-        return "complementada"
-    status = str(payment_info.get("payment_status") or factura.get("payment_status") or md.get("payment_status") or "").lower()
-    if status in {"pagado_con_complemento", "pagado_manual"}:
-        return "complementada"
-    if _money(payment_info.get("saldo_insoluto")) <= 0:
-        return "sin_saldo"
-    return "pendiente"
-
-
-def _gas_lp_factura_has_discount(factura: dict) -> bool:
-    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
-    values = [
-        factura.get("descuento_total"),
-        factura.get("descuento_confirmado"),
-        factura.get("descuento_por_litro"),
-        md.get("descuento_total"),
-        md.get("descuento_confirmado"),
-        md.get("descuento_por_litro"),
-        md.get("descuento"),
-        md.get("descuento_capturado"),
-    ]
-    for value in values:
-        if _money(value) > 0:
-            return True
-    policy = md.get("descuento_facturacion") or md.get("descuento_cliente") or {}
-    return isinstance(policy, dict) and str(policy.get("tipo") or "").lower() not in {"", "sin_descuento"} and _money(policy.get("valor")) > 0
 
 
 def _gas_lp_factura_cancelada(factura: dict) -> bool:
@@ -2533,47 +2726,178 @@ def _gas_lp_factura_estado_excel(factura: dict) -> str:
     return "Vigente - PPD / Crédito" if str(metodo or "").upper() == "PPD" else "Vigente"
 
 
+def _gas_lp_previous_month(month: str) -> str:
+    try:
+        year, month_number = (int(part) for part in str(month).split("-", 1))
+        if month_number == 1:
+            return f"{year - 1}-12"
+        return f"{year}-{month_number - 1:02d}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _gas_lp_next_month(month: str) -> str:
+    try:
+        year, month_number = (int(part) for part in str(month).split("-", 1))
+        if month_number == 12:
+            return f"{year + 1}-01"
+        return f"{year}-{month_number + 1:02d}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _gas_lp_resolve_initial_inventory(user: dict, month: str, facility_id: int) -> dict:
+    """Resuelve el inventario inicial sin asumir cero silenciosamente."""
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = user.get("perfil_id")
+    try:
+        current_reports = get_reports(
+            owner_user_id,
+            month,
+            facility_id=facility_id,
+            perfil_id=perfil_id,
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_initial_inventory_current_failed facility=%s month=%s err=%s", facility_id, month, exc)
+        current_reports = []
+    if current_reports:
+        value = current_reports[0].get("inventario_inicial")
+        if value is not None:
+            return {"value": float(value), "source": "current_report", "pending": False}
+
+    previous_month = _gas_lp_previous_month(month)
+    if previous_month:
+        try:
+            previous_reports = get_reports(
+                owner_user_id,
+                previous_month,
+                facility_id=facility_id,
+                perfil_id=perfil_id,
+            )
+        except Exception as exc:
+            logger.warning("gas_lp_initial_inventory_previous_failed facility=%s month=%s err=%s", facility_id, previous_month, exc)
+            previous_reports = []
+        previous_closed = next(
+            (report for report in previous_reports if report_is_closed(report, previous_month)),
+            None,
+        )
+        if previous_closed and previous_closed.get("vol_existencias") is not None:
+            return {
+                "value": float(previous_closed["vol_existencias"]),
+                "source": "previous_closed_report",
+                "source_month": previous_month,
+                "pending": False,
+            }
+
+    return {
+        "value": None,
+        "source": "pending",
+        "source_month": previous_month,
+        "pending": True,
+    }
+
+
 def _gas_lp_transfer_inventory_check(sb, user: dict, destino: dict, litros) -> dict:
-    """Proyección operativa sencilla para validar una estación antes de timbrar."""
-    from decimal import Decimal, ROUND_HALF_UP
-    try: qty = Decimal(str(litros or 0))
-    except Exception: qty = Decimal("0")
+    """Valida con el mismo libro operativo que se muestra al asistente."""
+    try:
+        qty = Decimal(str(litros or 0))
+    except Exception:
+        qty = Decimal("0")
     facility_id = _safe_int_id(destino.get("id"))
     cap = destino.get("cap_operativa_tanque") or destino.get("cap_util_tanque") or destino.get("capacidad_tanque") or destino.get("cap_total_tanque")
-    try: capacity = Decimal(str(cap or 0))
-    except Exception: capacity = Decimal("0")
+    try:
+        capacity = Decimal(str(cap or 0))
+    except Exception:
+        capacity = Decimal("0")
     if not facility_id or qty <= 0 or capacity <= 0:
         return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
-    initial = Decimal("0")
     month = datetime.now(_gas_lp_cfdi_timezone()).strftime("%Y-%m")
+    initial_state = _gas_lp_resolve_initial_inventory(user, month, facility_id)
+    if initial_state["pending"]:
+        return {
+            "ok": True,
+            "code": "gas_lp_inventory_initial_pending",
+            "available": None,
+            "initial_source": initial_state["source"],
+        }
+    initial = Decimal(str(initial_state["value"]))
     try:
-        reports = get_reports(user.get("owner_user_id") or user.get("id"), month, facility_id=facility_id, perfil_id=user.get("perfil_id"))
-        if reports: initial = Decimal(str(reports[0].get("inventario_inicial") or 0))
-    except Exception: pass
-    entradas = salidas = Decimal("0")
-    try:
-        rows = (sb.table("gas_lp_facturas").select("volumen_litros,facility_id,tipo_operacion,is_transfer,metadata,status").eq("tenant_id", user.get("tenant_id")).eq("perfil_id", user.get("perfil_id")).eq("status", "Vigente").limit(10000).execute().data or [])
-        for row in rows:
-            md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            try: vol = Decimal(str(row.get("volumen_litros") or md.get("litros") or 0))
-            except Exception: continue
-            if vol <= 0: continue
-            transfer = bool(row.get("is_transfer") or row.get("tipo_operacion") == "traspaso" or md.get("tipo_operacion") == "traspaso" or md.get("is_transfer"))
-            if transfer:
-                if _safe_int_id(md.get("destino_facility_id") or row.get("destino_facility_id")) == facility_id: entradas += vol
-                if _safe_int_id(md.get("origen_facility_id") or row.get("facility_id")) == facility_id: salidas += vol
-            elif _safe_int_id(row.get("facility_id") or md.get("facility_id")) == facility_id: salidas += vol
+        from services.gas_lp_inventory_control import build_station_ledger
+
+        profile = _gas_lp_profile(user)
+        rows = _gas_lp_company_facturas_rows(
+            sb, user, profile, month=month, limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False, select=GAS_LP_FACTURAS_LIST_SELECT,
+            company_fallback=True, visibility_log=False,
+        )
+        movements = _gas_lp_inventory_movements(sb, user, month)
+        adjustments = _gas_lp_inventory_adjustments(sb, user, month)
+        ledger = build_station_ledger(facility=destino, invoices=rows, movements=movements, adjustments=adjustments, initial_inventory=initial)
     except Exception as exc:
         logger.warning("gas_lp_transfer_inventory_check_failed facility=%s err=%s", facility_id, exc)
         return {"ok": True, "code": "gas_lp_inventory_unavailable", "available": None}
-    current = (initial + entradas - salidas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    current = Decimal(str(ledger["current_inventory"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     projected = (current + qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     maximum = (capacity * Decimal("1.03")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     available = max(Decimal("0"), maximum - current).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    result = {"current": float(current), "projected": float(projected), "capacity": float(capacity), "maximum": float(maximum), "available": float(available)}
-    if projected > maximum: return {"ok": False, "code": "gas_lp_inventory_over_capacity", **result}
-    if current < 0: return {"ok": True, "code": "gas_lp_inventory_negative", **result}
+    result = {"current": float(current), "projected": float(projected), "capacity": float(capacity), "maximum": float(maximum), "available": float(available), "initial_inventory": float(initial), "initial_source": initial_state["source"]}
+    if projected > maximum:
+        return {"ok": False, "code": "gas_lp_inventory_over_capacity", **result}
+    if current < 0:
+        return {"ok": True, "code": "gas_lp_inventory_negative", **result}
     return {"ok": True, "code": "gas_lp_inventory_ok", **result}
+
+
+def _gas_lp_inventory_movements(sb, user: dict, month: str) -> list[dict]:
+    """Carga el libro mayor canónico; conserva fallback mientras despliega la migración."""
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = _safe_int_id(user.get("perfil_id"))
+    if not owner_user_id or not perfil_id: return []
+    try:
+        rows = (
+            sb.table("gas_lp_movement_ledger_canonical")
+            .select("id,source_id,facility_id,effective_at,movement_type,direction,liters,metadata")
+            .eq("user_id", str(owner_user_id))
+            .eq("perfil_id", perfil_id)
+            .gte("effective_at", f"{month}-01T00:00:00-06:00")
+            .lt("effective_at", f"{_gas_lp_next_month(month)}-01T00:00:00-06:00")
+            .order("effective_at")
+            .execute().data or []
+        )
+        for row in rows: row["_canonical_ledger"] = True
+        return rows
+    except Exception as exc:
+        logger.warning("gas_lp_canonical_ledger_unavailable perfil=%s month=%s err=%s", perfil_id, month, exc)
+    try:
+        return (
+            sb.table("records")
+            .select("id,facility_id,fecha,fecha_operacion,periodo,tipo,volumen_litros,file_path,es_autoconsumo,created_at")
+            .eq("user_id", owner_user_id).eq("perfil_id", perfil_id).eq("periodo", month)
+            .execute().data or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_inventory_movements_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
+        return []
+
+
+def _gas_lp_inventory_adjustments(sb, user: dict, month: str) -> list[dict]:
+    owner_user_id = user.get("owner_user_id") or user.get("id")
+    perfil_id = _safe_int_id(user.get("perfil_id"))
+    if not owner_user_id or not perfil_id:
+        return []
+    try:
+        return (
+            sb.table("gas_lp_inventory_adjustments")
+            .select("id,facility_id,fecha,inventario_teorico,inventario_fisico,diferencia_litros,motivo,status,approved_at")
+            .eq("user_id", owner_user_id)
+            .eq("perfil_id", perfil_id)
+            .gte("fecha", f"{month}-01")
+            .lt("fecha", f"{_gas_lp_next_month(month)}-01")
+            .execute().data or []
+        )
+    except Exception as exc:
+        logger.warning("gas_lp_inventory_adjustments_failed perfil=%s month=%s err=%s", perfil_id, month, exc)
+        return []
 
 
 def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFacturaPayload) -> dict:
@@ -2585,6 +2909,8 @@ def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFactu
         return {}
     if before is None or after is None:
         raise HTTPException(400, "Captura la lectura del tanque antes y después de la descarga.")
+    if declared is None:
+        raise HTTPException(400, "Captura los litros reportados por el chofer; no se tomarán automáticamente de los litros del CFDI.")
     if not 0 <= float(before) <= 100 or not 0 <= float(after) <= 100:
         raise HTTPException(400, "Las lecturas del tanque deben estar entre 0% y 100%.")
     capacity = destino.get("cap_operativa_tanque") or destino.get("cap_util_tanque") or destino.get("capacidad_tanque") or destino.get("cap_total_tanque")
@@ -2592,12 +2918,17 @@ def _gas_lp_transfer_physical_control(destino: dict, payload: GasLpInternalFactu
         raise HTTPException(400, "La estación destino no tiene capacidad configurada en Administración.")
     measured = round(float(capacity) * (float(after) - float(before)) / 100, 2)
     expected = float(payload.litros or 0)
-    declared_value = float(declared) if declared is not None else expected
+    declared_value = float(declared)
+    if declared_value <= 0:
+        raise HTTPException(400, "Los litros reportados por el chofer deben ser mayores a cero.")
     tolerance = max(float(capacity) * float(destino.get("incertidumbre_medidor") or 0.05), expected * 0.05)
     difference = round(measured - expected, 2)
     return {
         "antes_pct": float(before), "despues_pct": float(after), "capacidad_litros": float(capacity),
+        "antes_litros": round(float(capacity) * float(before) / 100, 2),
+        "despues_litros": round(float(capacity) * float(after) / 100, 2),
         "litros_medidos": measured, "litros_cfdi": expected, "litros_declarados": declared_value,
+        "litros_chofer_capturados": True,
         "diferencia_litros": difference, "tolerancia_litros": round(tolerance, 2),
         "alerta": abs(difference) > tolerance,
     }
@@ -2726,9 +3057,9 @@ def _gas_lp_factura_total_con_iva(factura: dict) -> Decimal:
 
 def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
     ids = sorted({
-        _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
+        _safe_int_id(row.get("created_by_internal") or (row.get("metadata") or {}).get("internal_user_id"))
         for row in rows
-        if isinstance(row.get("metadata"), dict) and _safe_int_id((row.get("metadata") or {}).get("internal_user_id"))
+        if _safe_int_id(row.get("created_by_internal") or ((row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}).get("internal_user_id"))
     })
     if not ids:
         return
@@ -2746,7 +3077,7 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
     by_id = {int(user.get("id") or 0): user for user in users}
     for row in rows:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        internal_id = _safe_int_id(md.get("internal_user_id"))
+        internal_id = _safe_int_id(row.get("created_by_internal") or md.get("internal_user_id"))
         internal_user = by_id.get(internal_id)
         if internal_user:
             row["created_by_internal"] = {
@@ -2758,10 +3089,11 @@ def _gas_lp_attach_internal_creators_impl(sb, rows: list[dict]) -> None:
 def _gas_lp_factura_realizado_por(row: dict) -> str:
     md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     actor = row.get("created_by_internal") if isinstance(row.get("created_by_internal"), dict) else {}
-    internal_id = _safe_int_id(actor.get("id") or md.get("internal_user_id") or md.get("created_by_internal"))
+    internal_id = _safe_int_id(actor.get("id") or row.get("created_by_internal") or md.get("internal_user_id") or md.get("created_by_internal"))
     name = (
         row.get("realizado_por")
         or actor.get("name")
+        or row.get("created_by_internal_name")
         or md.get("created_by_internal_name")
         or md.get("created_by")
         or md.get("asistente_nombre")
@@ -3067,14 +3399,42 @@ def _gas_lp_send_complemento_pago_email(
     return _gas_lp_update_complemento_email_audit(sb, comp, update_payload), update_payload["email_delivery"]
 
 
-def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal]) -> tuple[str, dict]:
+def _payment_document_tax_groups(root: ET.Element, ratio: Decimal) -> tuple[dict, dict]:
+    """Prorratea los impuestos reales del CFDI relacionado para Pagos 2.0."""
+    transfers: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    retentions: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    for concept in (node for node in root.iter() if _xml_local(node.tag) == "Concepto"):
+        for taxes in (node for node in list(concept) if _xml_local(node.tag) == "Impuestos"):
+            for tax in taxes.iter():
+                tax_type = _xml_local(tax.tag)
+                if tax_type not in {"Traslado", "Retencion"}:
+                    continue
+                code = _xml_attr(tax, "Impuesto")
+                factor = _xml_attr(tax, "TipoFactor", "Tasa")
+                rate = _xml_attr(tax, "TasaOCuota", "0.000000")
+                if not code:
+                    continue
+                target = transfers if tax_type == "Traslado" else retentions
+                group = target.setdefault((code, factor, rate), {"base": Decimal("0"), "amount": Decimal("0")})
+                group["base"] += _money(Decimal(_xml_attr(tax, "Base", "0")) * ratio)
+                group["amount"] += _money(Decimal(_xml_attr(tax, "Importe", "0")) * ratio)
+    return transfers, retentions
+
+
+def _payment_transfer_rate_attributes(suffix: str, factor: str, rate: str, amount: Decimal) -> str:
+    if factor == "Exento":
+        return ""
+    return f' TasaOCuota{suffix}="{Decimal(rate):.6f}" Importe{suffix}="{amount:.2f}"'
+
+
+def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_pago: str, forma_pago: str, pagos: dict[int, Decimal], serie: str = "PAGO", folio: str = "") -> tuple[str, dict]:
     if not facturas:
         raise HTTPException(400, "Selecciona al menos una factura PPD.")
     receptor_ref: dict | None = None
     doctos = []
     total_pago = Decimal("0.00")
-    total_base = Decimal("0.00")
-    total_iva = Decimal("0.00")
+    payment_transfers: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+    payment_retentions: dict[str, Decimal] = {}
     for factura in facturas:
         root = _cfdi_root(factura.get("xml_content") or "")
         if _xml_attr(root, "TipoDeComprobante") != "I" or _xml_attr(root, "MetodoPago") != "PPD":
@@ -3102,55 +3462,103 @@ def _build_gas_lp_pago20_multi_xml(*, facturas: list[dict], issuer: dict, fecha_
             raise HTTPException(400, "El importe de pago debe ser mayor a cero y no exceder el saldo.")
         saldo = _money(saldo_ant - pagado)
         total_doc = _money(_xml_attr(root, "Total") or info["total"])
-        base = _money(pagado / Decimal("1.16"))
-        iva = _money(pagado - base)
+        if total_doc <= 0:
+            raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
+        ratio = pagado / total_doc
+        transfers, retentions = _payment_document_tax_groups(root, ratio)
         total_pago += pagado
-        total_base += base
-        total_iva += iva
-        serie = _xml_attr(root, "Serie")
-        folio = _xml_attr(root, "Folio")
-        serie_attr = f' Serie="{xml_escape(serie)}"' if serie else ""
-        folio_attr = f' Folio="{xml_escape(folio)}"' if folio else ""
+        for key, values in transfers.items():
+            group = payment_transfers.setdefault(key, {"base": Decimal("0"), "amount": Decimal("0")})
+            group["base"] += values["base"]
+            group["amount"] += values["amount"]
+        for (code, _factor, _rate), values in retentions.items():
+            payment_retentions[code] = payment_retentions.get(code, Decimal("0")) + values["amount"]
+        related_serie = _xml_attr(root, "Serie")
+        related_folio = _xml_attr(root, "Folio")
+        serie_attr = f' Serie="{xml_escape(related_serie)}"' if related_serie else ""
+        folio_attr = f' Folio="{xml_escape(related_folio)}"' if related_folio else ""
+        partiality = max(1, int(factura.get("numero_parcialidad") or (factura.get("metadata") or {}).get("numero_parcialidad") or 1))
+        retention_xml = "".join(
+            f'<pago20:RetencionDR BaseDR="{values["base"]:.2f}" ImpuestoDR="{xml_escape(code)}" TipoFactorDR="{xml_escape(factor)}" TasaOCuotaDR="{Decimal(rate):.6f}" ImporteDR="{values["amount"]:.2f}"/>'
+            for (code, factor, rate), values in sorted(retentions.items())
+        )
+        transfer_xml = "".join(
+            f'<pago20:TrasladoDR BaseDR="{values["base"]:.2f}" ImpuestoDR="{xml_escape(code)}" TipoFactorDR="{xml_escape(factor)}"'
+            f'{_payment_transfer_rate_attributes("DR", factor, rate, values["amount"])}/>'
+            for (code, factor, rate), values in sorted(transfers.items())
+        )
+        taxes_xml = (
+            '<pago20:ImpuestosDR>'
+            + (f'<pago20:RetencionesDR>{retention_xml}</pago20:RetencionesDR>' if retention_xml else '')
+            + (f'<pago20:TrasladosDR>{transfer_xml}</pago20:TrasladosDR>' if transfer_xml else '')
+            + '</pago20:ImpuestosDR>'
+        ) if retention_xml or transfer_xml else ""
         doctos.append({
             "factura_id": fid,
             "uuid_relacionado": uuid_rel,
             "monto": float(pagado),
             "saldo_anterior": float(saldo_ant),
             "saldo_insoluto": float(saldo),
-            "parcialidad": 1,
+            "parcialidad": partiality,
             "xml": (
                 f'<pago20:DoctoRelacionado IdDocumento="{xml_escape(uuid_rel)}"{serie_attr}{folio_attr} MonedaDR="MXN" EquivalenciaDR="1" '
-                f'NumParcialidad="1" ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo:.2f}" ObjetoImpDR="02">'
-                '<pago20:ImpuestosDR><pago20:TrasladosDR>'
-                f'<pago20:TrasladoDR BaseDR="{base:.2f}" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="{iva:.2f}"/>'
-                '</pago20:TrasladosDR></pago20:ImpuestosDR></pago20:DoctoRelacionado>'
+                f'NumParcialidad="{partiality}" ImpSaldoAnt="{saldo_ant:.2f}" ImpPagado="{pagado:.2f}" ImpSaldoInsoluto="{saldo:.2f}" ObjetoImpDR="{"02" if taxes_xml else "01"}">'
+                f'{taxes_xml}</pago20:DoctoRelacionado>'
             ),
         })
-        if total_doc <= 0:
-            raise HTTPException(400, "Una factura seleccionada no tiene total válido.")
     receptor = receptor_ref or {}
     fecha_cfdi, fecha_cfdi_reason = _gas_lp_pago_cfdi_fecha(issuer)
-    folio_pago = fecha_cfdi.replace("-", "").replace(":", "").replace("T", "")[:14]
+    serie_pago = "".join(ch for ch in str(serie or "PAGO").strip().upper() if ch.isalnum())[:10] or "PAGO"
+    folio_pago = "".join(ch for ch in str(folio or "").strip() if ch.isalnum())[:40]
+    if not folio_pago:
+        folio_pago = fecha_cfdi.replace("-", "").replace(":", "").replace("T", "")[:14]
     fecha_pago = _payment_datetime(fecha_pago)
     forma_pago = "".join(ch for ch in str(forma_pago or "03") if ch.isdigit())[:2] or "03"
     doctos_xml = "".join(d["xml"] for d in doctos)
+    retention_p_xml = "".join(
+        f'<pago20:RetencionP ImpuestoP="{xml_escape(code)}" ImporteP="{amount:.2f}"/>'
+        for code, amount in sorted(payment_retentions.items())
+    )
+    transfer_p_xml = "".join(
+        f'<pago20:TrasladoP BaseP="{values["base"]:.2f}" ImpuestoP="{xml_escape(code)}" TipoFactorP="{xml_escape(factor)}"'
+        f'{_payment_transfer_rate_attributes("P", factor, rate, values["amount"])}/>'
+        for (code, factor, rate), values in sorted(payment_transfers.items())
+    )
+    payment_taxes_xml = (
+        '<pago20:ImpuestosP>'
+        + (f'<pago20:RetencionesP>{retention_p_xml}</pago20:RetencionesP>' if retention_p_xml else '')
+        + (f'<pago20:TrasladosP>{transfer_p_xml}</pago20:TrasladosP>' if transfer_p_xml else '')
+        + '</pago20:ImpuestosP>'
+    ) if retention_p_xml or transfer_p_xml else ""
+    totals_attrs = [f'MontoTotalPagos="{total_pago:.2f}"']
+    retention_names = {"001": "ISR", "002": "IVA", "003": "IEPS"}
+    for code, amount in sorted(payment_retentions.items()):
+        if code in retention_names:
+            totals_attrs.append(f'TotalRetenciones{retention_names[code]}="{amount:.2f}"')
+    transfer_names = {("002", "0.160000"): "IVA16", ("002", "0.080000"): "IVA8", ("002", "0.000000"): "IVA0"}
+    for (code, factor, rate), values in sorted(payment_transfers.items()):
+        suffix = "IVAExento" if code == "002" and factor == "Exento" else transfer_names.get((code, f"{Decimal(rate):.6f}"))
+        if suffix:
+            totals_attrs.append(f'TotalTrasladosBase{suffix}="{values["base"]:.2f}"')
+            if factor != "Exento":
+                totals_attrs.append(f'TotalTrasladosImpuesto{suffix}="{values["amount"]:.2f}"')
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         'xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd http://www.sat.gob.mx/Pagos20 http://www.sat.gob.mx/sitio_internet/cfd/Pagos/Pagos20.xsd" '
-        f'Version="4.0" Serie="PAGO" Folio="{folio_pago}" Fecha="{fecha_cfdi}" Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
+        f'Version="4.0" Serie="{xml_escape(serie_pago)}" Folio="{xml_escape(folio_pago)}" Fecha="{fecha_cfdi}" Sello="" NoCertificado="" Certificado="" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="P" Exportacion="01" LugarExpedicion="{xml_escape(issuer["cp"])}">'
         f'<cfdi:Emisor Rfc="{xml_escape(issuer["rfc"])}" Nombre="{xml_escape(issuer["nombre"])}" RegimenFiscal="{xml_escape(issuer["regimen"])}"/>'
         f'<cfdi:Receptor Rfc="{xml_escape(receptor["rfc"])}" Nombre="{xml_escape(receptor["nombre"])}" DomicilioFiscalReceptor="{xml_escape(receptor["cp"])}" RegimenFiscalReceptor="{xml_escape(receptor["regimen"])}" UsoCFDI="CP01"/>'
         '<cfdi:Conceptos><cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/></cfdi:Conceptos>'
         '<cfdi:Complemento><pago20:Pagos Version="2.0">'
-        f'<pago20:Totales TotalTrasladosBaseIVA16="{total_base:.2f}" TotalTrasladosImpuestoIVA16="{total_iva:.2f}" MontoTotalPagos="{total_pago:.2f}"/>'
+        f'<pago20:Totales {" ".join(totals_attrs)}/>'
         f'<pago20:Pago FechaPago="{xml_escape(fecha_pago)}" FormaDePagoP="{xml_escape(forma_pago)}" MonedaP="MXN" TipoCambioP="1" Monto="{total_pago:.2f}">'
-        f'{doctos_xml}<pago20:ImpuestosP><pago20:TrasladosP><pago20:TrasladoP BaseP="{total_base:.2f}" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="0.160000" ImporteP="{total_iva:.2f}"/></pago20:TrasladosP></pago20:ImpuestosP>'
+        f'{doctos_xml}{payment_taxes_xml}'
         '</pago20:Pago></pago20:Pagos></cfdi:Complemento></cfdi:Comprobante>'
     )
     for d in doctos:
         d.pop("xml", None)
-    return xml, {"fecha_cfdi": fecha_cfdi, "fecha_cfdi_reason": fecha_cfdi_reason, "fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos}
+    return xml, {"fecha_cfdi": fecha_cfdi, "fecha_cfdi_reason": fecha_cfdi_reason, "fecha_pago": fecha_pago, "forma_pago": forma_pago, "monto": float(total_pago), "saldo_insoluto": float(sum(Decimal(str(d["saldo_insoluto"])) for d in doctos)), "facturas": doctos, "serie": serie_pago, "folio": folio_pago}
 
 
 def _gas_lp_invoice_scope(user: dict, profile: dict) -> dict:
