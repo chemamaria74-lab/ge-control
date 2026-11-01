@@ -38,7 +38,8 @@ def build_station_ledger(*, facility: dict, invoices: list[dict], movements: lis
     tolerance = (capacity * _number(tolerance_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     maximum = capacity + tolerance
     days = defaultdict(lambda: {"ventas": Decimal("0"), "autoconsumo": Decimal("0"), "recepciones": Decimal("0"), "recibidos": Decimal("0"), "enviados": Decimal("0"), "traspasos": [], "eventos": []})
-    for invoice in invoices:
+    canonical_mode = any(bool(item.get("_canonical_ledger")) for item in (movements or []))
+    for invoice in ([] if canonical_mode else invoices):
         if str(invoice.get("status") or "Vigente").lower().startswith("cancel"):
             continue
         md = invoice.get("metadata") if isinstance(invoice.get("metadata"), dict) else {}
@@ -69,6 +70,44 @@ def build_station_ledger(*, facility: dict, invoices: list[dict], movements: lis
             days[day]["eventos"].append({"fecha_hora": str(invoice.get("fecha_emision") or md.get("fecha_emision") or invoice.get("fecha_timbrado") or invoice.get("created_at") or day), "tipo": "venta", "litros": liters, "delta": -liters, "id": invoice.get("id")})
     for movement in movements or []:
         if _id(movement.get("facility_id")) != facility_id:
+            continue
+        if movement.get("_canonical_ledger"):
+            day = str(movement.get("effective_at") or "")[:10]
+            liters = _number(movement.get("liters"))
+            kind = str(movement.get("movement_type") or "")
+            if len(day) != 10 or liters <= 0:
+                continue
+            event_type = kind
+            delta = liters if _number(movement.get("direction")) > 0 else -liters
+            if kind == "receipt":
+                days[day]["recepciones"] += liters
+                event_type = "recepcion"
+            elif kind == "transfer_in":
+                days[day]["recibidos"] += liters
+                event_type = "traspaso_recibido"
+            elif kind == "transfer_out":
+                days[day]["enviados"] += liters
+                event_type = "traspaso_enviado"
+            elif kind in ("self_consumption", "manual_out"):
+                days[day]["autoconsumo"] += liters
+                event_type = "autoconsumo"
+            elif kind in ("sale", "legacy_sale"):
+                days[day]["ventas"] += liters
+                event_type = "venta"
+            else:
+                continue
+            days[day]["eventos"].append({
+                "fecha_hora": str(movement.get("effective_at") or day), "tipo": event_type,
+                "litros": liters, "delta": delta, "id": movement.get("id"),
+            })
+            if kind in ("transfer_in", "transfer_out"):
+                metadata = movement.get("metadata") if isinstance(movement.get("metadata"), dict) else {}
+                days[day]["traspasos"].append({
+                    "id": movement.get("source_id"), "litros": float(liters),
+                    "tipo": "recibido" if kind == "transfer_in" else "enviado",
+                    "control_fisico": metadata.get("transfer_physical_control") or {},
+                    "fecha_operacion": movement.get("effective_at"),
+                })
             continue
         day = str(movement.get("fecha_operacion") or movement.get("fecha") or movement.get("created_at") or "")[:10]
         liters = _number(movement.get("volumen_litros"))
