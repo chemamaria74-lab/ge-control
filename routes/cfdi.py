@@ -690,7 +690,9 @@ async def _upload_cfdi_impl(
             anio=int(periodo_inferido[:4]) if periodo_inferido else None,
             mes=int(periodo_inferido[5:7]) if periodo_inferido else None,
             capacidad_tanque=fac_capacidad,
-            capacidad_margen_pct=0.20,
+            # La capacidad SAT es la capacidad física configurada; no se infla
+            # con un margen operativo oculto.
+            capacidad_margen_pct=0.0,
             aplicar_ajuste_capacidad=False,
             inventario_final_medido=float(inventario_final) if inventario_final is not None else None,
             temperatura_medicion=temp_final,

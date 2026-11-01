@@ -1264,6 +1264,33 @@ async def update_initial_inventory(
     if get_closed_report(data_user_id, periodo, facility_id=facility_id, perfil_id=perfil_id):
         raise HTTPException(409, "El mes está cerrado y su inventario ya no se puede editar.")
     inventory = round(float(payload.inventory_liters), 4)
+    facility = get_facility(facility_id, data_user_id, perfil_id=perfil_id)
+    if not facility:
+        raise HTTPException(404, "La instalación seleccionada no existe.")
+    capacity = next((
+        value for value in (
+            _safe_float(facility.get("cap_total_tanque")),
+            _safe_float(facility.get("capacidad_tanque")),
+        ) if value > 0
+    ), None)
+    if capacity is None:
+        raise HTTPException(
+            409,
+            "Configura la capacidad total de la instalación antes de capturar su inventario inicial.",
+        )
+    if inventory > capacity:
+        raise HTTPException(
+            409,
+            {
+                "code": "INITIAL_INVENTORY_EXCEEDS_CAPACITY",
+                "message": (
+                    f"El inventario inicial de {inventory:,.2f} L supera la capacidad "
+                    f"configurada de {capacity:,.2f} L. Captura una lectura física válida."
+                ),
+                "inventory_liters": inventory,
+                "capacity_liters": capacity,
+            },
+        )
     if not set_report_initial_inventory(
         data_user_id, periodo, inventory, facility_id, perfil_id,
     ):
@@ -1401,7 +1428,9 @@ def _regenerate_history_report(
         anio=anio,
         mes=mes,
         capacidad_tanque=capacidad_tanque,
-        capacidad_margen_pct=0.20,
+        # SAT debe validar contra la capacidad física configurada. Un margen
+        # porcentual no aumenta el tamaño real del tanque.
+        capacidad_margen_pct=0.0,
         # La capacidad solo valida; nunca sustituye el inventario calculado.
         aplicar_ajuste_capacidad=False,
         # reports.vol_existencias es el resultado calculado del borrador anterior,
