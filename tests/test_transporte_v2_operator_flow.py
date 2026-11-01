@@ -48,11 +48,43 @@ def test_operator_trip_end_accepts_carta_porte_nested_schedule():
     assert scheduled.isoformat().startswith("2026-07-13T21:45:00")
 
 
+def test_scheduled_close_preserves_fiscal_status():
+    captured = {}
+
+    class FakeQuery:
+        def update(self, payload):
+            captured.update(payload)
+            return self
+        def eq(self, *_args): return self
+        def execute(self): return type("Result", (), {"data": []})()
+
+    class FakeSupabase:
+        def table(self, _name): return FakeQuery()
+
+    transporte_v2._close_operator_trip_on_schedule(FakeSupabase(), {
+        "id": 91,
+        "user_id": "admin-1",
+        "perfil_id": 9,
+        "status": "timbrado",
+        "fecha_hora_llegada": "2026-07-13T22:00:00-06:00",
+        "defaults_json": {},
+    })
+
+    assert "status" not in captured
+    assert captured["operacion_status"] == "cerrado"
+
+
+def test_legacy_finalizado_patch_targets_operational_status():
+    row = transporte_v2._legacy_trip_patch_row({"estatus": "finalizado"})
+    assert row == {"operacion_status": "cerrado"}
+
+
 def test_admin_can_finalize_active_operator_trip(monkeypatch):
     trip = {
         "id": 65,
         "user_id": "admin-1",
         "perfil_id": 9,
+        "status": "timbrado",
         "defaults_json": {
             "bitacora_operador": {
                 "estado": "EN_CURSO",
@@ -109,6 +141,8 @@ def test_admin_can_finalize_active_operator_trip(monkeypatch):
     assert result["bitacora"]["eventos"][-1]["accion"] == "FINALIZAR"
     assert result["bitacora"]["eventos"][-1]["origen_evento"] == "ADMINISTRACION"
     assert result["bitacora"]["eventos"][-1]["nota"] == "Corrección administrativa"
+    assert result["viaje"]["status"] == "timbrado"
+    assert result["viaje"]["operacion_status"] == "cerrado"
 
 
 def test_admin_cannot_finalize_trip_that_is_not_active(monkeypatch):
