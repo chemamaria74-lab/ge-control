@@ -152,8 +152,8 @@ class TestInventario:
         existencias = sat["Producto"][0]["ReporteDeVolumenMensual"]["ControlDeExistencias"]["VolumenExistenciasMes"]
         assert existencias == 0, "Inventario negativo debe clampear a 0"
 
-    def test_capacidad_excedida_genera_alarma(self):
-        """Inventario > capacidad del tanque → TipoEvento 7 + ajuste."""
+    def test_capacidad_excedida_no_manipula_existencias(self):
+        """Inventario > capacidad se reporta en meta, pero nunca se recorta."""
         movs = [_mov("entrada", 30000.0, uuid="CFDI-ENTRADA-0001")]
         sat, meta = build_sat_report(
             movimientos=movs,
@@ -162,10 +162,10 @@ class TestInventario:
             capacidad_tanque=20000.0,
             anio=2025, mes=1,
         )
-        assert meta["cap_applied"] is True
-        assert meta["vol_existencias_litros"] == 24000.0
+        assert meta["cap_applied"] is False
+        assert meta["vol_existencias_litros"] == 35000.0
         tipos_evento = [e["TipoEvento"] for e in sat["BitacoraMensual"]]
-        assert 7 in tipos_evento, "TipoEvento 7 debe aparecer cuando capacidad es excedida"
+        assert 7 not in tipos_evento
 
     def test_borrador_muestra_inventario_real_sin_recortar_capacidad(self):
         movs = [_mov("entrada", 30000.0, uuid="CFDI-ENTRADA-BORRADOR")]
@@ -496,7 +496,9 @@ class TestBitacora:
 
         evento_reporte = sat["BitacoraMensual"][-1]["DescripcionEvento"]
         assert "por movimiento cuando disponible" not in evento_reporte
-        assert "VCM:" in evento_reporte
+        assert "Apertura:" in evento_reporte
+        assert "Cierre calculado:" in evento_reporte
+        assert "Z-Control" not in evento_reporte
 
 
 class TestTemperaturaPorMovimiento:
