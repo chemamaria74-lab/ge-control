@@ -22,11 +22,7 @@ def _previous_month(month: str) -> str:
 
 
 def resolve_initial_inventory(user: dict, month: str, facility_id: int) -> dict:
-    """Usa apertura explícita, cierre oficial o cierre teórico recalculado.
-
-    Los imports del portal se hacen dentro de la función para conservar este
-    módulo libre de configuración y evitar ciclos al iniciar las rutas.
-    """
+    """Usa apertura explícita, cierre oficial o cierre teórico recalculado."""
     from routes.internal_users_mod.core import (
         _gas_lp_admin_facilities,
         _gas_lp_inventory_adjustments,
