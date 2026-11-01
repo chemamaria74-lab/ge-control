@@ -537,7 +537,9 @@ def set_report_initial_inventory(user_id: str, periodo: str, inventory_liters: f
                 return False
             receptions = float(report.get("total_recepciones") or 0)
             deliveries = float(report.get("total_entregas") or 0)
-            final_inventory = max(0.0, inventory_liters + receptions - deliveries)
+            # Conserva el resultado matemático. Llevarlo silenciosamente a cero
+            # ocultaría recepciones faltantes o una apertura incorrecta.
+            final_inventory = inventory_liters + receptions - deliveries
             (get_supabase_admin().table("reports")
              .update({
                  "inventario_inicial": inventory_liters,

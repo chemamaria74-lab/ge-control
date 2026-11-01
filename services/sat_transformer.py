@@ -292,7 +292,7 @@ def build_sat_report(
     anio: Optional[int] = None,
     mes:  Optional[int] = None,
     capacidad_tanque: Optional[float] = None,
-    capacidad_margen_pct: float = 0.20,
+    capacidad_margen_pct: float = 0.0,
     aplicar_ajuste_capacidad: bool = False,
     inventario_final_medido: Optional[float] = None,
     temperatura_medicion: float = 20.0,
