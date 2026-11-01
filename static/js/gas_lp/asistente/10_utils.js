@@ -298,8 +298,10 @@ async function loadAssistantStationControl(options={}){
       const tone = negative || overCapacity ? '#991b1b' : '#166534';
       const msg = negative ? 'El cálculo está en negativo: registra las ventas o el traspaso recibido que esté pendiente.' : overCapacity ? 'El inventario teórico supera la capacidad configurada; revisa los registros pendientes.' : 'Inventario teórico dentro del rango esperado. Revisa la línea por día para ver ventas y recibidos.';
       const initialSource = s.inventario_inicial_fuente === 'previous_closed_report'
-        ? `cierre de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
-        : 'capturado para el mes';
+        ? `cierre oficial de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
+        : s.inventario_inicial_fuente === 'previous_calculated_report'
+          ? `cierre teórico recalculado de ${s.inventario_inicial_mes_fuente || 'mes anterior'}`
+          : 'capturado para el mes';
       const detail = assistantStationChart(s.dias) + assistantStationDailyTable(s.dias);
       return `<div class="card" style="margin-bottom:10px;border-left:4px solid ${tone}"><b>${esc(s.nombre)}</b><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px"><div><small class="muted">Inventario teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationLiters(s.inventario)}</b></div><div><small class="muted">Nivel teórico</small><br><b style="${Number(s.inventario)<0?'color:#dc2626':''}">${assistantStationPercent(s.inventario,s.capacidad)}</b></div><div><small class="muted">Capacidad</small><br><b>${assistantStationLiters(s.capacidad)}</b></div><div><small class="muted">Puedes recibir</small><br><b>${assistantStationLiters(s.disponible)}</b></div></div><div class="muted" style="margin-top:8px;font-size:12px">Inventario inicial: <b>${assistantStationLiters(s.inventario_inicial)}</b> (${esc(initialSource)}). Estimación calculada con los movimientos registrados; no es una medición física del tanque.</div><div style="margin-top:6px;color:${tone};font-weight:800;font-size:13px">${esc(msg)}</div>${detail}</div>`;
     }).join('');
@@ -325,10 +327,10 @@ function assistantStationPhysicalTable(station){
     const driverLiters = driverCaptured ? Number(c.litros_declarados) : null;
     const cfdiLiters = Number(c.litros_cfdi || 0);
     const declaredDifference = driverCaptured ? driverLiters - cfdiLiters : null;
-    const differenceColor = !driverCaptured ? '#92400e' : (Math.abs(declaredDifference) > 0.01 ? '#b91c1c' : '#166534');
+    const differenceColor = !driverCaptured ? '#64748b' : (Math.abs(declaredDifference) > 0.01 ? '#b91c1c' : '#166534');
     const signed = raw => raw === null || raw === undefined ? '—' : `${raw > 0 ? '+' : ''}${Number(raw).toLocaleString('es-MX',{maximumFractionDigits:2})}`;
-    const driverCell = driverCaptured ? value(driverLiters) : '<span style="color:#92400e;font-weight:800">No verificable (legado)</span>';
-    const differenceCell = driverCaptured ? `${signed(declaredDifference)} L` : 'Sin dato independiente';
+    const driverCell = driverCaptured ? value(driverLiters) : '<span style="color:#64748b;font-weight:800">NA</span>';
+    const differenceCell = driverCaptured ? `${signed(declaredDifference)} L` : 'NA';
     return `<tr><td>${esc(day.fecha || '')}</td><td>${value(c.antes_pct, '%')}</td><td>${value(beforeLiters)}</td><td>${value(c.despues_pct, '%')}</td><td>${value(afterLiters)}</td><td>${driverCell}</td><td>${value(c.litros_cfdi)}</td><td style="font-weight:800;color:${differenceColor}">${differenceCell}</td><td>${value(theoretical)}</td><td style="font-weight:800">${assistantStationPercent(theoretical,capacity)}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
