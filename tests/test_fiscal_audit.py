@@ -91,6 +91,10 @@ def test_record_pac_response_marks_success_error_and_cancel_ack(monkeypatch):
     assert rows[0]["status"] == "ok"
     assert rows[0]["uuid_sat"] == "UUID-1"
     assert rows[0]["xml_timbrado"] == "<xml/>"
+    compact_cfdi = rows[0]["response_payload"]["data"]["cfdi"]
+    assert compact_cfdi["stored_in_dedicated_xml_column"] is True
+    assert compact_cfdi["bytes"] == len("<xml/>".encode("utf-8"))
+    assert "<xml/>" not in str(rows[0]["response_payload"])
     assert err_id == 2
     assert rows[1]["status"] == "error"
     assert rows[1]["error_message"] == "PAC rechazado"
@@ -119,6 +123,24 @@ def test_version_xml_increments_per_entity(monkeypatch):
     assert row["uuid_sat"] == "UUID-9"
     assert row["created_by"] == "user-1"
     assert row["xml_hash"]
+
+
+def test_version_xml_skips_identical_consecutive_content(monkeypatch):
+    fake = _FakeSupabase()
+    content = "<cfdi UUID='same'/>"
+    digest = fiscal_audit.hashlib.sha256(content.encode("utf-8")).hexdigest()
+    fake.db["xml_versions"] = [{
+        "module": "gas_lp", "entity_type": "factura", "entity_id": "9",
+        "xml_kind": "timbrado", "version": 2, "xml_hash": digest,
+    }]
+    monkeypatch.setattr(fiscal_audit, "get_supabase_admin", lambda: fake)
+
+    fiscal_audit.version_xml(
+        module="gas_lp", entity_type="factura", entity_id="9",
+        xml_content=content,
+    )
+
+    assert len(fake.db["xml_versions"]) == 1
 
 
 def test_audit_fiscal_pdf_event_records_download_or_generation():
