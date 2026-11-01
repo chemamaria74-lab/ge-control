@@ -68,6 +68,7 @@ class AutoconsumoPayload(BaseModel):
     tipo_movimiento:   str   = "autoconsumo"
     descripcion:       str   = ""
     facility_id:       Optional[int] = None
+    cantidad_unidades: int = 1
     temperatura:       float = 20.0
     presion_absoluta:  float = 101.325
 
@@ -160,6 +161,8 @@ async def registrar_autoconsumo(
 
     if volumen_litros <= 0:
         raise HTTPException(400, "El volumen debe ser mayor a 0.")
+    if payload.cantidad_unidades <= 0:
+        raise HTTPException(400, "La cantidad de camionetas debe ser mayor a 0.")
     try:
         fecha_dt = datetime.fromisoformat(str(payload.fecha).replace("Z", "+00:00"))
     except ValueError:
@@ -198,6 +201,7 @@ async def registrar_autoconsumo(
             "importe":            0.0,
             "file_path":          f"manual:{payload.tipo_movimiento}",
             "es_autoconsumo":     True,
+            "unidades_autoconsumo": payload.cantidad_unidades,
             "created_at":         now,
         }
         row["perfil_id"] = perfil_id
@@ -226,6 +230,7 @@ async def registrar_autoconsumo(
         "tipo_evento_sat": TIPO_EVENTO_AUTOCONSUMO,   # 4 (entrega sin CFDI)
         "descripcion_sat": DESC_AUTOCONSUMO,
         "record_id":       saved_record.get("id"),
+        "cantidad_unidades": payload.cantidad_unidades,
         "message": (
             f"{payload.tipo_movimiento.capitalize()} de {volumen_litros:,.2f} L "
             f"registrado correctamente. Se incluirá en el próximo reporte mensual "

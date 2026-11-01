@@ -1402,7 +1402,8 @@ def _regenerate_history_report(
         mes=mes,
         capacidad_tanque=capacidad_tanque,
         capacidad_margen_pct=0.20,
-        aplicar_ajuste_capacidad=not preserve_capacity_excess,
+        # La capacidad solo valida; nunca sustituye el inventario calculado.
+        aplicar_ajuste_capacidad=False,
         # reports.vol_existencias es el resultado calculado del borrador anterior,
         # no una lectura física capturada. Reutilizarlo como "medido" congelaba el
         # inventario aunque después se agregara autoconsumo u otro movimiento.
