@@ -87,3 +87,19 @@ def test_accepted_physical_close_recalculates_following_days():
     assert ledger["days"][0]["inventario_final"] == 850.0
     assert ledger["days"][1]["inventario_inicio"] == 850.0
     assert ledger["days"][1]["inventario_final"] == 800.0
+
+
+def test_canonical_ledger_is_the_only_source_when_available():
+    canonical = [
+        {"id": 1, "source_id": 10, "facility_id": 7, "effective_at": "2026-08-01T08:00:00-06:00", "movement_type": "receipt", "direction": 1, "liters": 600, "_canonical_ledger": True},
+        {"id": 2, "source_id": 11, "facility_id": 7, "effective_at": "2026-08-01T12:00:00-06:00", "movement_type": "self_consumption", "direction": -1, "liters": 100, "_canonical_ledger": True},
+        {"id": 3, "source_id": 12, "facility_id": 7, "effective_at": "2026-08-01T18:00:00-06:00", "movement_type": "sale", "direction": -1, "liters": 200, "_canonical_ledger": True},
+    ]
+    ledger = build_station_ledger(
+        facility=_station(), invoices=[_sale("2026-08-01", 200)],
+        movements=canonical, initial_inventory=1000,
+    )
+    assert ledger["current_inventory"] == 1300.0
+    assert ledger["days"][0]["recepciones"] == 600.0
+    assert ledger["days"][0]["autoconsumo"] == 100.0
+    assert ledger["days"][0]["ventas"] == 200.0
