@@ -1,6 +1,7 @@
     <section id="panel-facturacion" class="tab-panel active">
       <nav class="subtabs" aria-label="Flujo de facturación">
         <button class="subtab-btn active" id="billing-tab-facturar" type="button" onclick="switchBillingTab('facturar')"><i class="fa-solid fa-stamp"></i> Facturar</button>
+        <button class="subtab-btn" id="billing-tab-autoconsumo" type="button" onclick="switchBillingTab('autoconsumo')"><i class="fa-solid fa-gas-pump"></i> Autoconsumo</button>
         <button class="subtab-btn" id="billing-tab-facturas" type="button" onclick="switchBillingTab('facturas')"><i class="fa-solid fa-file-invoice"></i> Facturas</button>
         <button class="subtab-btn" id="billing-tab-complementos" type="button" onclick="switchBillingTab('complementos')"><i class="fa-solid fa-receipt"></i> Complementos de pago</button>
       </nav>
@@ -115,6 +116,37 @@
         <div class="table-wrap today-table-wrap"><table class="mini-table today-table"><thead><tr><th class="today-time">Hora</th><th class="today-client">Cliente</th><th class="today-total">Total</th><th class="today-pay">Pago</th><th class="today-docs">Docs</th></tr></thead><tbody id="todayFacturasRows"><tr><td colspan="5">Presiona Cargar para consultar los documentos realizados hoy.</td></tr></tbody></table></div>
       </div>
     </div>
+    </div>
+    <div id="billing-panel-autoconsumo" class="billing-subpanel">
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>Registrar autoconsumo</h2>
+            <p class="muted" style="margin:4px 0 0">Salida de gas para uso propio. No genera CFDI ni reserva folio; sí descuenta inventario y se incluye en los reportes SAT.</p>
+          </div>
+          <span class="pill warn"><i class="fa-solid fa-circle-info"></i> Sin timbrado</span>
+        </div>
+        <input id="autoconsumoFacility" type="hidden">
+        <div class="form-grid">
+          <div><label>Cantidad de litros *</label><input id="autoconsumoLitros" type="number" min="0.0001" step="0.0001" placeholder="Ej. 250.00"></div>
+          <div><label>Fecha y hora *</label><input id="autoconsumoFecha" type="datetime-local"></div>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn" id="btnGuardarAutoconsumo" type="button" onclick="guardarAutoconsumo()"><i class="fa-solid fa-plus"></i> Agregar autoconsumo</button>
+          <button class="btn ghost" type="button" onclick="limpiarAutoconsumo()"><i class="fa-solid fa-eraser"></i> Limpiar</button>
+          <span id="autoconsumoMsg" class="status" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="section-title">
+          <div><h2>Autoconsumos del mes</h2><p class="muted" style="margin:4px 0 0">Movimientos capturados para la empresa asignada.</p></div>
+          <div class="toolbar">
+            <input id="autoconsumoMes" type="month" aria-label="Mes de autoconsumos" onchange="cargarAutoconsumos()">
+            <button class="btn ghost" type="button" onclick="cargarAutoconsumos()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Motivo</th><th>UUID interno</th></tr></thead><tbody id="autoconsumoRows"><tr><td colspan="5">Abre esta pestaña para consultar los autoconsumos.</td></tr></tbody></table></div>
+      </div>
     </div>
     <!-- ge-include: gas_lp/asistente/_facturas.html -->
     <div id="billing-panel-complementos" class="billing-subpanel">
