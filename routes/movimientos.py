@@ -194,7 +194,7 @@ async def registrar_autoconsumo(
             "volumen_litros":     round(volumen_litros, 4),
             "uuid":               uuid_sintetico,
             "rfc_contraparte":    payload.rfc_contribuyente.upper().strip(),
-            "nombre_contraparte": f"AUTOCONSUMO — {payload.tipo_movimiento.upper()}",
+            "nombre_contraparte": f"AUTOCONSUMO — {descripcion_completa}",
             "importe":            0.0,
             "file_path":          f"manual:{payload.tipo_movimiento}",
             "es_autoconsumo":     True,
