@@ -19,14 +19,18 @@ function prepararAutoconsumo(){
   if(!select) return;
   const billingFacility = document.getElementById('facilitySelect')?.value;
   const assigned = (FACILITIES || []).filter(item => item?.id);
-  select.value = billingFacility || select.value || assigned[0]?.id || '';
+  const previous = select.value;
+  select.innerHTML = '<option value="">Selecciona instalación</option>' + assigned.map(item => `<option value="${esc(item.id)}">${esc(item.nombre || item.name || `Instalación ${item.id}`)}</option>`).join('');
+  select.value = billingFacility || previous || (assigned.length === 1 ? assigned[0].id : '');
   if(!autoconsumoFecha.value) autoconsumoFecha.value = localDateTimeValue();
+  autoconsumoUnidades.value = autoconsumoUnidades.value || '1';
   if(!autoconsumoMes.value) autoconsumoMes.value = todayKey().slice(0,7);
   cargarAutoconsumos();
 }
 
 function limpiarAutoconsumo(){
   autoconsumoLitros.value = '';
+  autoconsumoUnidades.value = '1';
   autoconsumoFecha.value = localDateTimeValue();
   setStatus('autoconsumoMsg', '', true);
 }
@@ -34,9 +38,10 @@ function limpiarAutoconsumo(){
 async function guardarAutoconsumo(){
   const facilityId = Number(autoconsumoFacility.value || 0);
   const liters = Number(autoconsumoLitros.value || 0);
+  const units = Number(autoconsumoUnidades.value || 0);
   const effectiveAt = String(autoconsumoFecha.value || '').trim();
-  if(!facilityId || liters <= 0 || !effectiveAt){
-    setStatus('autoconsumoMsg', 'Captura la cantidad de litros y la fecha/hora.', false);
+  if(!facilityId || liters <= 0 || units <= 0 || !effectiveAt){
+    setStatus('autoconsumoMsg', 'Selecciona instalación y captura litros, camionetas y fecha/hora.', false);
     return;
   }
   if(!autoconsumoPerfilId()){
@@ -58,10 +63,12 @@ async function guardarAutoconsumo(){
         tipo_movimiento: 'autoconsumo',
         descripcion: 'Autoconsumo',
         facility_id: facilityId,
+        cantidad_unidades: units,
       }),
     });
     setStatus('autoconsumoMsg', `Autoconsumo registrado: ${Number(response.volumen_litros || liters).toLocaleString('es-MX')} L. No se timbró CFDI.`, true);
     autoconsumoLitros.value = '';
+    autoconsumoUnidades.value = '1';
     await cargarAutoconsumos();
   }catch(error){
     setStatus('autoconsumoMsg', error.message || 'No se pudo registrar el autoconsumo.', false);
@@ -81,8 +88,8 @@ async function cargarAutoconsumos(){
     body.innerHTML = rows.map(row => {
       const effective = row.fecha_operacion || row.fecha || '—';
       const displayDate = String(effective).replace('T', ' ').slice(0,16);
-      const reason = String(row.nombre_contraparte || '').replace(/^AUTOCONSUMO\s*[—-]?\s*/i, '') || 'Autoconsumo';
-      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(reason)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
+      const units = Number(row.unidades_autoconsumo || 1).toLocaleString('es-MX');
+      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
     }).join('') || '<tr><td colspan="5">Sin autoconsumos en este mes.</td></tr>';
   }catch(error){
     body.innerHTML = `<tr><td colspan="5">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;

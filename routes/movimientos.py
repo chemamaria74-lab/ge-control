@@ -120,6 +120,28 @@ def _scope(user_id: str, token: str, raw: str) -> dict:
     return resolve_profile_scope(user_id, "gas_lp", perfil_id, access_token=token)
 
 
+def _movement_scope(authorization: str, raw_perfil_id: str, *, write: bool = False) -> dict:
+    """Acepta JWT de administrador y el token opaco del Portal de Asistentes."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No autenticado.")
+    token = authorization[7:]
+    request_user_id = verify_token(token)
+    if request_user_id:
+        return _scope(request_user_id, token, raw_perfil_id)
+
+    from routes.internal_users_mod.core import _gas_lp_internal_context
+    ctx = _gas_lp_internal_context(token, write=write)
+    user = ctx["user"]
+    owner_user_id = str(user.get("owner_user_id") or "").strip()
+    perfil_id = int(user.get("perfil_id") or 0)
+    if not owner_user_id or perfil_id <= 0:
+        raise HTTPException(403, "La sesión no tiene una empresa Gas LP asignada.")
+    requested = _parse_perfil_id(raw_perfil_id)
+    if requested and requested != perfil_id:
+        raise HTTPException(403, "La empresa solicitada no corresponde a esta sesión.")
+    return {"data_user_id": owner_user_id, "perfil_id": perfil_id, "internal_user": user}
+
+
 def _require_scope_facility(user_id: str, perfil_id: int, facility_id: Optional[int]) -> None:
     if facility_id is None:
         return
@@ -145,8 +167,7 @@ async def registrar_autoconsumo(
     authorization: str = Header(default=""),
     x_perfil_id:   str = Header(default=""),
 ):
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
+    scope = _movement_scope(authorization, x_perfil_id, write=True)
     user_id = scope["data_user_id"]
     perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, payload.facility_id)
@@ -246,8 +267,7 @@ async def listar_autoconsumos(
     authorization: str           = Header(default=""),
     x_perfil_id:   str           = Header(default=""),
 ):
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
+    scope = _movement_scope(authorization, x_perfil_id)
     user_id = scope["data_user_id"]
     perfil_id = scope["perfil_id"]
     _require_scope_facility(user_id, perfil_id, facility_id)
@@ -281,8 +301,7 @@ async def eliminar_autoconsumo(
     x_perfil_id:   str = Header(default=""),
 ):
     """Elimina un registro de autoconsumo (solo si fue creado manualmente)."""
-    request_user_id, token = _auth(authorization)
-    scope = _scope(request_user_id, token, x_perfil_id)
+    scope = _movement_scope(authorization, x_perfil_id, write=True)
     user_id = scope["data_user_id"]
     perfil_id = scope["perfil_id"]
     try:
