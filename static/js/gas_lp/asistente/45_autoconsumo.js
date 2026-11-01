@@ -14,7 +14,7 @@ function autoconsumoFacilityName(id){
   return facility?.nombre || facility?.name || `Instalación ${id || '—'}`;
 }
 
-function prepararAutoconsumo(){
+function prepararAutoconsumo(options={}){
   const select = document.getElementById('autoconsumoFacility');
   if(!select) return;
   const billingFacility = document.getElementById('facilitySelect')?.value;
@@ -25,7 +25,7 @@ function prepararAutoconsumo(){
   if(!autoconsumoFecha.value) autoconsumoFecha.value = localDateTimeValue();
   autoconsumoUnidades.value = autoconsumoUnidades.value || '1';
   if(!autoconsumoMes.value) autoconsumoMes.value = todayKey().slice(0,7);
-  cargarAutoconsumos();
+  if(options.loadRows !== false) cargarAutoconsumos();
 }
 
 function limpiarAutoconsumo(){
