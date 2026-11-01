@@ -121,7 +121,13 @@ def _scope(user_id: str, token: str, raw: str) -> dict:
 
 
 def _movement_scope(authorization: str, raw_perfil_id: str, *, write: bool = False) -> dict:
-    """Acepta JWT de administrador y el token opaco del Portal de Asistentes."""
+    """Acepta tanto sesiones Supabase de administrador como sesiones internas.
+
+    El Portal de Asistentes usa un token opaco de ``internal_user_sessions``;
+    no es un JWT de Supabase. Intentar validarlo exclusivamente con
+    ``verify_token`` hacía que Autoconsumo respondiera 401 aunque la sesión del
+    portal siguiera activa.
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
     token = authorization[7:]
@@ -129,7 +135,9 @@ def _movement_scope(authorization: str, raw_perfil_id: str, *, write: bool = Fal
     if request_user_id:
         return _scope(request_user_id, token, raw_perfil_id)
 
+    # Importación diferida para evitar un ciclo durante el registro de routers.
     from routes.internal_users_mod.core import _gas_lp_internal_context
+
     ctx = _gas_lp_internal_context(token, write=write)
     user = ctx["user"]
     owner_user_id = str(user.get("owner_user_id") or "").strip()
@@ -139,7 +147,11 @@ def _movement_scope(authorization: str, raw_perfil_id: str, *, write: bool = Fal
     requested = _parse_perfil_id(raw_perfil_id)
     if requested and requested != perfil_id:
         raise HTTPException(403, "La empresa solicitada no corresponde a esta sesión.")
-    return {"data_user_id": owner_user_id, "perfil_id": perfil_id, "internal_user": user}
+    return {
+        "data_user_id": owner_user_id,
+        "perfil_id": perfil_id,
+        "internal_user": user,
+    }
 
 
 def _require_scope_facility(user_id: str, perfil_id: int, facility_id: Optional[int]) -> None:
