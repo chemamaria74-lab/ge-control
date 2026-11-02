@@ -137,12 +137,16 @@ function facturaDateKey(f){
   return mexicoDateKey(value) || String(value || '').slice(0,10);
 }
 function facturaRealizadaDateKey(f){
-  const value = f?.fecha_timbrado || f?.created_at || '';
-  return mexicoDateKey(value) || wallClockDateParts(value).date || String(value).slice(0,10);
+  const stamped = f?.fecha_timbrado || '';
+  if(stamped) return wallClockDateParts(stamped).date || mexicoDateKey(stamped) || String(stamped).slice(0,10);
+  const created = f?.created_at || '';
+  return mexicoDateKey(created) || wallClockDateParts(created).date || String(created).slice(0,10);
 }
 function facturaRealizadaTimeLabel(f){
-  const value = f?.fecha_timbrado || f?.created_at || '';
-  return mexicoTimeLabel(value) || wallClockDateParts(value).time || '—';
+  const stamped = f?.fecha_timbrado || '';
+  if(stamped) return wallClockDateParts(stamped).time || mexicoTimeLabel(stamped) || '—';
+  const created = f?.created_at || '';
+  return mexicoTimeLabel(created) || wallClockDateParts(created).time || '—';
 }
 function facturaFolioLabel(f){
   const md = f?.metadata || {};
