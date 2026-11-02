@@ -68,6 +68,7 @@ async function loadFacturas(month='', opts={}){
     + (descuentos ? '&descuentos=1' : '')
     + (cartaPorte ? '&carta_porte=1' : '')
     + (realizadasFecha ? '&realizadas_fecha=' + encodeURIComponent(realizadasFecha) : '')
+    + ((!complementos && !credito && !descuentos && !cartaPorte && !realizadasFecha) ? '&criterio_fecha=timbrado' : '')
     + (allMonth ? '&all_month=1' : '')
     + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '');
   const cacheKey = qs;
@@ -557,7 +558,7 @@ function facturaView(f){
     const emailDoc = !isCartaPorte && f.id && hasDocs ? `<button class="btn ghost doc-email" type="button" title="Enviar correo" aria-label="Enviar correo" onclick="openEmailModal('${esc(String(f.id))}')"><i class="fa-solid fa-envelope"></i> Enviar correo</button>` : '';
     const docsHint = '';
     const docs = f.id && hasDocs ? `<div class="doc-actions"><a class="btn ghost doc-square" title="Descargar PDF" aria-label="Descargar PDF" href="/api/internal-auth/gas-lp/facturas/${id}/pdf?download=true&${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-pdf"></i> PDF</a><a class="btn ghost doc-square" title="Descargar XML" aria-label="Descargar XML" href="/api/internal-auth/gas-lp/facturas/${id}/xml?${q}" target="_blank" rel="noopener"><i class="fa-solid fa-file-code"></i> XML</a>${emailDoc}${compDoc}</div>${docsHint}` : '<span class="muted">Pendiente</span>';
-    const fechaValue = facturaDateValue(f) || '';
+    const fechaValue = f.fecha_timbrado || f.created_at || facturaDateValue(f) || '';
     const litrosValue = isCartaPorte ? cartaPorteLitrosValue(f) : Number(info.litros ?? f.volumen_litros ?? md.litros ?? 0);
     const totalValue = isCartaPorte ? 0 : (info.total ?? md.total ?? (Number(f.importe||0)*1.16));
     return {
@@ -661,7 +662,7 @@ function applyFacturasFilters(){
   const tipo = document.getElementById('facturaTipo')?.value || '';
   const rows = fiscalDocumentRows().filter(f => {
     const isComp = f.__kind === 'complemento';
-    const key = isComp ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaDateKey(f);
+    const key = isComp ? mexicoDateKey(f.fecha_timbrado || f.fecha_pago) : facturaRealizadaDateKey(f);
     const v = isComp ? complementoView(f) : facturaView(f);
     const clientKey = isComp ? String(f.cliente || f.rfc_receptor || 'SIN CLIENTE').trim().toUpperCase() : facturaClientKey(f);
     const md = f.metadata || {};
