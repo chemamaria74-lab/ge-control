@@ -1612,46 +1612,68 @@ async function loadHistorial() {
                          (data.salidas  && data.salidas.length  > 0);
     histImpEl.style.display = (hasReport || hayRegistros) ? 'grid' : 'none';
 
-    // Tabla entradas
+    // Selección y baja lógica de entradas del mes.
     const tbE = document.getElementById('tbodyEntradas');
     tbE.innerHTML = '';
-    if ((data.entradas||[]).length === 0) {
-      tbE.innerHTML = '<tr><td colspan="5" class="hist-empty">Sin registros de entradas para este periodo.</td></tr>';
-    } else {
-      (data.entradas || []).forEach(r => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${displayDate(r.fecha)}</td><td>${r.rfc_contraparte||''}</td>` +
-          `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
-          `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
-          `<td style="text-align:right">$${fmt(r.importe)}</td>`;
-        const actions = document.createElement('td');
-        if (!_histMonthClosed && /^\d+$/.test(String(r.id || ''))) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'btn-icon';
-          button.textContent = 'Corregir mes';
-          button.onclick = async () => {
-            const target = prompt('Mes correcto (AAAA-MM). Si el XML ya existe allí, se conserva una sola entrada activa.', String(r.fecha || '').slice(0,7));
-            if (!target) return;
-            if (!/^\d{4}-\d{2}$/.test(target)) { alert('Usa el formato AAAA-MM.'); return; }
-            if (!confirm(`¿Corregir esta entrada de ${periodo} a ${target}?`)) return;
-            button.disabled = true;
-            try {
-              const response = await fetch(`/api/history/${periodo}/receipts/${r.id}/period`, {
-                method: 'PUT', headers: {...authHeader(), 'Content-Type':'application/json'},
-                body: JSON.stringify({target_period:target}),
-              });
-              const result = await response.json();
-              if (!response.ok) throw new Error(result.detail || 'No se pudo corregir.');
-              await loadHistorial();
-            } catch (error) { alert(error.message); button.disabled = false; }
-          };
-          actions.appendChild(button);
-        }
-        tr.appendChild(actions);
-        tbE.appendChild(tr);
+    const selectedReceipts = new Set();
+    const removeSelected = document.getElementById('receiptRemoveSelected');
+    const selectAll = document.getElementById('receiptSelectAll');
+    const syncReceipts = () => {
+      removeSelected.hidden = !selectedReceipts.size;
+      removeSelected.textContent = `Eliminar seleccionadas (${selectedReceipts.size})`;
+    };
+    const removeReceipts = async ids => {
+      if (!confirm(`¿Quitar ${ids.length} entrada(s) de ${periodo}? Se actualizarán los totales y se conservará el historial.`)) return;
+      removeSelected.disabled = true;
+      try {
+        const response = await fetch(`/api/history/${periodo}/receipts/remove`, {
+          method:'POST', headers:{...authHeader(), 'Content-Type':'application/json'},
+          body:JSON.stringify({record_ids:ids}),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'No se pudo eliminar.');
+        await loadHistorial();
+      } catch(error) { alert(error.message); }
+      finally { removeSelected.disabled = false; }
+    };
+    removeSelected.onclick = () => removeReceipts([...selectedReceipts]);
+    selectAll.checked = false;
+    selectAll.disabled = _histMonthClosed;
+    selectAll.onchange = () => {
+      tbE.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.checked = selectAll.checked;
+        if(cb.checked) selectedReceipts.add(Number(cb.value)); else selectedReceipts.delete(Number(cb.value));
       });
-    }
+      syncReceipts();
+    };
+    syncReceipts();
+    if (!(data.entradas||[]).length) tbE.innerHTML = '<tr><td colspan="7" class="hist-empty">Sin registros de entradas para este periodo.</td></tr>';
+    (data.entradas || []).forEach(r => {
+      const tr = document.createElement('tr');
+      const selectable = !_histMonthClosed && /^\d+$/.test(String(r.id || ''));
+      tr.innerHTML = `<td></td><td>${displayDate(r.fecha)}</td><td>${r.rfc_contraparte||''}</td>` +
+        `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
+        `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
+        `<td style="text-align:right">$${fmt(r.importe)}</td><td></td>`;
+      if(selectable){
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.value = r.id;
+        checkbox.setAttribute('aria-label','Seleccionar entrada');
+        checkbox.onchange = () => {
+          if(checkbox.checked) selectedReceipts.add(Number(r.id)); else selectedReceipts.delete(Number(r.id));
+          syncReceipts();
+        };
+        tr.firstElementChild.appendChild(checkbox);
+        const button = document.createElement('button');
+        button.type='button'; button.title='Eliminar entrada del mes';
+        button.setAttribute('aria-label',button.title);
+        button.style.cssText='border:0;border-radius:8px;background:#fff1f2;color:#be123c;padding:8px 10px;cursor:pointer';
+        button.innerHTML='<i class="fa-solid fa-trash-can" aria-hidden="true"></i>';
+        button.onclick=()=>removeReceipts([Number(r.id)]);
+        tr.lastElementChild.appendChild(button);
+      }
+      tbE.appendChild(tr);
+    });
 
     // Tabla salidas
     const tbS = document.getElementById('tbodySalidas');
