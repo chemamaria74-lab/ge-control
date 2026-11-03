@@ -85,6 +85,28 @@ async def correct_receipt_period(periodo: str, record_id: int, payload: ReceiptP
 
 
 
+class RemoveReceiptsPayload(BaseModel):
+    record_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+@router.post("/history/{periodo}/receipts/remove")
+async def remove_receipts(periodo: str, payload: RemoveReceiptsPayload,
+                          authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    profile = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", profile, access_token=token)
+    owner = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    try:
+        return get_supabase_admin().rpc("gas_lp_remove_receipts", {
+            "p_owner": str(owner), "p_profile": profile, "p_period": periodo,
+            "p_ids": list(set(payload.record_ids)), "p_actor": str(uid),
+        }).execute().data
+    except Exception:
+        logger.exception("receipt_remove_failed period=%s", periodo)
+        raise HTTPException(409, "No se pudieron quitar las entradas. Actualiza el reporte y verifica que el mes esté abierto.")
+
+
 class InventoryAdjustmentPayload(BaseModel):
     facility_id: int = Field(gt=0)
     fecha: str = Field(min_length=10, max_length=10)
