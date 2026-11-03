@@ -11,8 +11,8 @@ let MONTH_OVERRIDE='';
 const month=()=>MONTH_OVERRIDE||periodoFiltro.value||today().slice(0,7);
 const localDateTimeValue=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 function dateDMY(value){const s=mexicoDateKey(value)||String(value||'').slice(0,10);const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[3]}/${m[2]}/${m[1]}`:s}
-function facturaDateValue(f){const md=f?.metadata||{};return md.fecha_emision||md.fecha_cfdi||f?.fecha_timbrado||f?.created_at||''}
-function facturaDateKey(f){const value=f?.fecha_factura_key||facturaDateValue(f)||'';return mexicoDateKey(value)||String(value).slice(0,10)}
+function facturaDateValue(f){const md=f?.metadata||{};return f?.fecha_timbrado||f?.created_at||md.fecha_emision||md.fecha_cfdi||''}
+function facturaDateKey(f){const value=facturaDateValue(f)||'';return String(value).slice(0,10)}
 function facturaTimeLabel(f){const v=facturaDateValue(f)||'';const date=dateDMY(v);const time=mexicoTimeLabel(v);return time?`${date} ${time}`:date}
 function api(path,opts={},withPerfil=true){let url=path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(token);if(withPerfil&&activePerfilId)url+='&perfil_id='+encodeURIComponent(activePerfilId);return fetch(url,{...opts,cache:'no-store',headers:{...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok){const err=new Error(d.detail||d.message||'No fue posible completar.');err.status=r.status;throw err}return d})}
 const CONCILIACION_WORKSPACE_BY_TAB={dashboard:'resumen',facturas:'facturacion',publico:'facturacion',complementos:'facturacion',credito:'control',descuentos:'control',sat:'control',clientes:'control'};
