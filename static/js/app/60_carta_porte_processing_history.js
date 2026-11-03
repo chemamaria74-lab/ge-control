@@ -1647,14 +1647,14 @@ async function loadHistorial() {
       syncReceipts();
     };
     syncReceipts();
-    if (!(data.entradas||[]).length) tbE.innerHTML = '<tr><td colspan="7" class="hist-empty">Sin registros de entradas para este periodo.</td></tr>';
+    if (!(data.entradas||[]).length) tbE.innerHTML = '<tr><td colspan="6" class="hist-empty">Sin registros de entradas para este periodo.</td></tr>';
     (data.entradas || []).forEach(r => {
       const tr = document.createElement('tr');
       const selectable = !_histMonthClosed && /^\d+$/.test(String(r.id || ''));
       tr.innerHTML = `<td></td><td>${displayDate(r.fecha)}</td><td>${r.rfc_contraparte||''}</td>` +
         `<td title="${r.uuid||''}">${truncUUID(r.uuid)}</td>` +
         `<td style="text-align:right">${fmt(r.volumen_litros)}</td>` +
-        `<td style="text-align:right">$${fmt(r.importe)}</td><td></td>`;
+        `<td style="text-align:right">$${fmt(r.importe)}</td>`;
       if(selectable){
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox'; checkbox.value = r.id;
@@ -1664,13 +1664,7 @@ async function loadHistorial() {
           syncReceipts();
         };
         tr.firstElementChild.appendChild(checkbox);
-        const button = document.createElement('button');
-        button.type='button'; button.title='Eliminar entrada del mes';
-        button.setAttribute('aria-label',button.title);
-        button.style.cssText='border:0;border-radius:8px;background:#fff1f2;color:#be123c;padding:8px 10px;cursor:pointer';
-        button.innerHTML='<i class="fa-solid fa-trash-can" aria-hidden="true"></i>';
-        button.onclick=()=>removeReceipts([Number(r.id)]);
-        tr.lastElementChild.appendChild(button);
+
       }
       tbE.appendChild(tr);
     });
