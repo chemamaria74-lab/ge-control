@@ -237,6 +237,8 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             user,
             profile,
             month=month,
+            month_by_stamped=True,
+            fetch_all=True,
             limit=GAS_LP_LIST_LIMIT_MAX,
             include_carta_porte=False,
             select=GAS_LP_FACTURAS_LIST_SELECT,
@@ -316,7 +318,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
         in_period = _safe_int_id(row.get("id")) in period_ids
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
-        row["fecha_factura_key"] = _gas_lp_factura_date_key(row)
+        row["fecha_factura_key"] = str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10]
         row["payment_info"] = _payment_info_json(info)
         row["fiscal_status"] = _gas_lp_factura_fiscal_status_info(row)
         bank_row = bank_by_factura.get(_safe_int_id(row.get("id"))) or {}
@@ -652,6 +654,8 @@ async def gas_lp_conciliacion_export_excel(
             user,
             profile,
             month=month,
+            month_by_stamped=True,
+            fetch_all=True,
             limit=GAS_LP_LIST_LIMIT_MAX,
             include_carta_porte=False,
             select=GAS_LP_FACTURAS_LIST_SELECT,
@@ -679,9 +683,9 @@ async def gas_lp_conciliacion_export_excel(
         )
 
     if day:
-        rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
+        rows = [row for row in rows if str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10] == day]
     else:
-        rows = [row for row in rows if _gas_lp_factura_date_key(row).startswith(month)]
+        rows = [row for row in rows if str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10].startswith(month)]
     tipo_filter = str(tipo or "").strip().lower()
     def _row_is_transfer(row: dict) -> bool:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
@@ -748,7 +752,7 @@ async def gas_lp_conciliacion_export_excel(
     ws = wb.active
     ws.title = "Documentos"
     headers = [
-        "Fecha",
+        "Fecha de timbrado",
         "Folio de fact",
         "UUID",
         "Cliente",
@@ -809,7 +813,7 @@ async def gas_lp_conciliacion_export_excel(
         try:
             info = _safe_payment_info(row)
             ws.append([
-                _excel_text(_gas_lp_factura_date_key(row)),
+                _excel_text(str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10]),
                 _excel_text(_gas_lp_factura_folio_label(row)),
                 _excel_text(row.get("uuid_sat") or ""),
                 _excel_text(_gas_lp_factura_razon_social(row)),

@@ -589,11 +589,12 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             month="",
             limit=GAS_LP_LIST_LIMIT_MAX,
             select=GAS_LP_FACTURAS_EXPORT_DAY_SELECT,
-            company_fallback=False,
+            company_fallback=True,
+            realized_date=day,
+            fetch_all=True,
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas_export_dia", exc)
-    rows = [row for row in rows if _gas_lp_factura_date_key(row) == day]
     try:
         _gas_lp_attach_internal_creators(sb, rows)
     except Exception:
@@ -647,7 +648,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
     ws = wb.active
     ws.title = "Documentos"
     headers = [
-        "Fecha",
+        "Fecha de timbrado",
         "Folio de fact",
         "UUID",
         "Cliente",
@@ -664,7 +665,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         ws.append([
-            _gas_lp_factura_date_key(row),
+            str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10],
             _gas_lp_factura_folio_label(row),
             row.get("uuid_sat") or "",
             _gas_lp_factura_razon_social(row),
