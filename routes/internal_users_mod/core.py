@@ -2224,6 +2224,22 @@ def _gas_lp_realized_day_range(day: str) -> tuple[str, str] | None:
     return start_utc.isoformat().replace("+00:00", "Z"), end_utc.isoformat().replace("+00:00", "Z")
 
 
+def _gas_lp_realized_month_range(month: str) -> tuple[str, str] | None:
+    """Convierte un mes civil de México al rango UTC de fecha_timbrado."""
+    try:
+        start = datetime.strptime(f"{str(month or '')[:7]}-01", "%Y-%m-%d").replace(tzinfo=_gas_lp_cfdi_timezone())
+    except ValueError:
+        return None
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return (
+        start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        end.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
+
+
 def _gas_lp_apply_created_range(query, created_range: tuple[str, str] | None):
     if not created_range:
         return query, False
@@ -2543,9 +2559,11 @@ def _gas_lp_company_facturas_rows_impl(
     receptor_rfc: str = "",
     realized_date: str = "",
     fetch_all: bool = False,
+    month_by_stamped: bool = False,
 ) -> list[dict]:
     filters: list[dict] = []
     created_range = _gas_lp_month_created_range(month)
+    stamped_month_range = _gas_lp_realized_month_range(month) if month_by_stamped else None
     realized_range = _gas_lp_realized_day_range(realized_date) if realized_date else None
     profile_rfc = _gas_lp_company_rfc(user, profile)
     clean_receptor_rfc = _clean_rfc(receptor_rfc or "")
@@ -2563,9 +2581,13 @@ def _gas_lp_company_facturas_rows_impl(
         query = query.gte("fecha_timbrado", realized_range[0]).lt("fecha_timbrado", realized_range[1])
         range_applied = True
         filters.append({"date_filter": "fecha_timbrado", "start": realized_range[0], "end": realized_range[1], "applied": True})
+    elif stamped_month_range and hasattr(query, "gte") and hasattr(query, "lt"):
+        query = query.gte("fecha_timbrado", stamped_month_range[0]).lt("fecha_timbrado", stamped_month_range[1])
+        range_applied = True
+        filters.append({"date_filter": "fecha_timbrado", "start": stamped_month_range[0], "end": stamped_month_range[1], "applied": True})
     else:
         query, range_applied = _gas_lp_apply_created_range(query, created_range)
-    if created_range and not realized_range:
+    if created_range and not realized_range and not stamped_month_range:
         filters.append({"date_filter": "fecha_emision", "start": created_range[0], "end": created_range[1], "applied": range_applied})
     if clean_receptor_rfc:
         query = query.eq("rfc_receptor", clean_receptor_rfc)
@@ -2582,7 +2604,7 @@ def _gas_lp_company_facturas_rows_impl(
     try:
         ordered_query = (
             query
-            .order("fecha_timbrado" if realized_range else "fecha_emision", desc=True)
+            .order("fecha_timbrado" if (realized_range or stamped_month_range) else "fecha_emision", desc=True)
             .order("created_at", desc=True)
         )
         if ppd_pending or fetch_all:
@@ -2630,6 +2652,8 @@ def _gas_lp_company_facturas_rows_impl(
             if realized_range:
                 start_key, end_key = realized_range[0][:10], realized_range[1][:10]
                 rows = [row for row in rows if start_key <= str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10] < end_key]
+            elif stamped_month_range:
+                rows = [row for row in rows if stamped_month_range[0] <= str(row.get("fecha_timbrado") or row.get("created_at") or "") < stamped_month_range[1]]
             elif created_range:
                 start_key, end_key = created_range[0][:10], created_range[1][:10]
                 rows = [row for row in rows if start_key <= _gas_lp_factura_date_key(row) < end_key]

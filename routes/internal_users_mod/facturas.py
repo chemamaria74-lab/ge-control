@@ -429,6 +429,7 @@ async def gas_lp_internal_facturas(
     carta_porte: bool = False,
     realizadas_fecha: str | None = None,
     all_month: bool = False,
+    criterio_fecha: str | None = None,
 ):
     started_at = datetime.now(timezone.utc)
     ctx = _gas_lp_internal_context(token)
@@ -481,6 +482,7 @@ async def gas_lp_internal_facturas(
             receptor_rfc=clean_receptor_rfc,
             realized_date=realized_date,
             fetch_all=bool(all_month and month),
+            month_by_stamped=str(criterio_fecha or "").strip().lower() == "timbrado",
         )
     except Exception as exc:
         raise _safe_internal_error("gas_lp_facturas", exc)
