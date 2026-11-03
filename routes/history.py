@@ -42,6 +42,49 @@ class InitialInventoryPayload(BaseModel):
     inventory_liters: float = Field(ge=0)
 
 
+class ReceiptPeriodPayload(BaseModel):
+    target_period: str = Field(pattern=r"^\d{4}-\d{2}$")
+
+
+@router.put("/history/{periodo}/receipts/{record_id}/period")
+async def correct_receipt_period(periodo: str, record_id: int, payload: ReceiptPeriodPayload,
+                                 authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    uid, token = _auth(authorization)
+    _deny_assistant_reports(uid, token)
+    perfil_id = _require_perfil(uid, token, x_perfil_id)
+    scope = resolve_profile_scope(uid, "gas_lp", perfil_id, access_token=token)
+    owner = scope.get("data_user_id") or scope.get("owner_user_id") or uid
+    try:
+        datetime.strptime(payload.target_period + "-01", "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Mes destino inválido.")
+    if payload.target_period == periodo:
+        raise HTTPException(400, "Selecciona un mes distinto.")
+    sb = get_supabase_admin()
+    rows = sb.table("records").select("*").eq("id", record_id).eq("user_id", owner).eq("perfil_id", perfil_id).eq("periodo", periodo).eq("tipo", "entrada").execute().data or []
+    if not rows:
+        raise HTTPException(404, "Entrada cargada no encontrada.")
+    row = rows[0]
+    facility = row.get("facility_id")
+    for month in (periodo, payload.target_period):
+        if get_closed_report(owner, month, facility_id=facility, perfil_id=perfil_id):
+            raise HTTPException(409, "Reabre ambos meses antes de corregir la entrada.")
+    uuid = str(row.get("uuid") or "").strip()
+    if not uuid:
+        raise HTTPException(409, "La entrada no tiene UUID para verificar duplicados.")
+    try:
+        result = sb.rpc("gas_lp_correct_receipt_period", {
+            "p_owner": str(owner), "p_profile": perfil_id,
+            "p_record": record_id, "p_source": periodo,
+            "p_target": payload.target_period, "p_actor": str(uid),
+        }).execute()
+    except Exception:
+        logger.exception("receipt_period_correction_failed id=%s", record_id)
+        raise HTTPException(409, "No se pudo corregir la entrada. Verifica que ambos meses estén abiertos y que la migración de corrección esté instalada.")
+    return result.data
+
+
+
 class InventoryAdjustmentPayload(BaseModel):
     facility_id: int = Field(gt=0)
     fecha: str = Field(min_length=10, max_length=10)
@@ -485,6 +528,12 @@ def _remove_snapshot_rows_reassigned_to_other_facility(
     perfil_id: int,
 ) -> dict:
     """Evita que el JSON guardado reviva una salida movida por UUID."""
+    corrected_query = get_supabase_admin().table("records").select("uuid").eq("user_id", user_id).eq("perfil_id", perfil_id).eq("periodo", periodo).eq("tipo", "entrada_corregida")
+    if facility_id is not None:
+        corrected_query = corrected_query.eq("facility_id", facility_id)
+    corrected = corrected_query.execute().data or []
+    excluded = {str(r.get("uuid") or "").strip().upper() for r in corrected}
+    snapshot = {**snapshot, "entradas": [r for r in snapshot.get("entradas", []) if str(r.get("uuid") or "").strip().upper() not in excluded]}
     if facility_id is None or not snapshot.get("salidas"):
         return snapshot
     all_records = get_records(user_id, periodo, facility_id=None, perfil_id=perfil_id)

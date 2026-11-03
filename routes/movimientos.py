@@ -266,7 +266,7 @@ async def registrar_autoconsumo(
         "cantidad_unidades": payload.cantidad_unidades,
         "message": (
             f"{payload.tipo_movimiento.capitalize()} de {volumen_litros:,.2f} L "
-            f"registrado correctamente. Se incluirá en el próximo reporte mensual "
+            f"registrado correctamente. Se incluirá en los reportes diario y mensual "
             f"como TipoEvento {TIPO_EVENTO_AUTOCONSUMO} (entrega sin CFDI, RFC propio)."
         ),
     })
@@ -286,14 +286,14 @@ async def listar_autoconsumos(
 
     try:
         sb = get_supabase_admin()
-        # CORRECCIÓN: "manual:" → "manual:%" (wildcard para LIKE en SQL)
-        # Sin el %, solo matchea el string exacto "manual:", excluyendo
-        # "manual:autoconsumo", "manual:merma", "manual:trasvase", etc.
+        # Esta pantalla es exclusivamente de autoconsumo. No mezclar mermas ni
+        # trasvases aunque también sean movimientos manuales de salida.
         q  = (sb.table("records")
                 .select("*")
                 .eq("user_id", user_id)
-                .like("file_path", "manual:%")
-                .eq("tipo", "salida"))
+                .eq("file_path", "manual:autoconsumo")
+                .eq("tipo", "salida")
+                .eq("es_autoconsumo", True))
         if periodo:
             q = q.eq("periodo", periodo)
         if facility_id is not None:
