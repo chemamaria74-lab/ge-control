@@ -239,6 +239,27 @@ async function loadFacturasSelectedMonth(opts={}){
     loadFacturas(month, {limit:300, deep:true, allMonth:true, force:true, ...opts}),
     loadComplementos(month, {force:true}),
   ]);
+  // Un CFDI puede timbrarse al inicio del mes con fecha fiscal del último día
+  // del mes anterior. Mientras todos los servidores terminan de adoptar el
+  // filtro por fecha_timbrado, recuperamos también ese mes fiscal y dejamos que
+  // applyFacturasFilters conserve solamente lo timbrado en el mes seleccionado.
+  if(/^\d{4}-\d{2}$/.test(month)){
+    const [year, monthNumber] = month.split('-').map(Number);
+    const previousDate = new Date(Date.UTC(year, monthNumber - 2, 1));
+    const previousMonth = `${previousDate.getUTCFullYear()}-${String(previousDate.getUTCMonth() + 1).padStart(2, '0')}`;
+    try{
+      const receptorRfc = selectedFacturaClientRfc();
+      const carryover = await api(
+        '/api/internal-auth/gas-lp/facturas?mes=' + encodeURIComponent(previousMonth)
+        + '&limit=1000&deep=1&all_month=1'
+        + (receptorRfc ? '&receptor_rfc=' + encodeURIComponent(receptorRfc) : '')
+      );
+      mergeFacturas(carryover.facturas || []);
+    }catch(error){
+      console.warn('No fue posible consultar CFDI timbrados con emisión del mes anterior.', error);
+    }
+  }
+  renderFacturaClientOptions();
   applyFacturasFilters();
   return facturasResult.status === 'fulfilled' ? facturasResult.value : false;
 }
