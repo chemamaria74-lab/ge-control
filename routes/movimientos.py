@@ -339,10 +339,41 @@ async def eliminar_autoconsumo(
                 400,
                 "Solo se pueden eliminar movimientos manuales de autoconsumo/merma/trasvase."
             )
-        sb.table("records").delete().eq("id", record_id).eq("user_id", user_id).eq("perfil_id", perfil_id).execute()
+        sb.table("records").update({"tipo": "autoconsumo_cancelado", "volumen_litros": 0}).eq("id", record_id).eq("user_id", user_id).eq("perfil_id", perfil_id).execute()
         return JSONResponse(content={"ok": True, "deleted_id": record_id})
     except HTTPException:
         raise
     except Exception as e:
         logger.error("eliminar_autoconsumo: %s", e)
         raise HTTPException(500, str(e))
+
+
+@router.put("/movimientos/autoconsumo/{record_id}")
+async def corregir_autoconsumo(record_id: int, payload: AutoconsumoPayload,
+                               authorization: str = Header(default=""), x_perfil_id: str = Header(default="")):
+    scope = _movement_scope(authorization, x_perfil_id, write=True)
+    owner, profile = scope["data_user_id"], scope["perfil_id"]
+    sb = get_supabase_admin()
+    rows = sb.table("records").select("*").eq("id", record_id).eq("user_id", owner).eq("perfil_id", profile).eq("tipo", "salida").eq("file_path", "manual:autoconsumo").execute().data or []
+    if not rows:
+        raise HTTPException(404, "Autoconsumo activo no encontrado.")
+    old = rows[0]
+    _require_scope_facility(owner, profile, payload.facility_id)
+    try:
+        effective = datetime.fromisoformat(payload.fecha.replace("Z", "+00:00"))
+        if effective.tzinfo is None:
+            effective = effective.replace(tzinfo=ZoneInfo("America/Monterrey"))
+    except ValueError:
+        raise HTTPException(400, "Fecha inválida.")
+    period = effective.astimezone(ZoneInfo("America/Monterrey")).strftime("%Y-%m")
+    liters = _parse_litros_humano(payload.volumen_litros_raw, payload.volumen_litros)
+    if not 0 < liters < float('inf') or payload.cantidad_unidades <= 0:
+        raise HTTPException(400, "Captura litros y camionetas mayores a cero.")
+    for month, facility in [(old["periodo"], old["facility_id"]), (period, payload.facility_id)]:
+        if get_closed_report(owner, month, facility, profile):
+            raise HTTPException(409, "Reabre el mes para corregir el autoconsumo.")
+    sb.table("records").update({"facility_id": payload.facility_id, "periodo": period,
+        "fecha": effective.isoformat(), "fecha_operacion": effective.isoformat(),
+        "volumen_litros": liters, "unidades_autoconsumo": payload.cantidad_unidades
+    }).eq("id", record_id).eq("user_id", owner).eq("perfil_id", profile).eq("tipo", "salida").execute()
+    return {"ok": True}

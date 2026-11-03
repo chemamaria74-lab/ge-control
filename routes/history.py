@@ -556,6 +556,9 @@ def _remove_snapshot_rows_reassigned_to_other_facility(
     corrected = corrected_query.execute().data or []
     excluded = {str(r.get("uuid") or "").strip().upper() for r in corrected}
     snapshot = {**snapshot, "entradas": [r for r in snapshot.get("entradas", []) if str(r.get("uuid") or "").strip().upper() not in excluded]}
+    cancelled = get_supabase_admin().table("records").select("uuid").eq("user_id", user_id).eq("perfil_id", perfil_id).eq("tipo", "autoconsumo_cancelado").execute().data or []
+    cancelled_uuids = {str(r.get("uuid") or "").strip().upper() for r in cancelled}
+    snapshot["salidas"] = [r for r in snapshot.get("salidas", []) if str(r.get("uuid") or "").strip().upper() not in cancelled_uuids]
     if facility_id is None or not snapshot.get("salidas"):
         return snapshot
     all_records = get_records(user_id, periodo, facility_id=None, perfil_id=perfil_id)
