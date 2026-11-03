@@ -1,3 +1,5 @@
+let autoconsumoEditingId = null;
+let autoconsumoEditRows = [];
 function autoconsumoPerfilId(){
   return CURRENT_COMPANY?.perfil_id || CURRENT_COMPANY?.profile_id || CURRENT_COMPANY?.id || '';
 }
@@ -30,6 +32,9 @@ function prepararAutoconsumo(){
 }
 
 function limpiarAutoconsumo(){
+  autoconsumoEditingId = null;
+  document.getElementById('btnCancelarAutoconsumo').hidden=true;
+  btnGuardarAutoconsumo.textContent = 'Agregar autoconsumo';
   autoconsumoLitros.value = '';
   autoconsumoUnidades.value = '1';
   autoconsumoFecha.value = localDateTimeValue();
@@ -52,8 +57,8 @@ async function guardarAutoconsumo(){
   btnGuardarAutoconsumo.disabled = true;
   setStatus('autoconsumoMsg', 'Registrando salida de inventario…', true);
   try{
-    const response = await api('/api/movimientos/autoconsumo', {
-      method: 'POST',
+    const response = await api('/api/movimientos/autoconsumo' + (autoconsumoEditingId ? '/' + autoconsumoEditingId : ''), {
+      method: autoconsumoEditingId ? 'PUT' : 'POST',
       headers: autoconsumoHeaders(),
       body: JSON.stringify({
         volumen_litros: liters,
@@ -68,6 +73,7 @@ async function guardarAutoconsumo(){
       }),
     });
     setStatus('autoconsumoMsg', `Autoconsumo registrado: ${Number(response.volumen_litros || liters).toLocaleString('es-MX')} L. No se timbró CFDI.`, true);
+    limpiarAutoconsumo();
     autoconsumoLitros.value = '';
     autoconsumoUnidades.value = '1';
     await cargarAutoconsumos();
@@ -82,17 +88,41 @@ async function cargarAutoconsumos(){
   const body = document.getElementById('autoconsumoRows');
   if(!body || !autoconsumoPerfilId()) return;
   const month = autoconsumoMes.value || todayKey().slice(0,7);
-  body.innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
+  body.innerHTML = '<tr><td colspan="6">Cargando…</td></tr>';
   try{
     const data = await api(`/api/movimientos/autoconsumo?periodo=${encodeURIComponent(month)}`, {headers: autoconsumoHeaders()});
     const rows = data.autoconsumos || [];
+    autoconsumoEditRows = rows;
     body.innerHTML = rows.map(row => {
       const effective = row.fecha_operacion || row.fecha || '—';
-      const displayDate = String(effective).replace('T', ' ').slice(0,16);
+      const displayDate = new Date(effective).toLocaleString('es-MX', {timeZone:'America/Monterrey'});
       const units = row.unidades_autoconsumo == null ? '—' : Number(row.unidades_autoconsumo).toLocaleString('es-MX');
-      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
-    }).join('') || '<tr><td colspan="5">Sin autoconsumos en este mes.</td></tr>';
+      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td><td><button type="button" onclick="editarAutoconsumo(${Number(row.id)})" style="border:1px solid #d6d3d1;border-radius:8px;padding:7px 12px;background:white;cursor:pointer" aria-label="Corregir autoconsumo">✎ Editar</button></td></tr>`;
+    }).join('') || '<tr><td colspan="6">Sin autoconsumos en este mes.</td></tr>';
   }catch(error){
-    body.innerHTML = `<tr><td colspan="5">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;
   }
+}
+
+function editarAutoconsumo(id){
+  const row = autoconsumoEditRows.find(r=>Number(r.id)===id);
+  if(!row) return;
+  autoconsumoEditingId=id;
+  autoconsumoFacility.value=row.facility_id;
+  autoconsumoLitros.value=row.volumen_litros;
+  autoconsumoUnidades.value=row.unidades_autoconsumo || 1;
+  const date=new Date(row.fecha_operacion || row.fecha);
+  autoconsumoFecha.value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  btnGuardarAutoconsumo.textContent='Guardar corrección';
+  document.getElementById('btnCancelarAutoconsumo').hidden=false;
+  autoconsumoFacility.scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function cancelarAutoconsumo(){
+  if(!autoconsumoEditingId || !confirm('¿Cancelar este autoconsumo y devolver sus litros al inventario?')) return;
+  try{
+    await api('/api/movimientos/autoconsumo/'+autoconsumoEditingId,{method:'DELETE',headers:autoconsumoHeaders()});
+    limpiarAutoconsumo();
+    document.getElementById('btnCancelarAutoconsumo').hidden=true;
+    await cargarAutoconsumos();
+  }catch(error){setStatus('autoconsumoMsg',error.message,false);}
 }
