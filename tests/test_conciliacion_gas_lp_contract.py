@@ -2122,6 +2122,17 @@ def test_assistant_today_invoices_use_backend_date_key_and_current_month():
     assert "const values = [f.fecha_emision, md.fecha_emision, md.fecha_cfdi, cfdiFechaFromXml(f.xml_content), f.fecha_timbrado, f.created_at]" in html
 
 
+def test_assistant_invoice_list_converts_utc_fallback_without_shifting_pac_wall_clock():
+    html = _assistant_frontend_source()
+    shell = (ROOT / "templates" / "asistente_gas_lp.html").read_text(encoding="utf-8")
+
+    assert "function fiscalTimestampParts(value)" in html
+    assert "hasExplicitTimeZone(value) ? mexicoDateParts(value) : wallClockDateParts(value)" in html
+    assert "if(stamped) return fiscalTimestampParts(stamped).date" in html
+    assert "if(stamped) return fiscalTimestampParts(stamped).time" in html
+    assert "10_utils.js?v=timbrado-zona-mx-20261103" in shell
+
+
 def test_conciliacion_publico_general_list_uses_backend_date_key():
     html = _conciliacion_frontend_source()
     summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
