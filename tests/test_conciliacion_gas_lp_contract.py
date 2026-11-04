@@ -2133,6 +2133,11 @@ def test_assistant_invoice_list_converts_utc_fallback_without_shifting_pac_wall_
     assert "10_utils.js?v=timbrado-zona-mx-20261103" in shell
 
 
+def test_excel_fiscal_timestamp_uses_mexico_time_and_preserves_pac_wall_clock():
+    assert internal_users._gas_lp_excel_fiscal_timestamp("2026-11-04T02:15:00Z") == "03/11/2026 20:15"
+    assert internal_users._gas_lp_excel_fiscal_timestamp("2026-11-03T20:15:00") == "03/11/2026 20:15"
+
+
 def test_conciliacion_publico_general_list_uses_backend_date_key():
     html = _conciliacion_frontend_source()
     summary_source = inspect.getsource(internal_users.gas_lp_conciliacion_summary)
