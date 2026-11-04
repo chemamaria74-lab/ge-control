@@ -2137,6 +2137,18 @@ def test_excel_fiscal_timestamp_uses_mexico_time_and_preserves_pac_wall_clock():
     assert internal_users._gas_lp_excel_fiscal_timestamp("2026-11-04T02:15:00Z") == "03/11/2026 20:15"
     assert internal_users._gas_lp_excel_fiscal_timestamp("2026-11-03T20:15:00") == "03/11/2026 20:15"
 
+    row = {
+        "fecha_timbrado": "2026-11-03T08:11:53Z",
+        "xml_content": '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"><cfdi:Complemento><tfd:TimbreFiscalDigital FechaTimbrado="2026-11-03T08:11:53"/></cfdi:Complemento></cfdi:Comprobante>',
+    }
+    assert internal_users._gas_lp_excel_fiscal_timestamp(internal_users._gas_lp_factura_fiscal_timestamp(row)) == "03/11/2026 08:11"
+
+
+def test_assistant_daily_invoice_excel_excludes_carta_porte():
+    source = inspect.getsource(internal_users.gas_lp_internal_facturas_export_dia)
+
+    assert "include_carta_porte=False" in source
+
 
 def test_conciliacion_publico_general_list_uses_backend_date_key():
     html = _conciliacion_frontend_source()

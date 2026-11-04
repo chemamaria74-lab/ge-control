@@ -596,6 +596,23 @@ class InternalUsersMultiempresaTest(unittest.TestCase):
                 internal_users._internal_session(token, "gas_lp")
         self.assertEqual(ctx.exception.status_code, 403)
 
+    def test_november_stamped_public_invoices_with_october_emission(self):
+        db = FakeDB()
+        db.rows["gas_lp_facturas"] = [
+            {"id": i, "rfc_emisor": "AGA990907II8", "empresa_rfc": None,
+             "rfc_receptor": "XAXX010101000", "fecha_emision": "2026-10-31T07:23:00+00:00",
+             "fecha_timbrado": "2026-11-02T07:29:15+00:00", "created_at": "2026-11-02T13:29:15+00:00"}
+            for i in (13351, 13352, 13353)
+        ]
+        user = {"tenant_id": "tenant-a", "perfil_id": 3}
+        profile = {"rfc": "AGA990907II8"}
+        rows = internal_users._gas_lp_company_facturas_rows(
+            db, user, profile, month="2026-11", month_by_stamped=True, fetch_all=True)
+        self.assertEqual({r["id"] for r in rows}, {13351, 13352, 13353})
+        fiscal_rows = internal_users._gas_lp_company_facturas_rows(
+            db, user, profile, month="2026-11", fetch_all=True)
+        self.assertEqual(fiscal_rows, [])
+
     def test_gas_lp_facturas_are_visible_by_issuer_rfc_and_fiscal_month(self):
         db = FakeDB()
         db.rows["gas_lp_facturas"] = [
