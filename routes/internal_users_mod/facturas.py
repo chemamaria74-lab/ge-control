@@ -665,7 +665,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         ws.append([
-            str(row.get("fecha_timbrado") or row.get("created_at") or "")[:10],
+            _gas_lp_excel_fiscal_timestamp(row.get("fecha_timbrado") or row.get("created_at")),
             _gas_lp_factura_folio_label(row),
             row.get("uuid_sat") or "",
             _gas_lp_factura_razon_social(row),
@@ -690,7 +690,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             refs = [_gas_lp_factura_folio_label(comp_facturas_by_id.get(fid, {})) for fid in ids]
         email_error = str(comp.get("email_error") or "")
         ws.append([
-            str(comp.get("created_at") or "")[:10],
+            _gas_lp_excel_fiscal_timestamp(comp.get("fecha_timbrado") or comp.get("created_at")),
             "",
             comp.get("uuid_sat") or "",
             receptor.get("nombre") or "Cliente",

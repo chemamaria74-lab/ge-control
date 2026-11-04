@@ -509,6 +509,34 @@ def _gas_lp_cfdi_timezone(issuer_cp: str | None = None):
         return timezone(timedelta(hours=-6))
 
 
+def _gas_lp_fiscal_timestamp_parts(value) -> tuple[str, str]:
+    """Devuelve fecha/hora fiscal; convierte a México solo timestamps con zona."""
+    text = str(value or "").strip()
+    if not text:
+        return "", ""
+    has_zone = bool(re.search(r"(?:Z|[+-]\d{2}:?\d{2})$", text, flags=re.IGNORECASE))
+    try:
+        parsed = datetime.fromisoformat(text[:-1] + "+00:00" if text.upper().endswith("Z") else text)
+        if has_zone and parsed.tzinfo is not None:
+            parsed = parsed.astimezone(_gas_lp_cfdi_timezone())
+        return parsed.strftime("%Y-%m-%d"), parsed.strftime("%H:%M")
+    except ValueError:
+        date_match = re.match(r"^(\d{4}-\d{2}-\d{2})", text)
+        time_match = re.search(r"[T ](\d{2}:\d{2})", text)
+        return (date_match.group(1) if date_match else "", time_match.group(1) if time_match else "")
+
+
+def _gas_lp_excel_fiscal_timestamp(value) -> str:
+    date_key, time_label = _gas_lp_fiscal_timestamp_parts(value)
+    if not date_key:
+        return ""
+    try:
+        date_label = datetime.strptime(date_key, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        date_label = date_key
+    return f"{date_label} {time_label}".strip()
+
+
 def _parse_gas_lp_cfdi_fecha(value: str, tz) -> Optional[datetime]:
     raw = str(value or "").strip()
     if not raw:
