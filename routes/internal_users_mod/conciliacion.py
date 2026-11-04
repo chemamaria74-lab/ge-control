@@ -241,7 +241,7 @@ async def gas_lp_conciliacion_summary(token: str, periodo: str | None = None, pe
             fetch_all=True,
             limit=GAS_LP_LIST_LIMIT_MAX,
             include_carta_porte=False,
-            select=GAS_LP_FACTURAS_LIST_SELECT,
+            select=GAS_LP_FACTURAS_LIST_SELECT + ",xml_content",
             company_fallback=True,
             visibility_log=False,
         )
@@ -683,9 +683,9 @@ async def gas_lp_conciliacion_export_excel(
         )
 
     if day:
-        rows = [row for row in rows if _gas_lp_fiscal_timestamp_parts(row.get("fecha_timbrado") or row.get("created_at"))[0] == day]
+        rows = [row for row in rows if _gas_lp_fiscal_timestamp_parts(_gas_lp_factura_fiscal_timestamp(row))[0] == day]
     else:
-        rows = [row for row in rows if _gas_lp_fiscal_timestamp_parts(row.get("fecha_timbrado") or row.get("created_at"))[0].startswith(month)]
+        rows = [row for row in rows if _gas_lp_fiscal_timestamp_parts(_gas_lp_factura_fiscal_timestamp(row))[0].startswith(month)]
     tipo_filter = str(tipo or "").strip().lower()
     def _row_is_transfer(row: dict) -> bool:
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
@@ -813,7 +813,7 @@ async def gas_lp_conciliacion_export_excel(
         try:
             info = _safe_payment_info(row)
             ws.append([
-                _excel_text(_gas_lp_excel_fiscal_timestamp(row.get("fecha_timbrado") or row.get("created_at"))),
+                _excel_text(_gas_lp_excel_fiscal_timestamp(_gas_lp_factura_fiscal_timestamp(row))),
                 _excel_text(_gas_lp_factura_folio_label(row)),
                 _excel_text(row.get("uuid_sat") or ""),
                 _excel_text(_gas_lp_factura_razon_social(row)),

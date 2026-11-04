@@ -123,6 +123,7 @@ GAS_LP_FACTURAS_EXPORT_DAY_SELECT = ",".join([
     "volumen_litros",
     "importe",
     "metadata",
+    "xml_content",
     "created_at",
 ])
 GAS_LP_FACTURAS_COMPAT_LIST_SELECT = GAS_LP_FACTURAS_EXPORT_DAY_SELECT
@@ -535,6 +536,22 @@ def _gas_lp_excel_fiscal_timestamp(value) -> str:
     except ValueError:
         date_label = date_key
     return f"{date_label} {time_label}".strip()
+
+
+def _gas_lp_factura_fiscal_timestamp(factura: dict) -> str:
+    """Prioriza el sello fiscal del XML; la columna DB puede tiparlo como UTC."""
+    xml_content = str(factura.get("xml_content") or "")
+    if xml_content:
+        try:
+            root = ET.fromstring(xml_content.encode("utf-8"))
+            timbre = _xml_first(root, "TimbreFiscalDigital")
+            stamped = _xml_attr(timbre, "FechaTimbrado")
+            if stamped:
+                return stamped
+        except Exception:
+            pass
+    md = factura.get("metadata") if isinstance(factura.get("metadata"), dict) else {}
+    return str(md.get("fecha_timbrado_pac") or factura.get("fecha_timbrado") or factura.get("created_at") or "")
 
 
 def _parse_gas_lp_cfdi_fecha(value: str, tz) -> Optional[datetime]:

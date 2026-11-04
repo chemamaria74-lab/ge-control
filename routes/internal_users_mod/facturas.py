@@ -588,6 +588,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
             profile,
             month="",
             limit=GAS_LP_LIST_LIMIT_MAX,
+            include_carta_porte=False,
             select=GAS_LP_FACTURAS_EXPORT_DAY_SELECT,
             company_fallback=True,
             realized_date=day,
@@ -665,7 +666,7 @@ async def gas_lp_internal_facturas_export_dia(token: str, fecha: str):
         md = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         info = _factura_payment_info(row)
         ws.append([
-            _gas_lp_excel_fiscal_timestamp(row.get("fecha_timbrado") or row.get("created_at")),
+            _gas_lp_excel_fiscal_timestamp(_gas_lp_factura_fiscal_timestamp(row)),
             _gas_lp_factura_folio_label(row),
             row.get("uuid_sat") or "",
             _gas_lp_factura_razon_social(row),
