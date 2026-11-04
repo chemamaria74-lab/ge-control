@@ -71,6 +71,12 @@ function wallClockDateParts(value){
   const m = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
   return m ? {date:`${m[1]}-${m[2]}-${m[3]}`, time:m[4] ? `${m[4]}:${m[5]}` : ''} : {date:'', time:''};
 }
+function fiscalTimestampParts(value){
+  // El PAC entrega Fecha/FechaTimbrado sin zona: esas horas son civiles y no
+  // deben desplazarse. Las marcas internas (created_at o fallback de timbrado)
+  // sí incluyen Z/offset y deben mostrarse en la zona de operación de México.
+  return hasExplicitTimeZone(value) ? mexicoDateParts(value) : wallClockDateParts(value);
+}
 function friendlyApiErrorText(path, data={}, rawText=''){
   const detail = detailText(data.detail || data.message || rawText, '');
   const genericServerError = !detail || /^internal server error$/i.test(String(detail).trim());
@@ -113,7 +119,7 @@ function facturaDateValue(f){
   return f.fecha_emision || md.fecha_emision || md.fecha_cfdi || cfdiFechaFromXml(f.xml_content) || f.fecha_timbrado || f.created_at || '';
 }
 function dateDMY(value){
-  const s = wallClockDateParts(value).date || mexicoDateKey(value) || String(value || '').slice(0,10);
+  const s = fiscalTimestampParts(value).date || String(value || '').slice(0,10);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
@@ -138,15 +144,15 @@ function facturaDateKey(f){
 }
 function facturaRealizadaDateKey(f){
   const stamped = f?.fecha_timbrado || '';
-  if(stamped) return wallClockDateParts(stamped).date || mexicoDateKey(stamped) || String(stamped).slice(0,10);
+  if(stamped) return fiscalTimestampParts(stamped).date || String(stamped).slice(0,10);
   const created = f?.created_at || '';
-  return mexicoDateKey(created) || wallClockDateParts(created).date || String(created).slice(0,10);
+  return fiscalTimestampParts(created).date || String(created).slice(0,10);
 }
 function facturaRealizadaTimeLabel(f){
   const stamped = f?.fecha_timbrado || '';
-  if(stamped) return wallClockDateParts(stamped).time || mexicoTimeLabel(stamped) || '—';
+  if(stamped) return fiscalTimestampParts(stamped).time || '—';
   const created = f?.created_at || '';
-  return mexicoTimeLabel(created) || wallClockDateParts(created).time || '—';
+  return fiscalTimestampParts(created).time || '—';
 }
 function facturaFolioLabel(f){
   const md = f?.metadata || {};
