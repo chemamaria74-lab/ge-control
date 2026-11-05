@@ -32,10 +32,11 @@ def test_assistant_autoconsumo_requires_final_confirmation_and_hides_delete():
     assert ".autoconsumo-confirm-highlight" in css
     assert "eliminarAutoconsumoFila" not in js
     assert "<th>Eliminar</th>" not in template
-    assert "confirm-compact-20261104-2" in shell
-    assert "autoconsumo-confirm-compact-20261104-2" in shell
+    assert "autoconsumos-uniformes-20261104" in shell
     assert "const byFacility = new Map()" in js
-    assert "autoconsumo-facility-group" in js
+    assert "autoconsumo-station" in js
+    assert "facility_name" in js
+    assert "facility_key" in js
     assert "totalLiters" in js
 
 
@@ -94,4 +95,4 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-stations-20261104" in shell
+    assert "autoconsumos-uniformes-20261104" in shell
