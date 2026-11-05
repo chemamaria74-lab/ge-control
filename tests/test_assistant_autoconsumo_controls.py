@@ -27,7 +27,10 @@ def test_assistant_autoconsumo_requires_final_confirmation_and_hides_delete():
     assert "if(!confirmed) return;" in js
     assert "eliminarAutoconsumoFila" not in js
     assert "<th>Eliminar</th>" not in template
-    assert "confirm-no-delete-20261104" in shell
+    assert "group-facility-20261104" in shell
+    assert "const byFacility = new Map()" in js
+    assert "autoconsumo-facility-group" in js
+    assert "totalLiters" in js
 
 
 def test_internal_assistant_cannot_delete_autoconsumo(monkeypatch):
