@@ -300,6 +300,20 @@ async def listar_autoconsumos(
             q = q.eq("facility_id", facility_id)
         q = q.eq("perfil_id", perfil_id)
         rows = q.order("fecha_operacion", desc=True).order("fecha", desc=True).execute().data or []
+        facility_rows = (
+            sb.table("user_facilities")
+            .select("id,nombre,clave_instalacion")
+            .eq("user_id", user_id)
+            .eq("perfil_id", perfil_id)
+            .execute()
+            .data
+            or []
+        )
+        facilities = {int(item["id"]): item for item in facility_rows if item.get("id") is not None}
+        for row in rows:
+            facility = facilities.get(int(row.get("facility_id") or 0), {})
+            row["facility_name"] = facility.get("nombre") or "Instalación sin nombre"
+            row["facility_key"] = facility.get("clave_instalacion") or ""
         return JSONResponse(content={"autoconsumos": rows, "total": len(rows)})
     except Exception as e:
         logger.error("listar_autoconsumos: %s", e)
