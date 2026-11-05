@@ -94,4 +94,4 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-assistant-table-20261104" in shell
+    assert "admin-autoconsumos-stations-20261104" in shell
