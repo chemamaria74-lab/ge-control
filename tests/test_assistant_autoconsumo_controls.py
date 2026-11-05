@@ -23,19 +23,17 @@ def test_assistant_autoconsumo_requires_final_confirmation_and_hides_delete():
 
     assert "function openAutoconsumoConfirmModal" in js
     assert "await openAutoconsumoConfirmModal" in js
-    assert "function toggleAutoconsumoConfirmReady" in js
     assert "if(!confirmed) return;" in js
     assert 'id="autoconsumoConfirmModal"' in modals
-    assert "Verifica antes de continuar" in modals
+    assert "Confirmar autoconsumo" in modals
     assert "Litros a descontar" in modals
-    assert "Ya revisé la instalación, los litros y la fecha" in modals
-    assert 'id="btnConfirmarAutoconsumo" type="button" disabled' in modals
+    assert "autoconsumoConfirmReviewed" not in modals
+    assert 'id="btnConfirmarAutoconsumo" type="button"' in modals
     assert ".autoconsumo-confirm-highlight" in css
-    assert ".autoconsumo-confirm-submit:disabled" in css
     assert "eliminarAutoconsumoFila" not in js
     assert "<th>Eliminar</th>" not in template
-    assert "branded-confirm-20261104" in shell
-    assert "autoconsumo-confirm-20261104" in shell
+    assert "confirm-simple-20261104" in shell
+    assert "autoconsumo-confirm-simple-20261104" in shell
     assert "const byFacility = new Map()" in js
     assert "autoconsumo-facility-group" in js
     assert "totalLiters" in js
@@ -83,8 +81,8 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "adminAutoFacility-" not in js
     assert "const facilityId = Number(row?.facility_id || 0)" in js
     assert "Fecha efectiva" in js
-    assert "fa-solid fa-pen" in js
-    assert "fa-solid fa-trash" in js
+    assert ">✏️</button>" in js
+    assert ">🗑️</button>" in js
     assert "Editar autoconsumo" in js
     assert "Eliminar autoconsumo" in js
     assert 'id="adminAutoconsumoConfirmModal"' in modals
@@ -93,4 +91,4 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-table-20261104" in shell
+    assert "admin-autoconsumos-icons-20261104" in shell
