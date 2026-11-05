@@ -66,9 +66,17 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function cargarAdminAutoconsumos()" in js
     assert "function guardarAdminAutoconsumo(id)" in js
     assert "function eliminarAdminAutoconsumo(id)" in js
+    assert "function editarAdminAutoconsumo(id)" in js
+    assert "adminAutoconsumoEditingId" in js
+    assert "¿Seguro que deseas editar este autoconsumo?" in js
+    assert "La instalación permanecerá fija." in js
+    assert "adminAutoFacility-" not in js
+    assert "const facilityId = Number(row?.facility_id || 0)" in js
+    assert "Autoconsumos por instalación" in js
+    assert "Total del mes" in js
     assert "facility_id:facilityId" in js
     assert "cantidad_unidades:units" in js
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-20261104" in shell
+    assert "admin-autoconsumos-safe-edit-20261104" in shell
