@@ -314,6 +314,11 @@ async def eliminar_autoconsumo(
 ):
     """Elimina un registro de autoconsumo (solo si fue creado manualmente)."""
     scope = _movement_scope(authorization, x_perfil_id, write=True)
+    if scope.get("internal_user"):
+        raise HTTPException(
+            403,
+            "Las asistentes no pueden eliminar autoconsumos. Solicita la corrección a un usuario general.",
+        )
     user_id = scope["data_user_id"]
     perfil_id = scope["perfil_id"]
     try:
