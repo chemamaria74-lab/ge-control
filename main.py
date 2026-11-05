@@ -1249,7 +1249,11 @@ async def frontend_conciliacion_gas_lp():
 @app.get("/asistente/gas-lp", response_class=HTMLResponse, include_in_schema=False)
 async def frontend_asistente_gas_lp():
     """Dashboard limitado para asistentes internos Gas LP."""
-    return _render_html_file("asistente_gas_lp.html")
+    response = _render_html_file("asistente_gas_lp.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
