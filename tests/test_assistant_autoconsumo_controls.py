@@ -17,17 +17,25 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_assistant_autoconsumo_requires_final_confirmation_and_hides_delete():
     js = (ROOT / "static/js/gas_lp/asistente/45_autoconsumo.js").read_text(encoding="utf-8")
     template = (ROOT / "templates/gas_lp/asistente/_facturacion.html").read_text(encoding="utf-8")
+    modals = (ROOT / "templates/gas_lp/asistente/_modals.html").read_text(encoding="utf-8")
+    css = (ROOT / "static/css/gas_lp/asistente.css").read_text(encoding="utf-8")
     shell = (ROOT / "templates/asistente_gas_lp.html").read_text(encoding="utf-8")
 
-    assert "¿Confirmas que deseas ${operationLabel} este autoconsumo?" in js
-    assert "Instalación: ${autoconsumoFacilityName(facilityId)}" in js
-    assert "Litros: ${liters.toLocaleString" in js
-    assert "Camionetas: ${units.toLocaleString" in js
-    assert "Fecha y hora: ${new Date(effectiveAt).toLocaleString" in js
+    assert "function openAutoconsumoConfirmModal" in js
+    assert "await openAutoconsumoConfirmModal" in js
+    assert "function toggleAutoconsumoConfirmReady" in js
     assert "if(!confirmed) return;" in js
+    assert 'id="autoconsumoConfirmModal"' in modals
+    assert "Verifica antes de continuar" in modals
+    assert "Litros a descontar" in modals
+    assert "Ya revisé la instalación, los litros y la fecha" in modals
+    assert 'id="btnConfirmarAutoconsumo" type="button" disabled' in modals
+    assert ".autoconsumo-confirm-highlight" in css
+    assert ".autoconsumo-confirm-submit:disabled" in css
     assert "eliminarAutoconsumoFila" not in js
     assert "<th>Eliminar</th>" not in template
-    assert "group-facility-20261104" in shell
+    assert "branded-confirm-20261104" in shell
+    assert "autoconsumo-confirm-20261104" in shell
     assert "const byFacility = new Map()" in js
     assert "autoconsumo-facility-group" in js
     assert "totalLiters" in js
@@ -59,6 +67,7 @@ def test_internal_assistant_cannot_delete_autoconsumo(monkeypatch):
 
 def test_admin_inventory_has_autoconsumo_management_subsection():
     template = (ROOT / "templates/app/_body.html").read_text(encoding="utf-8")
+    modals = (ROOT / "templates/app/_confirm_modal.html").read_text(encoding="utf-8")
     js = (ROOT / "static/js/app/60_carta_porte_processing_history.js").read_text(encoding="utf-8")
     shell = (ROOT / "templates/app.html").read_text(encoding="utf-8")
 
@@ -67,16 +76,21 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function guardarAdminAutoconsumo(id)" in js
     assert "function eliminarAdminAutoconsumo(id)" in js
     assert "function editarAdminAutoconsumo(id)" in js
+    assert "function openAdminAutoconsumoConfirm" in js
+    assert "function resolveAdminAutoconsumoConfirm" in js
     assert "adminAutoconsumoEditingId" in js
-    assert "¿Seguro que deseas editar este autoconsumo?" in js
     assert "La instalación permanecerá fija." in js
     assert "adminAutoFacility-" not in js
     assert "const facilityId = Number(row?.facility_id || 0)" in js
-    assert "Autoconsumos por instalación" in js
-    assert "Total del mes" in js
+    assert "Fecha efectiva" in js
+    assert "fa-solid fa-pen" in js
+    assert "fa-solid fa-trash" in js
+    assert "Editar autoconsumo" in js
+    assert "Eliminar autoconsumo" in js
+    assert 'id="adminAutoconsumoConfirmModal"' in modals
     assert "facility_id:facilityId" in js
     assert "cantidad_unidades:units" in js
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-safe-edit-20261104" in shell
+    assert "admin-autoconsumos-table-20261104" in shell

@@ -133,6 +133,41 @@ def test_customer_invoice_email_has_discreet_ge_control_website_footer(monkeypat
     assert ">gecontrol.mx</a>" in captured["html"]
 
 
+def test_transfer_invoice_email_shows_origin_and_destination(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b'{"id":"transfer-mail-1"}'
+
+        @staticmethod
+        def json():
+            return {"id": "transfer-mail-1"}
+
+    monkeypatch.setenv("RESEND_API_KEY", "test-key")
+    monkeypatch.setenv("GE_INVOICE_EMAIL_FROM", "facturacion@example.com")
+    monkeypatch.setattr(email_delivery.requests, "post", lambda _url, **kwargs: captured.update(kwargs["json"]) or Response())
+
+    result = email_delivery.send_gas_lp_invoice_email(
+        to_email="traspasos@example.com",
+        issuer_name="AURE GAS",
+        customer_name="AURE GAS",
+        uuid_sat="uuid-transfer",
+        total="0.00",
+        xml_content="<cfdi/>",
+        pdf_bytes=b"pdf",
+        pdf_filename="traspaso.pdf",
+        serie_folio="T-93",
+        transfer_origin_name="Planta y Bodega Aure Gas",
+        transfer_destination_name="Estación Zacatecas",
+    )
+
+    assert result.ok is True
+    assert "Ruta del traspaso" in captured["html"]
+    assert "Planta y Bodega Aure Gas" in captured["html"]
+    assert "Estación Zacatecas" in captured["html"]
+
+
 def test_scheduled_invoice_success_tells_issuer_where_customer_email_was_sent(monkeypatch):
     captured = {}
 
