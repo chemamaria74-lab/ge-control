@@ -256,6 +256,7 @@ function _transferLiters(value) {
 
 let transferAnalysisView = 'grafica';
 let transferAnalysisData = null;
+let adminAutoconsumoRows = [];
 
 function _transferNumber(value) {
   return Number(value || 0);
@@ -360,7 +361,79 @@ function renderTransferAnalysis(data) {
   }).join('');
 }
 
+function _adminAutoconsumoFacilities(){
+  const select = document.getElementById('controlesFacility');
+  return [...(select?.options || [])].filter(option => option.value).map(option => ({id:option.value, nombre:option.textContent.trim()}));
+}
+
+function _adminInventoryCurrentMonth(){
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone:'America/Monterrey', year:'numeric', month:'2-digit'}).formatToParts(new Date()).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}`;
+}
+
+function _adminAutoconsumoLocalValue(value){
+  const match = String(value || '').trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  return match ? `${match[1]}T${match[2]}` : '';
+}
+
+function renderAdminAutoconsumos(rows){
+  const host = document.getElementById('transferAnalysisResults');
+  if(!host) return;
+  const facilities = _adminAutoconsumoFacilities();
+  host.style.display = '';
+  if(!rows.length){ host.innerHTML = '<div style="padding:1rem;color:#64748b">No hay autoconsumos registrados para los filtros seleccionados.</div>'; return; }
+  const facilityOptions = selected => facilities.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id)===String(selected)?'selected':''}>${escapeHtml(item.nombre)}</option>`).join('');
+  host.innerHTML = `<div style="margin-bottom:.75rem;color:#64748b;font-size:.8rem">Administración de autoconsumos por instalación. Los cambios recalculan el inventario y no se permiten si el mes está cerrado.</div><div style="overflow:auto"><table style="width:100%;min-width:1120px;font-size:.76rem"><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th><th>Acciones</th></tr></thead><tbody>${rows.map(row => `<tr><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}" style="min-width:175px"></td><td><select id="adminAutoFacility-${Number(row.id)}" style="min-width:210px">${facilityOptions(row.facility_id)}</select></td><td><input id="adminAutoLitros-${Number(row.id)}" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}" style="width:120px"></td><td><input id="adminAutoUnidades-${Number(row.id)}" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}" style="width:90px"></td><td><code>${escapeHtml(row.uuid || '—')}</code></td><td><div style="display:flex;gap:.4rem"><button class="btn-save" type="button" onclick="guardarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><button type="button" onclick="eliminarAdminAutoconsumo(${Number(row.id)})" style="border:1px solid #fca5a5;border-radius:7px;padding:.4rem .55rem;background:#fff1f2;color:#b91c1c;cursor:pointer"><i class="fa-solid fa-trash"></i> Eliminar</button></div></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+async function cargarAdminAutoconsumos(){
+  const host = document.getElementById('transferAnalysisResults');
+  const month = document.getElementById('transferAnalysisMonth')?.value || _adminInventoryCurrentMonth();
+  const facilityId = document.getElementById('controlesFacility')?.value || '';
+  if(host){ host.style.display=''; host.textContent='Cargando autoconsumos…'; }
+  try{
+    const query = new URLSearchParams({periodo:month});
+    if(facilityId) query.set('facility_id', facilityId);
+    const response = await fetch(`/api/movimientos/autoconsumo?${query}`, {headers:authHeader()});
+    const data = await response.json().catch(() => ({}));
+    if(!response.ok) throw new Error(data.detail || 'No fue posible cargar los autoconsumos.');
+    adminAutoconsumoRows = data.autoconsumos || [];
+    renderAdminAutoconsumos(adminAutoconsumoRows);
+  }catch(error){ if(host) host.textContent=error.message || 'No fue posible cargar los autoconsumos.'; }
+}
+
+async function guardarAdminAutoconsumo(id){
+  const row = adminAutoconsumoRows.find(item => Number(item.id)===Number(id));
+  const facilityId = Number(document.getElementById(`adminAutoFacility-${id}`)?.value || 0);
+  const litersRaw = document.getElementById(`adminAutoLitros-${id}`)?.value || '';
+  const liters = Number(litersRaw);
+  const units = Number(document.getElementById(`adminAutoUnidades-${id}`)?.value || 0);
+  const effectiveAt = document.getElementById(`adminAutoFecha-${id}`)?.value || '';
+  if(!row || !facilityId || liters<=0 || !Number.isInteger(units) || units<=0 || !effectiveAt) return alert('Revisa instalación, fecha, litros y camionetas.');
+  if(!confirm(`¿Guardar la corrección del autoconsumo ${row.uuid || id}?\n\n${liters.toLocaleString('es-MX')} L · ${units} camioneta(s)\n${effectiveAt.replace('T',' ')}`)) return;
+  try{
+    const response = await fetch(`/api/movimientos/autoconsumo/${id}`, {method:'PUT', headers:{'Content-Type':'application/json',...authHeader()}, body:JSON.stringify({volumen_litros:liters, volumen_litros_raw:litersRaw, fecha:effectiveAt, periodo:effectiveAt.slice(0,7), rfc_contribuyente:_perfilSeleccionado?.rfc || '', tipo_movimiento:'autoconsumo', descripcion:'Autoconsumo', facility_id:facilityId, cantidad_unidades:units})});
+    const data = await response.json().catch(() => ({}));
+    if(!response.ok) throw new Error(data.detail || 'No fue posible actualizar el autoconsumo.');
+    showToast('Autoconsumo actualizado.', 'success');
+    await cargarAdminAutoconsumos();
+  }catch(error){ alert(error.message || 'No fue posible actualizar el autoconsumo.'); }
+}
+
+async function eliminarAdminAutoconsumo(id){
+  const row = adminAutoconsumoRows.find(item => Number(item.id)===Number(id));
+  if(!confirm(`¿Eliminar el autoconsumo ${row?.uuid || id}?\n\nDejará de descontarse del inventario y de los reportes.`)) return;
+  try{
+    const response = await fetch(`/api/movimientos/autoconsumo/${id}`, {method:'DELETE', headers:authHeader()});
+    const data = await response.json().catch(() => ({}));
+    if(!response.ok) throw new Error(data.detail || 'No fue posible eliminar el autoconsumo.');
+    showToast('Autoconsumo eliminado.', 'info');
+    await cargarAdminAutoconsumos();
+  }catch(error){ alert(error.message || 'No fue posible eliminar el autoconsumo.'); }
+}
+
 document.getElementById('btnLoadTransferAnalysis')?.addEventListener('click', async () => {
+  if(transferAnalysisView === 'autoconsumos') return cargarAdminAutoconsumos();
   const monthInput = document.getElementById('transferAnalysisMonth');
   const month = monthInput?.value || new Date().toISOString().slice(0, 7);
   if (monthInput && !monthInput.value) monthInput.value = month;
@@ -388,12 +461,13 @@ document.querySelectorAll('[data-admin-inventory-view]').forEach(button => butto
     tab.style.borderColor = active ? '#8d2030' : '#d8d0c4';
     tab.style.color = active ? '#fff' : '#344258';
   });
-  if (transferAnalysisData) renderTransferAnalysis(transferAnalysisData);
+  if (transferAnalysisView === 'autoconsumos') cargarAdminAutoconsumos();
+  else if (transferAnalysisData) renderTransferAnalysis(transferAnalysisData);
 }));
 
 const transferAnalysisMonth = document.getElementById('transferAnalysisMonth');
 if (transferAnalysisMonth && !transferAnalysisMonth.value) {
-  transferAnalysisMonth.value = new Date().toISOString().slice(0, 7);
+  transferAnalysisMonth.value = _adminInventoryCurrentMonth();
 }
 
 // ── Procesar CFDI (múltiples archivos) ────────────────────────────────────
