@@ -81,8 +81,9 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "adminAutoFacility-" not in js
     assert "const facilityId = Number(row?.facility_id || 0)" in js
     assert "Fecha efectiva" in js
-    assert 'fa-solid fa-pen' in js
-    assert 'fa-solid fa-trash-can' in js
+    assert "function _adminAutoconsumoIcon(kind)" in js
+    assert "_adminAutoconsumoIcon('edit')" in js
+    assert "_adminAutoconsumoIcon('delete')" in js
     assert ">✏️</button>" not in js
     assert ">🗑️</button>" not in js
     assert "Editar autoconsumo" in js
@@ -93,4 +94,4 @@ def test_admin_inventory_has_autoconsumo_management_subsection():
     assert "function _adminInventoryCurrentMonth()" in js
     assert "America/Monterrey" in js
     assert "> Buscar</button>" in template
-    assert "admin-autoconsumos-polish-20261104" in shell
+    assert "admin-autoconsumos-assistant-table-20261104" in shell
