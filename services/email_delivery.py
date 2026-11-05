@@ -188,6 +188,8 @@ def send_gas_lp_invoice_email(
     quantity: float | int | str | None = None,
     unit_label: str = "",
     transfer_physical_control: dict[str, Any] | None = None,
+    transfer_origin_name: str = "",
+    transfer_destination_name: str = "",
 ) -> EmailDeliveryResult:
     recipient = _clean_email(to_email)
     if not recipient:
@@ -209,6 +211,8 @@ def send_gas_lp_invoice_email(
     safe_liters = html.escape(str(volume_liters or "0"))
     safe_quantity = html.escape(str(quantity or "0"))
     safe_unit = html.escape(unit_label or "Unidad")
+    safe_transfer_origin = html.escape(transfer_origin_name or "")
+    safe_transfer_destination = html.escape(transfer_destination_name or "")
     if volume_liters is not None:
         quantity_html = f"<br><b>Litros:</b> {safe_liters} L"
     elif quantity is not None:
@@ -259,6 +263,16 @@ def send_gas_lp_invoice_email(
         "<td valign=\"top\"><b style=\"display:block;margin-bottom:5px\">Datos del CFDI</b><table style=\"border-collapse:collapse;min-width:290px\"><tbody>" + "".join(cfdi_rows) + "</tbody></table></td>"
         "</tr></table>"
     ) if physical_rows else ""
+    transfer_route_html = ""
+    if safe_transfer_origin or safe_transfer_destination:
+        transfer_route_html = (
+            "<div style=\"margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-left:4px solid #8d2030;border-radius:8px;background:#fafafa\">"
+            "<b style=\"display:block;margin-bottom:10px;color:#6f1826\">Ruta del traspaso</b>"
+            "<table role=\"presentation\" style=\"border-collapse:collapse;width:100%\"><tbody>"
+            f"<tr><td style=\"padding:5px 12px 5px 0;color:#64748b;width:90px\">Origen</td><td style=\"padding:5px 0\"><b>{safe_transfer_origin or '—'}</b></td></tr>"
+            f"<tr><td style=\"padding:5px 12px 5px 0;color:#64748b\">Destino</td><td style=\"padding:5px 0\"><b>{safe_transfer_destination or '—'}</b></td></tr>"
+            "</tbody></table></div>"
+        )
     subject_parts = [f"CFDI {issuer_name or 'GE Control'}"]
     if serie_folio:
         subject_parts.append(serie_folio)
@@ -273,6 +287,7 @@ def send_gas_lp_invoice_email(
             f"<p>Hola {safe_customer},</p>"
             f"<p>Adjuntamos su CFDI de {safe_issuer}.</p>"
             f"<p><b>Folio:</b> {safe_serie_folio or '—'}<br><b>UUID:</b> {safe_uuid}{quantity_html}<br><b>Total:</b> ${safe_total}</p>"
+            f"{transfer_route_html}"
             f"{physical_html}"
             "<p>El XML y PDF fiscal se incluyen como archivos adjuntos.</p>"
             "<p>Este correo fue enviado automáticamente por GE Control.</p>"
