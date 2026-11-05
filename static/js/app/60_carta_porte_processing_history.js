@@ -257,6 +257,7 @@ function _transferLiters(value) {
 let transferAnalysisView = 'grafica';
 let transferAnalysisData = null;
 let adminAutoconsumoRows = [];
+let adminAutoconsumoEditingId = null;
 
 function _transferNumber(value) {
   return Number(value || 0);
@@ -376,14 +377,48 @@ function _adminAutoconsumoLocalValue(value){
   return match ? `${match[1]}T${match[2]}` : '';
 }
 
+function _adminAutoconsumoDateLabel(value){
+  const local = _adminAutoconsumoLocalValue(value);
+  if(!local) return '—';
+  const [date, time] = local.split('T');
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year} · ${time}`;
+}
+
+function editarAdminAutoconsumo(id){
+  const row = adminAutoconsumoRows.find(item => Number(item.id)===Number(id));
+  if(!row) return;
+  const facility = _adminAutoconsumoFacilities().find(item => String(item.id)===String(row.facility_id));
+  if(!confirm(`¿Seguro que deseas editar este autoconsumo?\n\nInstalación: ${facility?.nombre || 'Sin instalación'}\nUUID: ${row.uuid || id}\n\nLa instalación permanecerá fija.`)) return;
+  adminAutoconsumoEditingId = Number(id);
+  renderAdminAutoconsumos(adminAutoconsumoRows);
+}
+
+function cancelarEdicionAdminAutoconsumo(){
+  adminAutoconsumoEditingId = null;
+  renderAdminAutoconsumos(adminAutoconsumoRows);
+}
+
 function renderAdminAutoconsumos(rows){
   const host = document.getElementById('transferAnalysisResults');
   if(!host) return;
   const facilities = _adminAutoconsumoFacilities();
   host.style.display = '';
   if(!rows.length){ host.innerHTML = '<div style="padding:1rem;color:#64748b">No hay autoconsumos registrados para los filtros seleccionados.</div>'; return; }
-  const facilityOptions = selected => facilities.map(item => `<option value="${escapeHtml(item.id)}" ${String(item.id)===String(selected)?'selected':''}>${escapeHtml(item.nombre)}</option>`).join('');
-  host.innerHTML = `<div style="margin-bottom:.75rem;color:#64748b;font-size:.8rem">Administración de autoconsumos por instalación. Los cambios recalculan el inventario y no se permiten si el mes está cerrado.</div><div style="overflow:auto"><table style="width:100%;min-width:1120px;font-size:.76rem"><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th><th>Acciones</th></tr></thead><tbody>${rows.map(row => `<tr><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}" style="min-width:175px"></td><td><select id="adminAutoFacility-${Number(row.id)}" style="min-width:210px">${facilityOptions(row.facility_id)}</select></td><td><input id="adminAutoLitros-${Number(row.id)}" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}" style="width:120px"></td><td><input id="adminAutoUnidades-${Number(row.id)}" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}" style="width:90px"></td><td><code>${escapeHtml(row.uuid || '—')}</code></td><td><div style="display:flex;gap:.4rem"><button class="btn-save" type="button" onclick="guardarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-floppy-disk"></i> Guardar</button><button type="button" onclick="eliminarAdminAutoconsumo(${Number(row.id)})" style="border:1px solid #fca5a5;border-radius:7px;padding:.4rem .55rem;background:#fff1f2;color:#b91c1c;cursor:pointer"><i class="fa-solid fa-trash"></i> Eliminar</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  const groups = new Map();
+  rows.forEach(row => { const key=String(row.facility_id || 'sin-instalacion'); if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(row); });
+  const cards = [...groups.entries()].map(([facilityId, facilityRows]) => {
+    const facility = facilities.find(item => String(item.id)===facilityId);
+    const name = facility?.nombre || 'Sin instalación';
+    const total = facilityRows.reduce((sum,row) => sum + Number(row.volumen_litros || 0), 0);
+    const detail = facilityRows.map(row => {
+      const editing = Number(row.id) === adminAutoconsumoEditingId;
+      if(editing) return `<tr style="background:#fffaf3"><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}" style="width:100%;min-width:165px"><div style="font-size:11px;color:#64748b;margin-top:4px"><i class="fa-solid fa-lock"></i> Instalación fija: ${escapeHtml(name)}</div></td><td><input id="adminAutoLitros-${Number(row.id)}" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}" style="width:105px"></td><td><input id="adminAutoUnidades-${Number(row.id)}" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}" style="width:75px"></td><td><span style="padding:.25rem .5rem;border-radius:999px;background:#fff7ed;color:#9a3412;font-weight:800;font-size:11px">Editando</span></td><td><div style="display:flex;gap:.4rem;justify-content:flex-end"><button class="btn-save" type="button" onclick="guardarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-check"></i> Guardar</button><button type="button" onclick="cancelarEdicionAdminAutoconsumo()" style="border:1px solid #d8d0c4;border-radius:7px;padding:.4rem .6rem;background:#fff;color:#475569;cursor:pointer">Cancelar</button></div></td></tr>`;
+      return `<tr><td><strong>${escapeHtml(_adminAutoconsumoDateLabel(row.fecha_operacion || row.fecha))}</strong><div style="font:11px monospace;color:#94a3b8;margin-top:3px">${escapeHtml(row.uuid || '—')}</div></td><td><span style="font-size:1rem;font-weight:800;color:#1e293b">${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></td><td>${Number(row.unidades_autoconsumo || 0).toLocaleString('es-MX')}</td><td><span style="padding:.25rem .5rem;border-radius:999px;background:#f0fdf4;color:#166534;font-weight:800;font-size:11px">Activo</span></td><td><div style="display:flex;gap:.35rem;justify-content:flex-end"><button type="button" onclick="editarAdminAutoconsumo(${Number(row.id)})" style="border:1px solid #bfdbfe;border-radius:7px;padding:.38rem .55rem;background:#eff6ff;color:#1d4ed8;cursor:pointer"><i class="fa-solid fa-pen"></i> Editar</button><button type="button" title="Eliminar" aria-label="Eliminar autoconsumo" onclick="eliminarAdminAutoconsumo(${Number(row.id)})" style="border:1px solid #fecaca;border-radius:7px;padding:.38rem .55rem;background:#fff;color:#b91c1c;cursor:pointer"><i class="fa-solid fa-trash"></i></button></div></td></tr>`;
+    }).join('');
+    return `<section style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#fff;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0"><div><div style="font-size:1rem;font-weight:900;color:#1e293b"><i class="fa-solid fa-location-dot" style="color:#8d2030;margin-right:7px"></i>${escapeHtml(name)}</div><div style="font-size:12px;color:#64748b;margin-top:3px">${facilityRows.length} autoconsumo(s)</div></div><div style="text-align:right"><div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:800">Total del mes</div><div style="font-size:1.15rem;font-weight:900;color:#8d2030">${total.toLocaleString('es-MX',{maximumFractionDigits:4})} L</div></div></div><div style="overflow:auto"><table style="width:100%;min-width:760px;font-size:.78rem"><thead><tr><th>Fecha y referencia</th><th>Litros</th><th>Camionetas</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead><tbody>${detail}</tbody></table></div></section>`;
+  }).join('');
+  host.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px"><div><strong style="color:#1e293b">Autoconsumos por instalación</strong><div style="color:#64748b;font-size:12px;margin-top:2px">Edita únicamente el registro que necesites. Los meses cerrados permanecen protegidos.</div></div><span style="font-size:12px;color:#64748b">${rows.length} registro(s)</span></div>${cards}`;
 }
 
 async function cargarAdminAutoconsumos(){
@@ -404,7 +439,7 @@ async function cargarAdminAutoconsumos(){
 
 async function guardarAdminAutoconsumo(id){
   const row = adminAutoconsumoRows.find(item => Number(item.id)===Number(id));
-  const facilityId = Number(document.getElementById(`adminAutoFacility-${id}`)?.value || 0);
+  const facilityId = Number(row?.facility_id || 0);
   const litersRaw = document.getElementById(`adminAutoLitros-${id}`)?.value || '';
   const liters = Number(litersRaw);
   const units = Number(document.getElementById(`adminAutoUnidades-${id}`)?.value || 0);
@@ -416,6 +451,7 @@ async function guardarAdminAutoconsumo(id){
     const data = await response.json().catch(() => ({}));
     if(!response.ok) throw new Error(data.detail || 'No fue posible actualizar el autoconsumo.');
     showToast('Autoconsumo actualizado.', 'success');
+    adminAutoconsumoEditingId = null;
     await cargarAdminAutoconsumos();
   }catch(error){ alert(error.message || 'No fue posible actualizar el autoconsumo.'); }
 }
