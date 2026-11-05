@@ -447,9 +447,12 @@ function renderAdminAutoconsumos(rows){
   });
   const tableRows = [...groups.entries()].map(([facilityId, facilityRows]) => {
     const facility = facilities.find(item => String(item.id)===facilityId);
-    const name = facility?.nombre || 'Sin instalación';
+    const firstRow = facilityRows[0] || {};
+    const baseName = firstRow.facility_name || facility?.nombre || 'Instalación sin nombre';
+    const facilityKey = firstRow.facility_key || '';
+    const name = `${baseName}${facilityKey && !String(baseName).includes(`[${facilityKey}]`) ? ` [${facilityKey}]` : ''}`;
     const total = facilityRows.reduce((sum, row) => sum + Number(row.volumen_litros || 0), 0);
-    const header = `<tr class="admin-auto-station"><td colspan="7"><strong>${escapeHtml(name)}</strong><span>${facilityRows.length} registro(s) · ${total.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></td></tr>`;
+    const header = `<tr class="autoconsumo-station"><td colspan="7"><strong>${escapeHtml(name)}</strong><span>${facilityRows.length} registro(s) · ${total.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></td></tr>`;
     const detail = facilityRows.map(row => {
       const editing = Number(row.id) === adminAutoconsumoEditingId;
       if(editing) return `<tr class="admin-auto-editing"><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}"></td><td>${escapeHtml(name)}<small>Instalación fija</small></td><td><input id="adminAutoLitros-${Number(row.id)}" class="admin-auto-number" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}"></td><td><input id="adminAutoUnidades-${Number(row.id)}" class="admin-auto-units" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}"></td><td>${escapeHtml(row.uuid || '—')}</td><td class="admin-auto-action"><button class="admin-auto-icon save" type="button" title="Guardar" aria-label="Guardar cambios" onclick="guardarAdminAutoconsumo(${Number(row.id)})">${_adminAutoconsumoIcon('save')}</button></td><td class="admin-auto-action"><button class="admin-auto-icon cancel" type="button" title="Cancelar" aria-label="Cancelar edición" onclick="cancelarEdicionAdminAutoconsumo()">${_adminAutoconsumoIcon('cancel')}</button></td></tr>`;
