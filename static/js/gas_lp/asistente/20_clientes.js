@@ -506,6 +506,7 @@ async function loadFacilities(){
     if(!(CATALOGOS.instalaciones || []).length) CATALOGOS.instalaciones = FACILITIES;
     if(!FACILITIES.length) setStatus('facturaMsg','Primero crea una instalación en GE Control. Es obligatoria para control y operación.',false);
     renderDestinoFacilities();
+    if(document.getElementById('autoconsumoRows')) prepararAutoconsumo();
     if(document.getElementById('panel-carta-porte')?.classList.contains('active')){
       if(ACTIVE_CP_TAB === 'configuracion') renderAssistantCpCatalogs();
       else renderCartaPorteWizard();

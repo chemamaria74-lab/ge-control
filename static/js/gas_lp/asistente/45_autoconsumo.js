@@ -14,7 +14,13 @@ function autoconsumoHeaders(){
 
 function autoconsumoFacilityName(id){
   const facility = (FACILITIES || []).find(item => String(item.id) === String(id));
-  return facility?.nombre || facility?.name || `Instalación ${id || '—'}`;
+  return facility?.nombre || facility?.name || 'Instalación sin nombre';
+}
+
+function autoconsumoRowFacilityName(row){
+  const name = row?.facility_name || autoconsumoFacilityName(row?.facility_id);
+  const key = row?.facility_key ? ` [${row.facility_key}]` : '';
+  return `${name}${key}`;
 }
 
 function openAutoconsumoConfirmModal({facilityName, liters, units, effectiveAt, editing=false}){
@@ -39,7 +45,7 @@ function prepararAutoconsumo(){
   if(!select) return;
   const previous = select.value;
   select.innerHTML = '<option value="">Selecciona instalación</option>' + (FACILITIES || []).map(item => {
-    const name = item.nombre || item.name || `Instalación ${item.id}`;
+    const name = item.nombre || item.name || 'Instalación sin nombre';
     const key = item.clave_instalacion ? ` [${item.clave_instalacion}]` : '';
     return `<option value="${esc(item.id)}">${esc(name)}${esc(key)}</option>`;
   }).join('');
@@ -123,9 +129,9 @@ async function cargarAutoconsumos(){
       byFacility.get(key).push(row);
     });
     body.innerHTML = [...byFacility.entries()].map(([facilityId, facilityRows]) => {
-      const facilityName = autoconsumoFacilityName(facilityId === 'sin-instalacion' ? '' : facilityId);
+      const facilityName = autoconsumoRowFacilityName(facilityRows[0]);
       const totalLiters = facilityRows.reduce((sum, row) => sum + Number(row.volumen_litros || 0), 0);
-      const header = `<tr class="autoconsumo-facility-group"><td colspan="5" style="background:#f7f2ed;border-top:2px solid #8d2030;padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><strong style="color:#6f1826"><i class="fa-solid fa-location-dot" style="margin-right:6px"></i>${esc(facilityName)}</strong><span style="color:#475569;font-size:12px;font-weight:800">${facilityRows.length} registro(s) · ${totalLiters.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></div></td></tr>`;
+      const header = `<tr class="autoconsumo-station"><td colspan="5"><strong>${esc(facilityName)}</strong><span>${facilityRows.length} registro(s) · ${totalLiters.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></td></tr>`;
       const detail = facilityRows.map(row => {
         const effective = row.fecha_operacion || row.fecha || '—';
         const displayDate = new Date(effective).toLocaleString('es-MX', {timeZone:'America/Monterrey'});
