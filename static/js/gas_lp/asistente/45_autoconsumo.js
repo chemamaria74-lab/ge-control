@@ -1,5 +1,6 @@
 let autoconsumoEditingId = null;
 let autoconsumoEditRows = [];
+let autoconsumoConfirmResolve = null;
 function autoconsumoPerfilId(){
   return CURRENT_COMPANY?.perfil_id || CURRENT_COMPANY?.profile_id || CURRENT_COMPANY?.id || '';
 }
@@ -14,6 +15,32 @@ function autoconsumoHeaders(){
 function autoconsumoFacilityName(id){
   const facility = (FACILITIES || []).find(item => String(item.id) === String(id));
   return facility?.nombre || facility?.name || `Instalación ${id || '—'}`;
+}
+
+function openAutoconsumoConfirmModal({facilityName, liters, units, effectiveAt, editing=false}){
+  document.getElementById('autoconsumoConfirmAction').textContent = editing ? 'corregir' : 'registrar';
+  document.getElementById('autoconsumoConfirmFacility').textContent = facilityName;
+  document.getElementById('autoconsumoConfirmLiters').textContent = `${liters.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:4})} L`;
+  document.getElementById('autoconsumoConfirmUnits').textContent = units.toLocaleString('es-MX');
+  document.getElementById('autoconsumoConfirmDate').textContent = new Date(effectiveAt).toLocaleString('es-MX',{timeZone:'America/Monterrey'});
+  const review = document.getElementById('autoconsumoConfirmReviewed');
+  const submit = document.getElementById('btnConfirmarAutoconsumo');
+  review.checked = false;
+  submit.disabled = true;
+  document.getElementById('autoconsumoConfirmModal').classList.remove('hide');
+  setTimeout(() => review.focus(), 0);
+  return new Promise(resolve => { autoconsumoConfirmResolve = resolve; });
+}
+
+function toggleAutoconsumoConfirmReady(){
+  document.getElementById('btnConfirmarAutoconsumo').disabled = !document.getElementById('autoconsumoConfirmReviewed').checked;
+}
+
+function resolveAutoconsumoConfirm(confirmed){
+  document.getElementById('autoconsumoConfirmModal').classList.add('hide');
+  const resolve = autoconsumoConfirmResolve;
+  autoconsumoConfirmResolve = null;
+  if(resolve) resolve(Boolean(confirmed));
 }
 
 function prepararAutoconsumo(){
@@ -54,17 +81,10 @@ async function guardarAutoconsumo(){
     setStatus('autoconsumoMsg', 'No se pudo identificar la empresa asignada. Recarga el portal.', false);
     return;
   }
-  const operationLabel = autoconsumoEditingId ? 'corregir' : 'registrar';
-  const confirmed = confirm([
-    `¿Confirmas que deseas ${operationLabel} este autoconsumo?`,
-    '',
-    `Instalación: ${autoconsumoFacilityName(facilityId)}`,
-    `Litros: ${liters.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:4})} L`,
-    `Camionetas: ${units.toLocaleString('es-MX')}`,
-    `Fecha y hora: ${new Date(effectiveAt).toLocaleString('es-MX', {timeZone:'America/Monterrey'})}`,
-    '',
-    'Revisa los datos antes de continuar. Este movimiento descontará inventario y se incluirá en los reportes SAT.'
-  ].join('\n'));
+  const confirmed = await openAutoconsumoConfirmModal({
+    facilityName: autoconsumoFacilityName(facilityId), liters, units, effectiveAt,
+    editing: Boolean(autoconsumoEditingId),
+  });
   if(!confirmed) return;
   btnGuardarAutoconsumo.disabled = true;
   setStatus('autoconsumoMsg', 'Registrando salida de inventario…', true);
