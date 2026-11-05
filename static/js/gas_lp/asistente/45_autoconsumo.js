@@ -54,6 +54,18 @@ async function guardarAutoconsumo(){
     setStatus('autoconsumoMsg', 'No se pudo identificar la empresa asignada. Recarga el portal.', false);
     return;
   }
+  const operationLabel = autoconsumoEditingId ? 'corregir' : 'registrar';
+  const confirmed = confirm([
+    `¿Confirmas que deseas ${operationLabel} este autoconsumo?`,
+    '',
+    `Instalación: ${autoconsumoFacilityName(facilityId)}`,
+    `Litros: ${liters.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:4})} L`,
+    `Camionetas: ${units.toLocaleString('es-MX')}`,
+    `Fecha y hora: ${new Date(effectiveAt).toLocaleString('es-MX', {timeZone:'America/Monterrey'})}`,
+    '',
+    'Revisa los datos antes de continuar. Este movimiento descontará inventario y se incluirá en los reportes SAT.'
+  ].join('\n'));
+  if(!confirmed) return;
   btnGuardarAutoconsumo.disabled = true;
   setStatus('autoconsumoMsg', 'Registrando salida de inventario…', true);
   try{
@@ -88,7 +100,7 @@ async function cargarAutoconsumos(){
   const body = document.getElementById('autoconsumoRows');
   if(!body || !autoconsumoPerfilId()) return;
   const month = autoconsumoMes.value || todayKey().slice(0,7);
-  body.innerHTML = '<tr><td colspan="6">Cargando…</td></tr>';
+  body.innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
   try{
     const data = await api(`/api/movimientos/autoconsumo?periodo=${encodeURIComponent(month)}`, {headers: autoconsumoHeaders()});
     const rows = data.autoconsumos || [];
@@ -97,10 +109,10 @@ async function cargarAutoconsumos(){
       const effective = row.fecha_operacion || row.fecha || '—';
       const displayDate = new Date(effective).toLocaleString('es-MX', {timeZone:'America/Monterrey'});
       const units = row.unidades_autoconsumo == null ? '—' : Number(row.unidades_autoconsumo).toLocaleString('es-MX');
-      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td><td><button type="button" onclick="eliminarAutoconsumoFila(${Number(row.id)}, this)" style="border:1px solid #d6d3d1;border-radius:8px;padding:7px 12px;background:white;cursor:pointer" aria-label="Eliminar autoconsumo">Eliminar</button></td></tr>`;
-    }).join('') || '<tr><td colspan="6">Sin autoconsumos en este mes.</td></tr>';
+      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
+    }).join('') || '<tr><td colspan="5">Sin autoconsumos en este mes.</td></tr>';
   }catch(error){
-    body.innerHTML = `<tr><td colspan="6">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;
   }
 }
 
@@ -116,26 +128,4 @@ function editarAutoconsumo(id){
   btnGuardarAutoconsumo.textContent='Guardar corrección';
   document.getElementById('btnCancelarAutoconsumo').hidden=false;
   autoconsumoFacility.scrollIntoView({behavior:'smooth',block:'center'});
-}
-async function cancelarAutoconsumo(){
-  if(!autoconsumoEditingId || !confirm('¿Cancelar este autoconsumo y devolver sus litros al inventario?')) return;
-  try{
-    await api('/api/movimientos/autoconsumo/'+autoconsumoEditingId,{method:'DELETE',headers:autoconsumoHeaders()});
-    limpiarAutoconsumo();
-    document.getElementById('btnCancelarAutoconsumo').hidden=true;
-    await cargarAutoconsumos();
-  }catch(error){setStatus('autoconsumoMsg',error.message,false);}
-}
-
-async function eliminarAutoconsumoFila(id, button){
-  if(!confirm('¿Eliminar este autoconsumo? Sus litros dejarán de descontarse del inventario y de los reportes.')) return;
-  button.disabled = true;
-  try{
-    await api('/api/movimientos/autoconsumo/'+id, {method:'DELETE', headers:autoconsumoHeaders()});
-    limpiarAutoconsumo();
-    await cargarAutoconsumos();
-    setStatus('autoconsumoMsg','Autoconsumo eliminado.',true);
-  }catch(error){
-    setStatus('autoconsumoMsg',error.message || 'No se pudo eliminar el autoconsumo.',false);
-  }finally{button.disabled=false;}
 }
