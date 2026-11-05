@@ -18,22 +18,13 @@ function autoconsumoFacilityName(id){
 }
 
 function openAutoconsumoConfirmModal({facilityName, liters, units, effectiveAt, editing=false}){
-  document.getElementById('autoconsumoConfirmAction').textContent = editing ? 'corregir' : 'registrar';
   document.getElementById('autoconsumoConfirmFacility').textContent = facilityName;
   document.getElementById('autoconsumoConfirmLiters').textContent = `${liters.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:4})} L`;
   document.getElementById('autoconsumoConfirmUnits').textContent = units.toLocaleString('es-MX');
   document.getElementById('autoconsumoConfirmDate').textContent = new Date(effectiveAt).toLocaleString('es-MX',{timeZone:'America/Monterrey'});
-  const review = document.getElementById('autoconsumoConfirmReviewed');
-  const submit = document.getElementById('btnConfirmarAutoconsumo');
-  review.checked = false;
-  submit.disabled = true;
   document.getElementById('autoconsumoConfirmModal').classList.remove('hide');
-  setTimeout(() => review.focus(), 0);
+  setTimeout(() => document.getElementById('btnConfirmarAutoconsumo').focus(), 0);
   return new Promise(resolve => { autoconsumoConfirmResolve = resolve; });
-}
-
-function toggleAutoconsumoConfirmReady(){
-  document.getElementById('btnConfirmarAutoconsumo').disabled = !document.getElementById('autoconsumoConfirmReviewed').checked;
 }
 
 function resolveAutoconsumoConfirm(confirmed){
