@@ -133,7 +133,7 @@
           <div><label>Fecha y hora *</label><input id="autoconsumoFecha" type="datetime-local"></div>
         </div>
         <div class="toolbar" style="margin-top:12px">
-          <button id="btnCancelarAutoconsumo" type="button" hidden onclick="cancelarAutoconsumo()" style="color:#be123c">Cancelar autoconsumo</button><button class="btn" id="btnGuardarAutoconsumo" type="button" onclick="guardarAutoconsumo()"><i class="fa-solid fa-plus"></i> Agregar autoconsumo</button>
+          <button id="btnCancelarAutoconsumo" type="button" hidden style="color:#be123c">Cancelar autoconsumo</button><button class="btn" id="btnGuardarAutoconsumo" type="button" onclick="guardarAutoconsumo()"><i class="fa-solid fa-plus"></i> Agregar autoconsumo</button>
           <button class="btn ghost" type="button" onclick="limpiarAutoconsumo()"><i class="fa-solid fa-eraser"></i> Limpiar</button>
           <span id="autoconsumoMsg" class="status" aria-live="polite"></span>
         </div>
@@ -146,7 +146,7 @@
             <button class="btn ghost" type="button" onclick="cargarAutoconsumos()"><i class="fa-solid fa-rotate"></i> Actualizar</button>
           </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th><th>Eliminar</th></tr></thead><tbody id="autoconsumoRows"><tr><td colspan="5">Abre esta pestaña para consultar los autoconsumos.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th></tr></thead><tbody id="autoconsumoRows"><tr><td colspan="5">Abre esta pestaña para consultar los autoconsumos.</td></tr></tbody></table></div>
       </div>
     </div>
     <!-- ge-include: gas_lp/asistente/_facturas.html -->
