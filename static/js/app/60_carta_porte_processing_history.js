@@ -393,7 +393,7 @@ function openAdminAutoconsumoConfirm({title, text, data, danger=false}){
   const icon = document.getElementById('adminAutoconsumoConfirmIcon');
   const button = document.getElementById('adminAutoconsumoConfirmOk');
   const bar = document.getElementById('adminAutoconsumoConfirmBar');
-  icon.innerHTML = danger ? '<i class="fa-solid fa-trash"></i>' : '<i class="fa-solid fa-pen"></i>';
+  icon.innerHTML = _adminAutoconsumoIcon(danger ? 'delete' : 'edit');
   icon.classList.toggle('danger', danger);
   button.classList.toggle('danger', danger);
   bar.classList.toggle('danger', danger);
@@ -423,27 +423,30 @@ function cancelarEdicionAdminAutoconsumo(){
   renderAdminAutoconsumos(adminAutoconsumoRows);
 }
 
+function _adminAutoconsumoIcon(kind){
+  const icons = {
+    edit:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16v4Zm13.5-16.5 3 3-1.6 1.6-3-3 1.6-1.6Z"/></svg>',
+    delete:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8l1 2h4v2H3V6h4l1-2Zm-2 6h12l-1 10H7L6 10Zm3 2v6h2v-6H9Zm4 0v6h2v-6h-2Z"/></svg>',
+    save:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 17.2-4.4-4.4 1.4-1.4 3 3 8.6-8.6 1.4 1.4-10 10Z"/></svg>',
+    cancel:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.4 6 4.6 4.6L16.6 6 18 7.4 13.4 12l4.6 4.6-1.4 1.4-4.6-4.6L7.4 18 6 16.6l4.6-4.6L6 7.4 7.4 6Z"/></svg>'
+  };
+  return icons[kind] || '';
+}
+
 function renderAdminAutoconsumos(rows){
   const host = document.getElementById('transferAnalysisResults');
   if(!host) return;
   const facilities = _adminAutoconsumoFacilities();
   host.style.display = '';
   if(!rows.length){ host.innerHTML = '<div style="padding:1rem;color:#64748b">No hay autoconsumos registrados para los filtros seleccionados.</div>'; return; }
-  const groups = new Map();
-  rows.forEach(row => { const key=String(row.facility_id || 'sin-instalacion'); if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(row); });
-  const groupedRows = [...groups.entries()].map(([facilityId, facilityRows]) => {
-    const facility = facilities.find(item => String(item.id)===facilityId);
+  const tableRows = rows.map(row => {
+    const facility = facilities.find(item => String(item.id)===String(row.facility_id));
     const name = facility?.nombre || 'Sin instalación';
-    const total = facilityRows.reduce((sum,row) => sum + Number(row.volumen_litros || 0), 0);
-    const groupHeader = `<tr class="admin-auto-group"><td colspan="7"><div><strong><i class="fa-solid fa-location-dot"></i>${escapeHtml(name)}</strong><span>${facilityRows.length} registro(s) · ${total.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></div></td></tr>`;
-    const detail = facilityRows.map(row => {
-      const editing = Number(row.id) === adminAutoconsumoEditingId;
-      if(editing) return `<tr class="admin-auto-editing"><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}"></td><td>${escapeHtml(name)}<small><i class="fa-solid fa-lock"></i> Instalación fija</small></td><td><input id="adminAutoLitros-${Number(row.id)}" class="admin-auto-number" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}"></td><td><input id="adminAutoUnidades-${Number(row.id)}" class="admin-auto-units" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}"></td><td><code class="admin-auto-uuid">${escapeHtml(row.uuid || '—')}</code></td><td class="admin-auto-action"><button class="admin-auto-icon save" type="button" title="Guardar" aria-label="Guardar cambios" onclick="guardarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-check"></i></button></td><td class="admin-auto-action"><button class="admin-auto-icon cancel" type="button" title="Cancelar" aria-label="Cancelar edición" onclick="cancelarEdicionAdminAutoconsumo()"><i class="fa-solid fa-xmark"></i></button></td></tr>`;
-      return `<tr><td>${escapeHtml(_adminAutoconsumoDateLabel(row.fecha_operacion || row.fecha))}</td><td>${escapeHtml(name)}</td><td><b>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</b></td><td>${Number(row.unidades_autoconsumo || 0).toLocaleString('es-MX')}</td><td><code class="admin-auto-uuid">${escapeHtml(row.uuid || '—')}</code></td><td class="admin-auto-action"><button class="admin-auto-icon edit" type="button" title="Editar" aria-label="Editar autoconsumo" onclick="editarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-pen"></i></button></td><td class="admin-auto-action"><button class="admin-auto-icon delete" type="button" title="Eliminar" aria-label="Eliminar autoconsumo" onclick="eliminarAdminAutoconsumo(${Number(row.id)})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
-    }).join('');
-    return groupHeader + detail;
+    const editing = Number(row.id) === adminAutoconsumoEditingId;
+    if(editing) return `<tr class="admin-auto-editing"><td><input id="adminAutoFecha-${Number(row.id)}" type="datetime-local" value="${escapeHtml(_adminAutoconsumoLocalValue(row.fecha_operacion || row.fecha))}"></td><td>${escapeHtml(name)}<small>Instalación fija</small></td><td><input id="adminAutoLitros-${Number(row.id)}" class="admin-auto-number" type="number" min="0.0001" step="0.0001" value="${escapeHtml(row.volumen_litros)}"></td><td><input id="adminAutoUnidades-${Number(row.id)}" class="admin-auto-units" type="number" min="1" step="1" value="${escapeHtml(row.unidades_autoconsumo || 1)}"></td><td>${escapeHtml(row.uuid || '—')}</td><td class="admin-auto-action"><button class="admin-auto-icon save" type="button" title="Guardar" aria-label="Guardar cambios" onclick="guardarAdminAutoconsumo(${Number(row.id)})">${_adminAutoconsumoIcon('save')}</button></td><td class="admin-auto-action"><button class="admin-auto-icon cancel" type="button" title="Cancelar" aria-label="Cancelar edición" onclick="cancelarEdicionAdminAutoconsumo()">${_adminAutoconsumoIcon('cancel')}</button></td></tr>`;
+    return `<tr><td>${escapeHtml(_adminAutoconsumoDateLabel(row.fecha_operacion || row.fecha))}</td><td>${escapeHtml(name)}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${Number(row.unidades_autoconsumo || 0).toLocaleString('es-MX')}</td><td>${escapeHtml(row.uuid || '—')}</td><td class="admin-auto-action"><button class="admin-auto-icon edit" type="button" title="Editar" aria-label="Editar autoconsumo" onclick="editarAdminAutoconsumo(${Number(row.id)})">${_adminAutoconsumoIcon('edit')}</button></td><td class="admin-auto-action"><button class="admin-auto-icon delete" type="button" title="Eliminar" aria-label="Eliminar autoconsumo" onclick="eliminarAdminAutoconsumo(${Number(row.id)})">${_adminAutoconsumoIcon('delete')}</button></td></tr>`;
   }).join('');
-  host.innerHTML = `<div class="admin-auto-note"><i class="fa-solid fa-circle-info"></i> Registros agrupados por instalación. La instalación no puede modificarse.</div><div class="admin-auto-table-wrap"><table class="admin-auto-table"><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th><th class="admin-auto-action">Editar</th><th class="admin-auto-action">Eliminar</th></tr></thead><tbody>${groupedRows}</tbody></table></div>`;
+  host.innerHTML = `<div class="admin-auto-table-wrap"><table class="admin-auto-table"><thead><tr><th>Fecha efectiva</th><th>Instalación</th><th>Litros</th><th>Camionetas</th><th>UUID interno</th><th class="admin-auto-action">Editar</th><th class="admin-auto-action">Eliminar</th></tr></thead><tbody>${tableRows}</tbody></table></div>`;
 }
 
 async function cargarAdminAutoconsumos(){
