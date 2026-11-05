@@ -914,6 +914,10 @@ async def gas_lp_internal_factura_send_email(factura_id: int, payload: GasLpSend
             pdf_bytes=pdf_bytes,
             pdf_filename=info.filename,
             serie_folio=_gas_lp_factura_folio_label(row),
+            volume_liters=row.get("volumen_litros"),
+            transfer_physical_control=md.get("transfer_physical_control") if isinstance(md.get("transfer_physical_control"), dict) else None,
+            transfer_origin_name=md.get("origen_nombre") or row.get("origen_nombre") or "",
+            transfer_destination_name=md.get("destino_nombre") or row.get("destino_nombre") or "",
         )
         email_results.append({"to": email_to, **email_result.as_metadata()})
     now_email = _now_iso()

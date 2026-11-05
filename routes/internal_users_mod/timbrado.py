@@ -753,6 +753,8 @@ async def _gas_lp_internal_crear_factura_impl(payload: GasLpInternalFacturaPaylo
                     serie_folio=_gas_lp_factura_folio_label(factura_row),
                     volume_liters=payload.litros,
                     transfer_physical_control=transfer_physical_control if is_transfer else None,
+                    transfer_origin_name=(origen.get("nombre") or "") if is_transfer else "",
+                    transfer_destination_name=(destino.get("nombre") or "") if is_transfer else "",
                 )
                 email_results.append({"to": email_to, **email_result.as_metadata()})
             now_email = _now_iso()
