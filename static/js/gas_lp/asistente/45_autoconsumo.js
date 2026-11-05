@@ -105,11 +105,23 @@ async function cargarAutoconsumos(){
     const data = await api(`/api/movimientos/autoconsumo?periodo=${encodeURIComponent(month)}`, {headers: autoconsumoHeaders()});
     const rows = data.autoconsumos || [];
     autoconsumoEditRows = rows;
-    body.innerHTML = rows.map(row => {
-      const effective = row.fecha_operacion || row.fecha || '—';
-      const displayDate = new Date(effective).toLocaleString('es-MX', {timeZone:'America/Monterrey'});
-      const units = row.unidades_autoconsumo == null ? '—' : Number(row.unidades_autoconsumo).toLocaleString('es-MX');
-      return `<tr><td>${esc(displayDate)}</td><td>${esc(autoconsumoFacilityName(row.facility_id))}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
+    const byFacility = new Map();
+    rows.forEach(row => {
+      const key = String(row.facility_id || 'sin-instalacion');
+      if(!byFacility.has(key)) byFacility.set(key, []);
+      byFacility.get(key).push(row);
+    });
+    body.innerHTML = [...byFacility.entries()].map(([facilityId, facilityRows]) => {
+      const facilityName = autoconsumoFacilityName(facilityId === 'sin-instalacion' ? '' : facilityId);
+      const totalLiters = facilityRows.reduce((sum, row) => sum + Number(row.volumen_litros || 0), 0);
+      const header = `<tr class="autoconsumo-facility-group"><td colspan="5" style="background:#f7f2ed;border-top:2px solid #8d2030;padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><strong style="color:#6f1826"><i class="fa-solid fa-location-dot" style="margin-right:6px"></i>${esc(facilityName)}</strong><span style="color:#475569;font-size:12px;font-weight:800">${facilityRows.length} registro(s) · ${totalLiters.toLocaleString('es-MX',{maximumFractionDigits:4})} L</span></div></td></tr>`;
+      const detail = facilityRows.map(row => {
+        const effective = row.fecha_operacion || row.fecha || '—';
+        const displayDate = new Date(effective).toLocaleString('es-MX', {timeZone:'America/Monterrey'});
+        const units = row.unidades_autoconsumo == null ? '—' : Number(row.unidades_autoconsumo).toLocaleString('es-MX');
+        return `<tr><td>${esc(displayDate)}</td><td>${esc(facilityName)}</td><td>${Number(row.volumen_litros || 0).toLocaleString('es-MX',{maximumFractionDigits:4})} L</td><td>${esc(units)}</td><td><code>${esc(row.uuid || '—')}</code></td></tr>`;
+      }).join('');
+      return header + detail;
     }).join('') || '<tr><td colspan="5">Sin autoconsumos en este mes.</td></tr>';
   }catch(error){
     body.innerHTML = `<tr><td colspan="5">${esc(error.message || 'No se pudieron cargar los autoconsumos.')}</td></tr>`;
