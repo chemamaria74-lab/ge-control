@@ -79,3 +79,32 @@
       </div>
     </div>
   </div>
+  <div id="autoconsumoConfirmModal" class="modal-backdrop hide" role="dialog" aria-modal="true" aria-labelledby="autoconsumoConfirmTitle">
+    <div class="modal autoconsumo-confirm-modal">
+      <div class="autoconsumo-confirm-brand"><span class="autoconsumo-confirm-mark">GE</span><span>GE Control</span></div>
+      <div class="modal-head">
+        <div>
+          <h2 id="autoconsumoConfirmTitle">Verifica antes de continuar</h2>
+          <p class="muted" style="margin:5px 0 0">Vas a <span id="autoconsumoConfirmAction">registrar</span> una salida de inventario.</p>
+        </div>
+        <button class="btn ghost icon-btn" type="button" onclick="resolveAutoconsumoConfirm(false)" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="autoconsumo-confirm-highlight">
+        <div><span>Instalación</span><strong id="autoconsumoConfirmFacility">—</strong></div>
+        <div><span>Litros a descontar</span><strong id="autoconsumoConfirmLiters">—</strong></div>
+      </div>
+      <div class="autoconsumo-confirm-details">
+        <div><span>Camionetas</span><b id="autoconsumoConfirmUnits">—</b></div>
+        <div><span>Fecha y hora efectiva</span><b id="autoconsumoConfirmDate">—</b></div>
+      </div>
+      <div class="autoconsumo-confirm-warning"><i class="fa-solid fa-circle-info"></i><span>Este movimiento descontará inventario y se incluirá en los reportes SAT. Revisa especialmente la instalación y los litros.</span></div>
+      <label class="autoconsumo-review-check" for="autoconsumoConfirmReviewed">
+        <input id="autoconsumoConfirmReviewed" type="checkbox" onchange="toggleAutoconsumoConfirmReady()">
+        <span>Ya revisé la instalación, los litros y la fecha; los datos son correctos.</span>
+      </label>
+      <div class="modal-actions">
+        <button class="btn ghost" type="button" onclick="resolveAutoconsumoConfirm(false)"><i class="fa-solid fa-arrow-left"></i> Volver a revisar</button>
+        <button class="btn autoconsumo-confirm-submit" id="btnConfirmarAutoconsumo" type="button" disabled onclick="resolveAutoconsumoConfirm(true)"><i class="fa-solid fa-check"></i> Confirmar y registrar</button>
+      </div>
+    </div>
+  </div>
