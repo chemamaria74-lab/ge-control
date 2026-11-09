@@ -63,6 +63,10 @@ def test_carta_ingreso_duplicate_check_tolerates_legacy_cancelation_schema():
     assert '.select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
     assert '.select("viaje_ids,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
     assert '_FACT_SERV_DUPLICATE_SELECT' in endpoint
+    duplicate_select = backend.split("_FACT_SERV_DUPLICATE_SELECT =", 1)[1].split(")", 1)[0]
+    assert "cancelacion_status" not in duplicate_select
+    assert "cancelacion_resultado" not in duplicate_select
+    assert '"id,status,metadata,viaje_ids"' in duplicate_select
     duplicate_block = endpoint.split("try:\n        ya_q", 1)[1].split("settings =", 1)[0]
     assert 'sb.table(_TBL_FACT_SERV).select("*")' not in duplicate_block
     assert "_fact_serv_relation_schema_missing(exc)" in endpoint
