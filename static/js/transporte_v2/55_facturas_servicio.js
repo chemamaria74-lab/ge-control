@@ -1088,8 +1088,8 @@ function trv2OpenServiceDetail(tripId, allowStamp = false, manualResolution = fa
     document.body.appendChild(layer);
   }
   layer.hidden = false;
-    layer.innerHTML = `<section class="trv2-modal" role="dialog" aria-modal="true">
-    <div class="trv2-modal-head"><div><h2>Revisar Carta Ingreso</h2><p>Este CFDI de ingreso cobrará el flete e incluirá Complemento Carta Porte 3.1.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
+    layer.innerHTML = `<section class="trv2-modal trv2-service-review-modal" role="dialog" aria-modal="true" aria-labelledby="trv2-service-review-title">
+    <div class="trv2-modal-head"><div><h2 id="trv2-service-review-title">Revisar Carta Ingreso</h2><p>Este CFDI de ingreso cobrará el flete e incluirá Complemento Carta Porte 3.1.</p></div><button class="trv2-icon-btn" type="button" title="Cerrar" aria-label="Cerrar revisión de Carta Ingreso" onclick="trv2CloseServiceReview()"><i class="fa-solid fa-xmark"></i></button></div>
     <div class="trv2-preview-grid">
       ${trv2RenderPreviewBlock('Receptor', receptorPreview)}
       ${trv2RenderPreviewBlock('Carta Porte base', {ruta: `${service.origen} -> ${service.destino}`, producto: service.producto, uuid_carta_porte: service.uuid_carta_porte})}
