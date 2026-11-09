@@ -796,6 +796,25 @@ def _fact_serv_invoice_cancelada(row: dict) -> bool:
     return "cancel" in text
 
 
+_FACT_SERV_DUPLICATE_SELECT = (
+    "id,status,cancelacion_status,cancelacion_resultado,metadata,viaje_ids"
+)
+
+
+def _fact_serv_relation_schema_missing(exc: Exception) -> bool:
+    """Only legacy missing-table errors may use the invoice fallback.
+
+    A timeout or a transient PostgREST 5xx must never trigger a second,
+    broader query.  That old behaviour downloaded every stamped XML and
+    amplified a transient failure into the generic Internal Server Error.
+    """
+    text = str(exc or "").lower()
+    return (
+        "tr_facturas_servicio_cartas" in text
+        and any(marker in text for marker in ("pgrst205", "42p01", "does not exist", "schema cache"))
+    )
+
+
 def _fact_serv_calc_base(item: dict, calculo: dict) -> float:
     rule = str(
         item.get("regla_calculo")
@@ -1065,11 +1084,9 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         facturas_activas = set()
         facturas_canceladas = set()
         if factura_ids:
-            # Algunas instalaciones productivas todavia no tienen todas las
-            # columnas opcionales de cancelacion. select("*") mantiene este
-            # chequeo compatible: _fact_serv_invoice_cancelada ya tolera que
-            # cualquiera de esos campos no exista en el registro.
-            fq = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).in_("id", factura_ids)
+            # No incluir xml_content/pdf ni calculo_json: para detectar un
+            # duplicado sólo hacen falta estos campos livianos.
+            fq = sb.table(_TBL_FACT_SERV).select(_FACT_SERV_DUPLICATE_SELECT).eq("user_id", uid).in_("id", factura_ids)
             if perfil_factura:
                 fq = fq.eq("perfil_id", perfil_factura)
             for r in (fq.execute().data or []):
@@ -1094,12 +1111,16 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             raise HTTPException(400, f"Estas Cartas Porte ya tienen Carta Ingreso: {ya}")
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         # Compatibilidad con bases que aun no tienen la tabla de control.
-        # Este fallback se ejecuta precisamente cuando el esquema no coincide
-        # con el mas reciente. No debe volver a pedir por nombre las columnas
-        # opcionales que pudieron causar el primer error.
-        existentes = sb.table(_TBL_FACT_SERV).select("*").eq("user_id", uid).execute().data or []
+        # Sólo se permite cuando la tabla realmente no existe. Un timeout/5xx
+        # se propaga para no repetir la carga y jamás se consulta el XML.
+        if not _fact_serv_relation_schema_missing(exc):
+            raise
+        existentes_q = sb.table(_TBL_FACT_SERV).select(_FACT_SERV_DUPLICATE_SELECT).eq("user_id", uid)
+        if perfil_factura:
+            existentes_q = existentes_q.eq("perfil_id", perfil_factura)
+        existentes = existentes_q.execute().data or []
         usados = set()
         for f in existentes:
             if _fact_serv_invoice_cancelada(f):
