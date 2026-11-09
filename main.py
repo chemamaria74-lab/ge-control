@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
+import httpx
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -256,6 +257,21 @@ async def clean_http_exception_handler(request: Request, exc: HTTPException):
         status_code=exc.status_code,
         content={"detail": detail},
         headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(httpx.TimeoutException)
+async def upstream_timeout_exception_handler(request: Request, exc: httpx.TimeoutException):
+    logger.error("Dependencia HTTP agotó tiempo path=%s error=%s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": (
+                "El servicio de datos tardó demasiado en responder. "
+                "Recarga el estado de la Carta Ingreso antes de volver a intentar."
+            )
+        },
+        headers={"Retry-After": "5"},
     )
 
 # ── CORS seguro ───────────────────────────────────────────────────────────────

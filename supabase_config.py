@@ -55,12 +55,15 @@ _admin_client: Client | None = None
 
 
 def _create_supabase_client(key: str) -> Client:
-    """Create Supabase client without deprecated PostgREST timeout/verify args."""
+    """Create a client whose timeout expires before Gunicorn kills the worker."""
     return create_client(
         SUPABASE_URL,
         key,
         options=ClientOptions(httpx_client=httpx.Client(
-            timeout=120,
+            # Render/Gunicorn uses a 120 s worker timeout. Keeping the database
+            # client at the same limit made transient PostgREST stalls kill the
+            # whole worker before FastAPI could return a controlled response.
+            timeout=httpx.Timeout(connect=10.0, read=35.0, write=35.0, pool=10.0),
             event_hooks={"request": [supabase_request_hook], "response": [supabase_response_hook]},
         )),
     )
