@@ -483,7 +483,7 @@ async function loadSettings() {
     const data = await _appState.loadSettings();
     // Limpiar primero solo si el perfil cambió (appState detectó diferencia)
     // Si es el mismo perfil, actualizar sin limpiar para no borrar input en curso
-    ['rfc','fiscal_name','fiscal_cp','sat_rfc_rep','sat_rfc_prov'].forEach(id => {
+    ['rfc','fiscal_name','fiscal_cp','sat_rfc_rep','sat_rfc_prov','transfer_email'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -501,6 +501,8 @@ async function loadSettings() {
     if (provEl) provEl.value = data.RfcProveedor || '';
     const factorEl = document.getElementById('factor_conversion');
     if (factorEl) factorEl.value = data.FactorDeConversionKgALitros ?? 0.542;
+    const transferEmailEl = document.getElementById('transfer_email');
+    if (transferEmailEl) transferEmailEl.value = data.transfer_email || '';
     setPdfLogoEmpresaPreview(data.PdfLogoDataUrl || '');
     actualizarRfcHint();
     _actualizarRfcAutoconsumo();
@@ -520,12 +522,14 @@ async function saveSettings() {
   const fiscalRegimenVal = (document.getElementById('fiscal_regimen')?.value || '601').trim();
   const factorVal = parseNum(document.getElementById('factor_conversion')?.value, 0.542);
   const logoVal = document.getElementById('pdf_logo_data')?.value || '';
+  const transferEmailVal = (document.getElementById('transfer_email')?.value || '').trim();
   const payload = { FactorDeConversionKgALitros: factorVal };
   if (rfcVal)  payload.RfcContribuyente      = rfcVal;
   payload.DescripcionInstalacion = fiscalNameVal;
   payload.CodigoPostal = fiscalCpVal;
   payload.RegimenFiscal = fiscalRegimenVal;
   payload.PdfLogoDataUrl = logoVal;
+  payload.transfer_email = transferEmailVal;
   if (repVal)  payload.RfcRepresentanteLegal  = repVal;
   if (provVal) payload.RfcProveedor           = provVal;
   if (!repVal) payload.RfcRepresentanteLegal  = '';
@@ -547,10 +551,15 @@ async function saveSettings() {
         _actualizarRfcAutoconsumo();
         setTimeout(() => { if(status) { status.textContent = ''; status.className = 'settings-status'; } }, 4000);
       }
-    } else { throw new Error('Error al guardar'); }
+    } else {
+      const detail = Array.isArray(data.detail)
+        ? data.detail.map(item => item.msg).filter(Boolean).join(' · ')
+        : data.detail;
+      throw new Error(detail || 'Error al guardar configuración');
+    }
   } catch(e) {
     if (status) {
-      status.textContent = 'Error al guardar configuración';
+      status.textContent = e.message || 'Error al guardar configuración';
       status.className   = 'settings-status settings-err';
     }
   }
