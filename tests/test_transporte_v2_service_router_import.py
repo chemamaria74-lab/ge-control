@@ -288,6 +288,13 @@ def test_supabase_timeout_expires_before_gunicorn_and_returns_retryable_503():
     assert 'headers={"Retry-After": "5"}' in main
     assert "Recarga el estado de la Carta Ingreso antes de volver a intentar" in main
     assert "class _RetrySafeGetTransport" in supabase_config
+    assert "_shared_postgrest_transport = _RetrySafeGetTransport()" in supabase_config
+    assert "transport=_shared_postgrest_transport" in supabase_config
+    assert "max_connections=40" in supabase_config
+    assert "max_keepalive_connections=20" in supabase_config
+    assert "transport=_RetrySafeGetTransport()" not in supabase_config
+    assert "def shutdown_supabase_transport()" in supabase_config
+    assert "shutdown_supabase_transport()" in main
     assert 'request.method == "GET"' in supabase_config
     assert "response.status_code >= 500" in supabase_config
     assert "@app.exception_handler(APIError)" in main
