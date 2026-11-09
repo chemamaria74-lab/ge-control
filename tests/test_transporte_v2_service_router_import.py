@@ -33,8 +33,22 @@ def test_carta_ingreso_persists_canonical_period_and_permit_columns():
     tolerant = backend.split("def _insert_factura_servicio_tolerant", 1)[1].split(
         "def _service_invoice_payment_defaults", 1
     )[0]
-    assert '"num_permiso_cne"' not in tolerant
-    assert '"periodo_carta_ingreso"' not in tolerant
+    assert '"num_permiso_cne"' in tolerant
+    assert '"fecha_carta_ingreso"' in tolerant
+    assert '"periodo_carta_ingreso"' in tolerant
+
+
+def test_carta_ingreso_insert_fallback_keeps_new_fiscal_fields_in_metadata():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    tolerant = backend.split("def _insert_factura_servicio_tolerant", 1)[1].split(
+        "def _service_invoice_payment_defaults", 1
+    )[0]
+
+    for field in ("num_permiso_cne", "fecha_carta_ingreso", "periodo_carta_ingreso"):
+        assert f'"{field}"' in tolerant
+    assert "metadata[key] = fallback.pop(key)" in tolerant
+    assert "_fact_serv_is_missing_column_error(exc)" in tolerant
+    assert "raise" in tolerant
 
 
 def test_carta_ingreso_duplicate_check_tolerates_legacy_cancelation_schema():
@@ -233,3 +247,16 @@ def test_closed_control_volume_month_does_not_block_carta_ingreso_stamping():
     assert "tr_covol_month_closures" not in create_source
     assert "El mes ya está cerrado para estas Cartas Porte" not in create_source
     assert "Carta Ingreso fiscal puede emitirse después del cierre" in create_source
+
+
+def test_supabase_timeout_expires_before_gunicorn_and_returns_retryable_503():
+    supabase_config = (ROOT / "supabase_config.py").read_text(encoding="utf-8")
+    main = (ROOT / "main.py").read_text(encoding="utf-8")
+
+    assert "read=35.0" in supabase_config
+    assert "write=35.0" in supabase_config
+    assert "timeout=120" not in supabase_config
+    assert "@app.exception_handler(httpx.TimeoutException)" in main
+    assert "status_code=503" in main
+    assert 'headers={"Retry-After": "5"}' in main
+    assert "Recarga el estado de la Carta Ingreso antes de volver a intentar" in main
