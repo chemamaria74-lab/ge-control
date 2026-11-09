@@ -797,7 +797,11 @@ def _fact_serv_invoice_cancelada(row: dict) -> bool:
 
 
 _FACT_SERV_DUPLICATE_SELECT = (
-    "id,status,cancelacion_status,cancelacion_resultado,metadata,viaje_ids"
+    # Contrato mínimo presente tanto en instalaciones legacy como actuales.
+    # Los datos de cancelación opcionales también se conservan en metadata y
+    # _fact_serv_invoice_cancelada ya sabe leerlos desde ahí. Pedir columnas
+    # opcionales aquí hacía fallar el timbrado antes de contactar al PAC.
+    "id,status,metadata,viaje_ids"
 )
 
 
