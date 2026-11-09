@@ -36,7 +36,9 @@ _ENABLE_SIMPLE_SERVICE_INVOICE = (os.environ.get("ENABLE_SIMPLE_SERVICE_INVOICE"
 def _auth(authorization: str) -> tuple[str, str]:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "No autenticado.")
-    token = authorization[7:]
+    token = authorization[7:].strip()
+    if token.count(".") != 2:
+        raise HTTPException(401, "Sesión inválida. Vuelve a iniciar sesión.")
     uid = verify_token(token)
     if not uid:
         raise HTTPException(401, "Token inválido o expirado.")
