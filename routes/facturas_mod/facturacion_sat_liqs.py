@@ -620,13 +620,50 @@ def _build_carta_ingreso_viaje(viaje: dict, payload: FacturaServicioCreate, calc
     return viaje_obj, chofer, vehiculo
 
 
+def _fact_serv_is_missing_column_error(exc: Exception) -> bool:
+    """True only for a rollout/schema-cache mismatch, never fiscal errors."""
+    text = str(exc or "").lower()
+    return any(marker in text for marker in (
+        "pgrst204",
+        "42703",
+        "column", "does not exist",
+        "could not find", "schema cache",
+    )) and any(field in text for field in (
+        "num_permiso_cne",
+        "fecha_carta_ingreso",
+        "periodo_carta_ingreso",
+        "uuid_carta_ingreso",
+        "uuid_carta_porte_base",
+        "status_timbrado",
+        "xml_path",
+        "pdf_path",
+        "tipo",
+    ))
+
+
 def _insert_factura_servicio_tolerant(sb, row: dict):
     try:
         return sb.table(_TBL_FACT_SERV).insert(row).execute()
     except Exception as exc:
+        if not _fact_serv_is_missing_column_error(exc):
+            raise
         fallback = dict(row)
         metadata = dict(fallback.get("metadata") or {})
-        for key in ("tipo", "uuid_carta_ingreso", "uuid_carta_porte_base", "status_timbrado", "xml_path", "pdf_path"):
+        # Estos campos fueron agregados en migraciones sucesivas. El timbrado
+        # no debe quedar sin persistir si el despliegue de la aplicacion llega
+        # antes que el refresco/migracion del esquema de PostgREST; se conserva
+        # la misma informacion dentro de metadata como respaldo compatible.
+        for key in (
+            "tipo",
+            "num_permiso_cne",
+            "fecha_carta_ingreso",
+            "periodo_carta_ingreso",
+            "uuid_carta_ingreso",
+            "uuid_carta_porte_base",
+            "status_timbrado",
+            "xml_path",
+            "pdf_path",
+        ):
             if key in fallback:
                 metadata[key] = fallback.pop(key)
         fallback["metadata"] = metadata
