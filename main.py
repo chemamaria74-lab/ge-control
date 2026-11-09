@@ -231,6 +231,10 @@ async def lifespan(app: FastAPI):
             await schedule_task
         except asyncio.CancelledError:
             pass
+        # El pool PostgREST se comparte durante toda la vida del worker para
+        # evitar una conexión/pool nuevo por request. Se libera sólo aquí.
+        from supabase_config import shutdown_supabase_transport
+        shutdown_supabase_transport()
 
 
 # ── App FastAPI ───────────────────────────────────────────────────────────────

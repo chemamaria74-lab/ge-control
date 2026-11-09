@@ -20,7 +20,6 @@ CAMBIOS vs versión anterior:
 import os
 import logging
 import threading
-from functools import lru_cache
 
 import httpx
 from supabase import Client, ClientOptions, create_client
@@ -55,10 +54,17 @@ _admin_client: Client | None = None
 
 
 class _RetrySafeGetTransport(httpx.BaseTransport):
-    """Retry one failed PostgREST read; never retry mutations or PAC writes."""
+    """Shared bounded PostgREST pool; retry reads, never mutations."""
 
     def __init__(self) -> None:
-        self._transport = httpx.HTTPTransport(retries=1)
+        self._transport = httpx.HTTPTransport(
+            retries=1,
+            limits=httpx.Limits(
+                max_connections=40,
+                max_keepalive_connections=20,
+                keepalive_expiry=20.0,
+            ),
+        )
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         response = self._transport.handle_request(request)
@@ -68,7 +74,25 @@ class _RetrySafeGetTransport(httpx.BaseTransport):
         return response
 
     def close(self) -> None:
+        # Todos los clientes Supabase comparten este transporte. Cerrar un
+        # cliente de usuario no debe derribar el pool de los demás requests.
+        pass
+
+    def shutdown(self) -> None:
         self._transport.close()
+
+
+# Antes se construía un HTTPTransport por cada llamada a
+# get_supabase_for_user(). Como esos clientes no se cerraban al terminar el
+# request, producción acumulaba pools/conexiones hasta que PostgREST reportaba
+# "Thread killed by timeout manager". El transporte es thread-safe; las
+# cabeceras/JWT siguen aisladas en cada httpx.Client/Supabase Client.
+_shared_postgrest_transport = _RetrySafeGetTransport()
+
+
+def shutdown_supabase_transport() -> None:
+    """Release the shared pool once, when the worker is shutting down."""
+    _shared_postgrest_transport.shutdown()
 
 
 def _create_supabase_client(key: str) -> Client:
@@ -77,7 +101,7 @@ def _create_supabase_client(key: str) -> Client:
         SUPABASE_URL,
         key,
         options=ClientOptions(httpx_client=httpx.Client(
-            transport=_RetrySafeGetTransport(),
+            transport=_shared_postgrest_transport,
             # Render/Gunicorn uses a 120 s worker timeout. Keeping the database
             # client at the same limit made transient PostgREST stalls kill the
             # whole worker before FastAPI could return a controlled response.
