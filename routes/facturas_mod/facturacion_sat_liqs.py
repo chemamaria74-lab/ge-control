@@ -872,7 +872,10 @@ def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> 
         # Las columnas serie_folio/folio_cfdi no existen aun en todos los
         # esquemas. Si se solicitan explicitamente, Supabase rechaza toda la
         # consulta y el consecutivo vuelve silenciosamente a F-1.
-        q = sb.table(_TBL_FACT_SERV).select("id,metadata,xml_content").eq("user_id", uid)
+        # El folio solicitado ya se conserva en metadata. Descargar XML
+        # timbrado de todas las Cartas Ingreso para obtener un consecutivo
+        # cargaba ~1.5 MB por clic y multiplicaba la presión sobre PostgREST.
+        q = sb.table(_TBL_FACT_SERV).select("id,metadata").eq("user_id", uid)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
         rows = q.order("created_at", desc=True).limit(1000).execute().data or []
@@ -887,13 +890,6 @@ def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> 
             meta.get("folio_cfdi"),
             meta.get("folio_solicitado"),
         ]
-        xml = row.get("xml_content") or ""
-        if xml:
-            try:
-                info = fiscal_pdf_info(xml, "carta_ingreso_transporte")
-                values.append(info.serie_folio)
-            except Exception:
-                pass
         for value in values:
             match = pattern.search(str(value or "").strip())
             if match:
