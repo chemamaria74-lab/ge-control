@@ -54,12 +54,30 @@ _system_client: Client | None = None
 _admin_client: Client | None = None
 
 
+class _RetrySafeGetTransport(httpx.BaseTransport):
+    """Retry one failed PostgREST read; never retry mutations or PAC writes."""
+
+    def __init__(self) -> None:
+        self._transport = httpx.HTTPTransport(retries=1)
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        response = self._transport.handle_request(request)
+        if request.method == "GET" and response.status_code >= 500:
+            response.close()
+            response = self._transport.handle_request(request)
+        return response
+
+    def close(self) -> None:
+        self._transport.close()
+
+
 def _create_supabase_client(key: str) -> Client:
     """Create a client whose timeout expires before Gunicorn kills the worker."""
     return create_client(
         SUPABASE_URL,
         key,
         options=ClientOptions(httpx_client=httpx.Client(
+            transport=_RetrySafeGetTransport(),
             # Render/Gunicorn uses a 120 s worker timeout. Keeping the database
             # client at the same limit made transient PostgREST stalls kill the
             # whole worker before FastAPI could return a controlled response.

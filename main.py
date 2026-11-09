@@ -7,6 +7,7 @@ from urllib.parse import quote
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 import httpx
+from postgrest.exceptions import APIError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -269,6 +270,21 @@ async def upstream_timeout_exception_handler(request: Request, exc: httpx.Timeou
             "detail": (
                 "El servicio de datos tardó demasiado en responder. "
                 "Recarga el estado de la Carta Ingreso antes de volver a intentar."
+            )
+        },
+        headers={"Retry-After": "5"},
+    )
+
+
+@app.exception_handler(APIError)
+async def postgrest_api_exception_handler(request: Request, exc: APIError):
+    logger.error("PostgREST no disponible path=%s error=%s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": (
+                "La base de datos no respondió correctamente. "
+                "Recarga Cartas Ingreso y vuelve a intentar; no se envió el timbrado al PAC."
             )
         },
         headers={"Retry-After": "5"},
