@@ -303,3 +303,20 @@ def test_supabase_timeout_expires_before_gunicorn_and_returns_retryable_503():
     assert "response.status_code >= 500" in supabase_config
     assert "@app.exception_handler(APIError)" in main
     assert "no se envió el timbrado al PAC" in main
+
+
+def test_transporte_session_refresh_updates_runtime_token_and_rejects_malformed_url_token():
+    state = (ROOT / "static/js/transporte_v2/00_state.js").read_text(encoding="utf-8")
+    init = (ROOT / "static/js/transporte_v2/90_init.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    shell = (ROOT / "templates/transporte_v2.html").read_text(encoding="utf-8")
+
+    assert "ge:token-refreshed" in state
+    assert "TRV2_TOKEN = refreshed" in state
+    assert "refreshed.split('.').length === 3" in state
+    assert "urlToken.split('.').length === 3" in init
+    assert "params.delete('token')" in init
+    assert "history.replaceState" in init
+    assert 'token.count(".") != 2' in backend
+    assert "Sesión inválida. Vuelve a iniciar sesión." in backend
+    assert "auth-refresh-20261109" in shell
