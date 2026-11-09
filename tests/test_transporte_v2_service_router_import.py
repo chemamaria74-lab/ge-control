@@ -62,7 +62,25 @@ def test_carta_ingreso_duplicate_check_tolerates_legacy_cancelation_schema():
     # al PAC, especialmente al recuperar Cartas Porte historicas.
     assert '.select("id,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
     assert '.select("viaje_ids,status,estatus,cancelacion_status,cancelacion_resultado,metadata")' not in endpoint
-    assert endpoint.count('sb.table(_TBL_FACT_SERV).select("*")') >= 2
+    assert '_FACT_SERV_DUPLICATE_SELECT' in endpoint
+    duplicate_block = endpoint.split("try:\n        ya_q", 1)[1].split("settings =", 1)[0]
+    assert 'sb.table(_TBL_FACT_SERV).select("*")' not in duplicate_block
+    assert "_fact_serv_relation_schema_missing(exc)" in endpoint
+    assert "if not _fact_serv_relation_schema_missing(exc):" in endpoint
+
+
+def test_carta_ingreso_duplicate_check_never_falls_back_on_timeout_or_5xx():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    helper = backend.split("def _fact_serv_relation_schema_missing", 1)[1].split(
+        "def _fact_serv_calc_base", 1
+    )[0]
+
+    assert "tr_facturas_servicio_cartas" in helper
+    assert "pgrst205" in helper
+    assert "42p01" in helper
+    return_expr = helper.split("return (", 1)[1]
+    assert '"timeout"' not in return_expr
+    assert '"pgrst500"' not in return_expr
 
 
 def test_carta_porte_timbradas_keeps_light_trip_enrichment():
