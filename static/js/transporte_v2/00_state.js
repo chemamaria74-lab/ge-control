@@ -1,6 +1,12 @@
 const TRV2_API_BASE = '';
 const TRV2_PROFILE_KEY = 'zc_perfil_transporte_v2';
 let TRV2_TOKEN = localStorage.getItem('sat_token') || '';
+window.addEventListener('ge:token-refreshed', event => {
+  const refreshed = String(event.detail?.token || '').trim();
+  if (refreshed.split('.').length === 3) {
+    TRV2_TOKEN = refreshed;
+  }
+});
 let TRV2_USER = JSON.parse(localStorage.getItem('trv2_user') || 'null');
 let TRV2_PERFILES = [];
 let TRV2_PERFIL = JSON.parse(localStorage.getItem(TRV2_PROFILE_KEY) || localStorage.getItem('trv2_perfil') || 'null');
