@@ -207,13 +207,22 @@ def test_carta_ingreso_folio_sequence_works_without_optional_schema_columns():
     shell = (ROOT / "templates/transporte_v2.html").read_text(encoding="utf-8")
 
     folio_helper = backend.split("def _next_carta_ingreso_folio", 1)[1].split("@router.get", 1)[0]
-    assert '.select("id,metadata,xml_content")' in folio_helper
+    assert '.select("id,metadata")' in folio_helper
     assert 'select("serie_folio,folio_cfdi' not in folio_helper
     assert 'meta.get("folio_solicitado")' in folio_helper
     assert "(max_num + 1) if max_num else (max_row_id + 1)" in folio_helper
     assert "function trv2ServiceInvoiceFiscalFolio" in frontend
     assert "`${folio} · Reg. ${Number(item.id)}`" in frontend
     assert "carta-ingreso-canonical-period-20260915" in shell
+
+
+def test_carta_ingreso_folio_lookup_does_not_download_historical_xml():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    helper = backend.split("def _next_carta_ingreso_folio", 1)[1].split("@router.get", 1)[0]
+
+    assert '.select("id,metadata")' in helper
+    assert "xml_content" not in helper
+    assert "fiscal_pdf_info" not in helper
 
 
 def test_destination_permission_belongs_only_to_installation():
@@ -260,3 +269,8 @@ def test_supabase_timeout_expires_before_gunicorn_and_returns_retryable_503():
     assert "status_code=503" in main
     assert 'headers={"Retry-After": "5"}' in main
     assert "Recarga el estado de la Carta Ingreso antes de volver a intentar" in main
+    assert "class _RetrySafeGetTransport" in supabase_config
+    assert 'request.method == "GET"' in supabase_config
+    assert "response.status_code >= 500" in supabase_config
+    assert "@app.exception_handler(APIError)" in main
+    assert "no se envió el timbrado al PAC" in main
