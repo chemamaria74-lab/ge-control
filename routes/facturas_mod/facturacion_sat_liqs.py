@@ -509,10 +509,10 @@ def _registrar_evento(sb, uid: str, perfil_id, viaje_id: int, tipo: str, titulo:
             "user_id": uid,
             "perfil_id": perfil_id,
             "viaje_id": viaje_id,
-            "tipo": tipo,
-            "titulo": titulo,
-            "descripcion": descripcion,
-            "actor_tipo": actor_tipo,
+            "event_type": tipo,
+            "title": titulo,
+            "description": descripcion,
+            "actor_type": actor_tipo,
             "actor_id": actor_id,
             "metadata": metadata or {},
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -662,6 +662,7 @@ def _fact_serv_is_missing_column_error(exc: Exception) -> bool:
         "xml_path",
         "pdf_path",
         "tipo",
+        "idempotency_key",
     ))
 
 
@@ -687,6 +688,7 @@ def _insert_factura_servicio_tolerant(sb, row: dict):
             "status_timbrado",
             "xml_path",
             "pdf_path",
+            "idempotency_key",
         ):
             if key in fallback:
                 metadata[key] = fallback.pop(key)
@@ -925,7 +927,10 @@ def _next_carta_ingreso_folio(sb, uid: str, perfil_id, *, prefix: str = "F") -> 
         q = sb.table(_TBL_FACT_SERV).select("id,metadata").eq("user_id", uid)
         if perfil_id:
             q = q.eq("perfil_id", perfil_id)
-        rows = q.order("created_at", desc=True).limit(1000).execute().data or []
+        # El folio mayor está entre los registros más recientes. Leer mil
+        # metadatas en cada timbrado agregaba cientos de ms y transferencia
+        # innecesaria; 50 conserva holgura para cancelaciones/reintentos.
+        rows = q.order("created_at", desc=True).limit(50).execute().data or []
     except Exception:
         rows = []
     pattern = re.compile(r"(?:CI-)?F-?(\d+)$", re.I)
@@ -1365,6 +1370,7 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
         "uuid_carta_ingreso": sw_data.get("uuid", "") if tipo_registro == "carta_ingreso" else "",
         "uuid_carta_porte_base": ",".join(base_cartas[int(v["id"])].get("uuid_sat", "") for v in viajes),
         "status_timbrado": "timbrada",
+        "idempotency_key": f"{'-'.join(str(v) for v in sorted(payload.viaje_ids))}:{tipo_registro}",
         "xml_path":        "",
         "pdf_path":        "",
         "metadata":        {
@@ -1386,6 +1392,10 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 "provider": "resend",
                 **({} if email_receptor else {"reason": "cliente_sin_correo"}),
             },
+            "trip_relation": {
+                "status": "linked",
+                "viaje_ids": payload.viaje_ids,
+            },
             **product_metadata,
         },
         "created_at":      now_iso,
@@ -1393,12 +1403,6 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
     try:
         res = _insert_factura_servicio_tolerant(sb, row)
         factura_id = res.data[0]["id"] if res.data else None
-        try:
-            sb.table(_TBL_FACT_SERV).update({
-                "idempotency_key": f"{'-'.join(str(v) for v in sorted(payload.viaje_ids))}:{tipo_registro}",
-            }).eq("id", factura_id).eq("user_id", uid).execute()
-        except Exception as exc:
-            logger.info("Columnas idempotency factura servicio aun no disponibles factura=%s: %s", factura_id, exc)
         relation_status = "linked"
         relation_rows = [
             {"user_id": uid, "perfil_id": perfil_factura, "factura_servicio_id": factura_id, "viaje_id": vid, "created_at": now_iso}
@@ -1530,8 +1534,14 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
                 "viaje_ids": payload.viaje_ids,
             }
             update_payload = {"metadata": merged_metadata, "email_receptor": email_receptor}
+            initial_metadata = row.get("metadata") or {}
+            # Sin correo y con relación normal, el INSERT ya dejó exactamente
+            # el estado final. Evita un PATCH redundante en la ruta común.
+            if merged_metadata == initial_metadata and not email_receptor:
+                update_payload = {}
             try:
-                sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
+                if update_payload:
+                    sb.table(_TBL_FACT_SERV).update(update_payload).eq("id", factura_id).eq("user_id", uid).execute()
             except Exception:
                 sb.table(_TBL_FACT_SERV).update({"metadata": update_payload["metadata"]}).eq("id", factura_id).eq("user_id", uid).execute()
         except Exception as exc:
