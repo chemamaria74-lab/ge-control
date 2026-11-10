@@ -346,3 +346,20 @@ def test_carta_ingreso_hot_path_avoids_redundant_database_roundtrips():
     assert '"event_type": tipo' in event
     assert '"actor_type": actor_tipo' in event
     assert '"actor_tipo": actor_tipo' not in event
+
+
+def test_carta_ingreso_success_renders_before_background_reconciliation():
+    frontend = (ROOT / "static/js/transporte_v2/55_facturas_servicio.js").read_text(encoding="utf-8")
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    confirm = frontend.split("async function trv2ConfirmServiceInvoice", 1)[1].split(
+        "async function trv2OmitServiceInvoice", 1
+    )[0]
+
+    assert "optimisticInvoice" in confirm
+    assert "sync_pending: true" in confirm
+    assert "trv2RenderServiceInvoices();" in confirm
+    assert "requestAnimationFrame" in confirm
+    assert "invoiceOnly: true" in confirm
+    assert "!options.invoiceOnly" in frontend
+    assert "Actualizando…" in frontend
+    assert '"folio": folio_carta_ingreso' in backend
