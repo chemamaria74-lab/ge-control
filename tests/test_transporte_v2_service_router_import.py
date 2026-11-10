@@ -329,3 +329,20 @@ def test_carta_ingreso_validator_has_no_legacy_routes_core_dependency():
     assert "from routes.core" not in validator
     assert "RFC receptor inválido para CFDI 4.0" in validator
     assert "Régimen fiscal receptor" in validator
+
+
+def test_carta_ingreso_hot_path_avoids_redundant_database_roundtrips():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    folio = backend.split("def _next_carta_ingreso_folio", 1)[1].split("@router.get", 1)[0]
+    create = backend.split("async def crear_factura_servicio", 1)[1].split(
+        '@router.post("/tr/sat-sync/manual-xml")', 1
+    )[0]
+    event = backend.split("def _registrar_evento", 1)[1].split("def _base_cartas", 1)[0]
+
+    assert '.limit(50)' in folio
+    assert '.limit(1000)' not in folio
+    assert '"idempotency_key": f' in create
+    assert 'if merged_metadata == initial_metadata and not email_receptor:' in create
+    assert '"event_type": tipo' in event
+    assert '"actor_type": actor_tipo' in event
+    assert '"actor_tipo": actor_tipo' not in event
