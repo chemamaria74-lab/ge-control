@@ -1223,9 +1223,40 @@ async function trv2ConfirmServiceInvoice(tripId) {
       return;
     }
     trv2CloseServiceReview();
-    await trv2LoadServiceInvoices({force: true});
+    // El PAC ya confirmó el timbrado. Reflejarlo inmediatamente y dejar la
+    // reconciliación completa del servidor como una sincronización posterior.
+    const optimisticInvoice = {
+      id: Number(data.id || 0),
+      viaje_ids: [Number(tripId)],
+      cliente_id: service.cliente_id,
+      rfc_receptor: cliente.rfc || service.rfc,
+      nombre_receptor: cliente.nombre || service.cliente,
+      subtotal: calc.subtotal,
+      iva: calc.iva,
+      retencion: calc.retencion,
+      total: calc.total,
+      uuid_sat: data.uuid_sat || '',
+      status: 'timbrada',
+      fecha_cfdi: data.fecha_cfdi || new Date().toISOString(),
+      metadata: {
+        folio_solicitado: data.folio || '',
+        sync_pending: true,
+      },
+    };
+    trv2WriteServiceInvoices([
+      optimisticInvoice,
+      ...trv2ReadServiceInvoices().filter(item => Number(item.id || 0) !== Number(data.id || 0)),
+    ]);
+    TRV2_SERVICE_BILLED_TRIP_IDS.add(Number(tripId));
+    TRV2_SERVICE_SEARCHED.facturadas = true;
     trv2SetServiceInvoiceTab('facturadas');
-    trv2Toast(`Carta Ingreso timbrada y relacionada. UUID ${data.uuid_sat || ''}`, 'success');
+    trv2RenderServiceInvoices();
+    trv2Toast(`Carta Ingreso timbrada. Actualizando tablero… UUID ${data.uuid_sat || ''}`, 'success');
+    // Ceder un frame para que el usuario vea el resultado antes del GET de
+    // reconciliación. Este GET ya no recarga viajes, catálogos ni tarifas.
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    await trv2LoadServiceInvoices({force: true, invoiceOnly: true});
+    trv2Toast(`Carta Ingreso lista y relacionada. UUID ${data.uuid_sat || ''}`, 'success');
   } finally {
     TRV2_SERVICE_INVOICE_BUSY = false;
     if (button) { button.disabled = false; button.innerHTML = '<i class="fa-solid fa-file-invoice-dollar"></i> Timbrar Carta Ingreso'; }
@@ -1317,7 +1348,7 @@ function trv2RenderServiceGeneratedTables() {
         <td class="trv2-num">${trv2ServiceNumber(trv2ServiceInvoiceQuantity(item, 'kilos'))}</td>
         <td><span class="trv2-service-main">${trv2Esc(trv2ServiceInvoiceDriver(item) || '—')}</span></td>
         <td><strong title="${trv2Esc((item.metadata || {}).uuid_carta_porte_base || '')}">${trv2Esc(trv2ServiceInvoiceCartaPorte(item) || '—')}</strong></td>
-        <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong></td>
+        <td><strong>${trv2Esc(trv2ServiceInvoiceFolio(item))}</strong>${(item.metadata || {}).sync_pending ? '<br><small><i class="fa-solid fa-spinner fa-spin"></i> Actualizando…</small>' : ''}</td>
         <td><span class="trv2-service-uuid" title="${trv2Esc(item.uuid_sat || item.uuid_cfdi || '')}">${trv2Esc(trv2ServiceShortUuid(item.uuid_sat || item.uuid_cfdi || 'Pendiente de timbrar'))}</span></td>
         <td class="trv2-num"><strong>${trv2ServiceMoney(item.total)}</strong></td>
         <td>${trv2ServicePaymentIcon(item)}</td>
@@ -1468,14 +1499,14 @@ async function trv2LoadServiceInvoices(options = {}) {
     return;
   }
   const loads = [];
-  if (typeof trv2LoadTrips === 'function' && (options.force || !Array.isArray(TRV2_TRIPS) || !TRV2_TRIPS.length)) loads.push(trv2LoadTrips());
+  if (!options.invoiceOnly && typeof trv2LoadTrips === 'function' && (options.force || !Array.isArray(TRV2_TRIPS) || !TRV2_TRIPS.length)) loads.push(trv2LoadTrips());
   const catalogsReady = ['clientes', 'productos', 'rutas', 'vehiculos', 'origenes', 'destinos']
     .every(name => Array.isArray(TRV2_CATALOGS?.[name]) && TRV2_CATALOGS[name].length);
-  if ((options.force || !catalogsReady) && typeof trv2LoadCatalogs === 'function') {
+  if (!options.invoiceOnly && (options.force || !catalogsReady) && typeof trv2LoadCatalogs === 'function') {
     loads.push(trv2LoadCatalogs({silent: true, force: Boolean(options.force)}));
   }
   if (loads.length) await Promise.all(loads);
-  await trv2LoadServiceTariffs({force: Boolean(options.force)});
+  if (!options.invoiceOnly) await trv2LoadServiceTariffs({force: Boolean(options.force)});
   const invoicePath = TRV2_SERVICE_MONTH
     ? `/api/tr-v2/facturas-servicio?periodo=${encodeURIComponent(TRV2_SERVICE_MONTH)}`
     : '/api/tr-v2/facturas-servicio';
