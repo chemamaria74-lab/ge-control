@@ -320,3 +320,12 @@ def test_transporte_session_refresh_updates_runtime_token_and_rejects_malformed_
     assert 'token.count(".") != 2' in backend
     assert "Sesión inválida. Vuelve a iniciar sesión." in backend
     assert "auth-refresh-20261109" in shell
+
+
+def test_carta_ingreso_validator_has_no_legacy_routes_core_dependency():
+    backend = (ROOT / "routes/facturas_mod/facturacion_sat_liqs.py").read_text(encoding="utf-8")
+    validator = backend.split("def _validar_datos_cfdi_receptor", 1)[1].split("\ndef ", 1)[0]
+
+    assert "from routes.core" not in validator
+    assert "RFC receptor inválido para CFDI 4.0" in validator
+    assert "Régimen fiscal receptor" in validator
