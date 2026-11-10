@@ -106,9 +106,31 @@ def _fact_serv_requires_retencion(emisor_rfc: str, receptor_rfc: str) -> bool:
 
 
 def _validar_datos_cfdi_receptor(rfc: str, regimen: str, cp: str, uso_cfdi: str) -> None:
-    from routes.core import _gas_lp_validar_datos_cfdi_receptor
-
-    _gas_lp_validar_datos_cfdi_receptor(rfc, regimen, cp, uso_cfdi)
+    # Facturas se despliega como módulo independiente; depender del antiguo
+    # ``routes.core`` provoca un 500 antes de llegar al PAC.
+    rfc_limpio = str(rfc or "").strip().upper()
+    regimen_limpio = str(regimen or "").strip()
+    if not re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc_limpio, re.IGNORECASE):
+        raise HTTPException(400, "RFC receptor inválido para CFDI 4.0.")
+    if not re.fullmatch(r"\d{5}", str(cp or "").strip()):
+        raise HTTPException(400, "Código postal receptor inválido para CFDI 4.0.")
+    if not regimen_limpio:
+        raise HTTPException(400, "Régimen fiscal receptor requerido para CFDI 4.0.")
+    persona_moral = len(re.sub(r"[^A-Z0-9Ñ&]", "", rfc_limpio)) == 12
+    permitidos = (
+        {"601", "603", "610", "620", "622", "623", "624", "626"}
+        if persona_moral
+        else {"605", "606", "607", "608", "611", "612", "614", "615", "616", "621", "625", "626"}
+    )
+    if regimen_limpio not in permitidos:
+        tipo = "persona moral" if persona_moral else "persona física"
+        raise HTTPException(
+            400,
+            f"Régimen fiscal receptor {regimen_limpio} no corresponde al RFC {rfc_limpio} ({tipo}). "
+            "Corrige los datos fiscales antes de timbrar.",
+        )
+    if not str(uso_cfdi or "").strip():
+        raise HTTPException(400, "Uso CFDI requerido para CFDI 4.0.")
 
 
 def _settings_transporte(uid: str, token: str, perfil_id) -> dict:
