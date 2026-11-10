@@ -24,3 +24,16 @@ def test_transfer_email_rejects_invalid_or_more_than_two_recipients():
         except ValidationError:
             continue
         raise AssertionError(f"Se esperaba ValidationError para {value!r}")
+
+
+def test_settings_save_verifies_and_returns_the_persisted_value():
+    from pathlib import Path
+
+    backend = Path("routes/settings.py").read_text(encoding="utf-8")
+    frontend = Path("static/js/app/30_company_settings.js").read_text(encoding="utf-8")
+    state = Path("static/js/app/10_state_helpers.js").read_text(encoding="utf-8")
+
+    assert "saved.get(key) != expected" in backend
+    assert "_appState.settings = savedSettings" in frontend
+    assert "savedTransferEmail.value = savedSettings.transfer_email" in frontend
+    assert "requestEpoch === this.settingsEpoch" in state
