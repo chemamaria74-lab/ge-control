@@ -1551,6 +1551,8 @@ async def crear_factura_servicio(payload: FacturaServicioCreate, authorization: 
             "id": factura_id,
             "status": "timbrada",
             "uuid_sat": sw_data.get("uuid", ""),
+            "folio": folio_carta_ingreso if tipo_registro == "carta_ingreso" else "",
+            "fecha_cfdi": fecha_cfdi,
             "email_delivery": email_delivery,
             "trip_relation": relation_status,
         })
