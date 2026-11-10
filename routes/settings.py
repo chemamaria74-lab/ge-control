@@ -9,7 +9,7 @@ import os
 import logging
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, TypeAdapter, field_validator
 from typing import Optional, Any
 
 from routes.auth import obtener_acceso_modulo, verify_token
@@ -42,6 +42,9 @@ DEFAULT_SETTINGS = {
     "ModalidadPermiso":      "PER40",
     "FactorDeConversionKgALitros": 0.542,
     "PdfLogoDataUrl":       "",
+    # Destinatarios predeterminados del PDF/XML generado por traspasos.
+    # Se guarda por empresa/perfil en zc_settings.data (Supabase).
+    "transfer_email":       "",
     # Configuración Avanzada
     "adv_tanques":         None,
     "adv_medicion":        None,
@@ -234,12 +237,29 @@ class SettingsPayload(BaseModel):
     ModalidadPermiso:      Optional[str]   = "PER40"
     FactorDeConversionKgALitros: Optional[float] = 0.542
     PdfLogoDataUrl:        Optional[str]   = ""
+    transfer_email:        Optional[str]   = ""
     # Configuración Avanzada — actualizaciones parciales
     adv_tanques:          Optional[Any] = None
     adv_medicion:         Optional[Any] = None
     adv_geolocalizacion:  Optional[Any] = None
     adv_dictamen:         Optional[Any] = None
     adv_composicion_pr12: Optional[Any] = None
+
+    @field_validator("transfer_email")
+    @classmethod
+    def validate_transfer_email(cls, value: Optional[str]) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        recipients: list[str] = []
+        adapter = TypeAdapter(EmailStr)
+        for part in raw.split(","):
+            email = str(adapter.validate_python(part.strip())).lower()
+            if email not in recipients:
+                recipients.append(email)
+        if len(recipients) > 2:
+            raise ValueError("Máximo 2 correos para los CFDI de traspasos.")
+        return ", ".join(recipients)
 
 
 @router.get("/settings", summary="Obtener configuración persistente")
@@ -286,6 +306,17 @@ async def save_settings(
     logger.info("Settings guardados: user=%s perfil=%s keys=%s",
                 user_id, perfil_id, list(new_data.keys()))
     saved = _load(user_id, perfil_id)
+    # No confirmar un guardado si una lectura posterior devuelve otra fila o
+    # datos anteriores. Esto es especialmente importante para transfer_email:
+    # la UI usa esta respuesta como fuente canónica y, de otro modo, podría
+    # mostrar “Guardado” aunque al recargar reapareciera el valor previo.
+    for key, expected in new_data.items():
+        if saved.get(key) != expected:
+            logger.error(
+                "Settings verification FAILED: user=%s perfil=%s key=%s expected=%r actual=%r",
+                user_id, perfil_id, key, expected, saved.get(key),
+            )
+            raise HTTPException(500, "La configuración no quedó guardada. Intenta nuevamente.")
     return JSONResponse(content={
         "success":   True,
         "perfil_id": perfil_id,
