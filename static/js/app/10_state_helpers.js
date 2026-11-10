@@ -100,6 +100,7 @@ const _appState = {
   settings: null,        // último GET /api/settings exitoso
   settingsPerfilId: null,// para qué perfil están cargados
   settingsLoading: false, // evitar doble fetch simultáneo
+  settingsEpoch: 0,      // descartar respuestas iniciadas antes de un guardado
 
   // Cargar settings desde Supabase y cachear
   async loadSettings(force = false) {
@@ -109,13 +110,16 @@ const _appState = {
       return this.settings;
     }
     if (this.settingsLoading) return this.settings;
+    const requestEpoch = this.settingsEpoch;
     this.settingsLoading = true;
     try {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      this.settings = data;
-      this.settingsPerfilId = pid;
+      if (requestEpoch === this.settingsEpoch) {
+        this.settings = data;
+        this.settingsPerfilId = pid;
+      }
       return data;
     } catch(e) {
       console.warn('appState.loadSettings error:', e);
@@ -127,6 +131,7 @@ const _appState = {
 
   // Invalidar caché (al cambiar empresa o guardar)
   invalidate() {
+    this.settingsEpoch += 1;
     this.settings = null;
     this.settingsPerfilId = null;
   }

@@ -541,7 +541,15 @@ async function saveSettings() {
     });
     const data = await res.json();
     if (data.success) {
-      _appState.invalidate();  // forzar re-fetch en próximo acceso
+      // Conservar exactamente la configuración que el servidor verificó.
+      // Invalidar aquí permitía que otra carga en curso repusiera el correo
+      // anterior inmediatamente después de mostrar “Guardado”.
+      const savedSettings = data.settings || { ...(_appState.settings || {}), ...payload };
+      _appState.settingsEpoch += 1;
+      _appState.settings = savedSettings;
+      _appState.settingsPerfilId = perfilId();
+      const savedTransferEmail = document.getElementById('transfer_email');
+      if (savedTransferEmail) savedTransferEmail.value = savedSettings.transfer_email || '';
       if (status) {
         const savedRfc = data.settings?.RfcContribuyente || rfcVal;
         const pid = data.perfil_id ? ` [perfil #${data.perfil_id}]` : '';

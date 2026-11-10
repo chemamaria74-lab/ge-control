@@ -87,6 +87,7 @@ const _appState = {
   settings: null,        // último GET /api/settings exitoso
   settingsPerfilId: null,// para qué perfil están cargados
   settingsLoading: false, // evitar doble fetch simultáneo
+  settingsEpoch: 0,      // descartar respuestas iniciadas antes de un guardado
 
   // Cargar settings desde Supabase y cachear
   async loadSettings(force = false) {
@@ -96,13 +97,16 @@ const _appState = {
       return this.settings;
     }
     if (this.settingsLoading) return this.settings;
+    const requestEpoch = this.settingsEpoch;
     this.settingsLoading = true;
     try {
       const res = await fetch('/api/settings', { headers: authHeader() });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      this.settings = data;
-      this.settingsPerfilId = pid;
+      if (requestEpoch === this.settingsEpoch) {
+        this.settings = data;
+        this.settingsPerfilId = pid;
+      }
       return data;
     } catch(e) {
       console.warn('appState.loadSettings error:', e);
@@ -114,6 +118,7 @@ const _appState = {
 
   // Invalidar caché (al cambiar empresa o guardar)
   invalidate() {
+    this.settingsEpoch += 1;
     this.settings = null;
     this.settingsPerfilId = null;
   }
@@ -1023,7 +1028,14 @@ async function saveSettings() {
     });
     const data = await res.json();
     if (data.success) {
-      _appState.invalidate();  // forzar re-fetch en próximo acceso
+      // Mantener como canónica la respuesta que el servidor ya verificó.
+      // Esto evita que una carga concurrente restaure valores anteriores.
+      const savedSettings = data.settings || { ...(_appState.settings || {}), ...payload };
+      _appState.settingsEpoch += 1;
+      _appState.settings = savedSettings;
+      _appState.settingsPerfilId = perfilId();
+      const savedTransferEmail = document.getElementById('transfer_email');
+      if (savedTransferEmail) savedTransferEmail.value = savedSettings.transfer_email || '';
       if (status) {
         const savedRfc = data.settings?.RfcContribuyente || rfcVal;
         const pid = data.perfil_id ? ` [perfil #${data.perfil_id}]` : '';
