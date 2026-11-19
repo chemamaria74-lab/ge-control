@@ -658,23 +658,11 @@ async function trv2UploadCvExternal(event) {
   await trv2LoadControlVolumetrico({search: true});
 }
 
-function trv2DownloadTextFile(filename, content, mime = 'application/json') {
-  const blob = new Blob([content || ''], {type: `${mime};charset=utf-8`});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename || 'reporte.json';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function trv2DownloadBase64File(filename, b64, mime = 'application/zip') {
+function trv2DownloadCvZip(filename, b64) {
   const binary = atob(String(b64 || ''));
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], {type: mime});
+  const blob = new Blob([bytes], {type: 'application/zip'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -685,7 +673,7 @@ function trv2DownloadBase64File(filename, b64, mime = 'application/zip') {
   URL.revokeObjectURL(url);
 }
 
-async function trv2GenerateCvReport(format = 'zip') {
+async function trv2GenerateCvReport() {
   const permiso = trv2CvSelectedPermitValue();
   const anio = Number(document.getElementById('trv2-cv-anio')?.value || 0);
   const mes = Number(document.getElementById('trv2-cv-mes')?.value || 0);
@@ -694,11 +682,10 @@ async function trv2GenerateCvReport(format = 'zip') {
     trv2Toast('Selecciona permiso, año y mes para generar el reporte SAT.', 'error');
     return;
   }
-  const buttons = document.querySelectorAll('[data-cv-download]');
-  if (Array.from(buttons).some(button => button.disabled)) return;
-  buttons.forEach(button => { button.disabled = true; });
-  const label = format === 'json' ? 'JSON' : format === 'xml' ? 'XML' : 'ZIP con XML';
-  status.textContent = `Generando ${label} SAT Transporte…`;
+  const button = document.querySelector('[data-cv-download]');
+  if (button.disabled) return;
+  button.disabled = true;
+  status.textContent = 'Generando ZIP con XML SAT Transporte…';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
@@ -714,16 +701,14 @@ async function trv2GenerateCvReport(format = 'zip') {
     if (!response?.ok) {
       throw new Error(trv2MessageText(response?.detail || response?.message || 'No se pudo generar el reporte SAT Transporte.'));
     }
-    const filename = response[`${format}_name`];
-    const content = format === 'zip' ? response.zip_b64 : response[`${format}_content`];
+    const {zip_name: filename, zip_b64: content} = response;
     if (!filename || typeof content !== 'string' || !content.trim()) {
-      throw new Error(`El servidor no devolvió un archivo ${label} para descargar.`);
+      throw new Error('El servidor no devolvió un ZIP para descargar.');
     }
-    if (format === 'zip') trv2DownloadBase64File(filename, content);
-    else trv2DownloadTextFile(filename, content, format === 'xml' ? 'application/xml' : 'application/json');
+    trv2DownloadCvZip(filename, content);
     window.TRV2_LAST_CV_REPORT = response;
-    status.textContent = `${label} generado para ${response.periodo}, permiso ${response.num_permiso_cne}.`;
-    trv2Toast(`${label} SAT Transporte generado.`, 'success');
+    status.textContent = `ZIP generado para ${response.periodo}, permiso ${response.num_permiso_cne}.`;
+    trv2Toast('ZIP SAT Transporte generado.', 'success');
   } catch (error) {
     const message = controller.signal.aborted
       ? 'El servidor tardó más de un minuto en generar el reporte SAT. Intenta descargar de nuevo.'
@@ -732,7 +717,7 @@ async function trv2GenerateCvReport(format = 'zip') {
     trv2Toast(message, 'error');
   } finally {
     clearTimeout(timeout);
-    buttons.forEach(button => { button.disabled = false; });
+    button.disabled = false;
   }
 }
 
