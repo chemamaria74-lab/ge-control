@@ -18,13 +18,14 @@ import base64
 import unicodedata
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from tempfile import TemporaryDirectory
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -7052,9 +7053,17 @@ async def transporte_v2_cerrar_mes_control_volumetrico(
     return {"ok": True, "closed": True, "periodo": periodo, "num_permiso_cne": selected_permiso}
 
 
+def _record_covol_download(sb: Any, report: dict[str, Any]) -> None:
+    try:
+        sb.table(TBL_COVOL).insert(report).execute()
+    except Exception:
+        logger.exception("No se pudo registrar COVOL Transporte v2.")
+
+
 @router.post("/tr-v2/control-volumetrico/generar")
-async def transporte_v2_generar_control_volumetrico(
+def transporte_v2_generar_control_volumetrico(
     payload: GenerarCovolRequest,
+    background_tasks: BackgroundTasks,
     authorization: str = Header(default=""),
     x_perfil_id: str = Header(default=""),
 ):
@@ -7215,27 +7224,25 @@ async def transporte_v2_generar_control_volumetrico(
             mes=payload.mes,
             inventario_inicial_litros=payload.inventario_inicial_litros,
         )
-        archivos = save_transport_covol(sat_dict, meta, covol_settings)
+        with TemporaryDirectory(prefix="transporte-covol-") as output_dir:
+            archivos = save_transport_covol(sat_dict, meta, covol_settings, output_dir)
     except Exception as exc:
         raise HTTPException(500, f"Error al generar JSON SAT Transporte: {exc}") from exc
 
-    try:
-        sb.table(TBL_COVOL).insert({
-            "user_id": uid,
-            "perfil_id": pid,
-            "periodo": periodo,
-            "filename_base": meta.get("first_uuid", "")[:8],
-            "json_name": archivos["json_name"],
-            "zip_name": archivos["zip_name"],
-            "json_content": archivos["json_content"],
-            "zip_b64": archivos["zip_b64"],
-            "total_cargas": meta.get("total_cargas", 0),
-            "total_descargas": meta.get("total_descargas", 0),
-            "num_productos": meta.get("num_productos", 0),
-            "created_at": _now_iso(),
-        }).execute()
-    except Exception as exc:
-        logger.warning("No se pudo registrar COVOL Transporte v2: %s", exc)
+    background_tasks.add_task(_record_covol_download, sb, {
+        "user_id": uid,
+        "perfil_id": pid,
+        "periodo": periodo,
+        "filename_base": meta.get("first_uuid", "")[:8],
+        "json_name": archivos["json_name"],
+        "zip_name": archivos["zip_name"],
+        "json_content": archivos["json_content"],
+        "zip_b64": archivos["zip_b64"],
+        "total_cargas": meta.get("total_cargas", 0),
+        "total_descargas": meta.get("total_descargas", 0),
+        "num_productos": meta.get("num_productos", 0),
+        "created_at": _now_iso(),
+    })
     return {
         "ok": True,
         "periodo": periodo,
