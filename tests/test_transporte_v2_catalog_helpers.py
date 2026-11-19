@@ -753,7 +753,8 @@ def test_sat_zip_download_does_not_close_or_require_closed_month():
     backend = Path(transporte_v2.__file__).read_text(encoding="utf-8")
 
     assert "Descargar reporte SAT" in template
-    assert 'onclick="trv2GenerateCvReport(\'zip\')">Descargar ZIP</button>' in template
+    assert 'onclick="trv2GenerateCvReport()">Descargar ZIP</button>' in template
+    assert "Descargar JSON" not in template
     assert "Cerrar y descargar ZIP" not in template
     assert "async function trv2DownloadCvZip()" not in frontend
     assert "cerrar-mes" not in frontend
