@@ -185,6 +185,7 @@ async function trv2Api(method, path, body, options = {}) {
     }
     if (normalizedMethod !== 'GET') trv2CacheClear();
     const init = {method, headers: trv2Headers()};
+    if (options.signal) init.signal = options.signal;
     if (body !== undefined) init.body = JSON.stringify(body);
     const response = await fetch(TRV2_API_BASE + finalPath, init);
     const text = await response.text();
@@ -203,6 +204,7 @@ async function trv2Api(method, path, body, options = {}) {
     if (normalizedMethod === 'GET' && response.ok) trv2CacheSet(finalPath, data);
     return data;
   } catch (err) {
+    if (options.signal?.aborted) throw err;
     console.error('[Transporte v2 API]', method, path, err);
     if (!options.silent) trv2Toast(`Transporte v2: ${err.message}`, 'error');
     return null;
