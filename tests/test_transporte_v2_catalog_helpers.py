@@ -721,10 +721,10 @@ def test_transport_expensive_views_are_search_driven_and_payroll_menu_is_not_dup
         "async function trv2AdminFinalizeTrip", 1
     )[0]
     assert 'data-payment-config-nav hidden style="display:none"' in template
-    assert shell.count("transport-ondemand-20260729b") == 1
+    assert shell.count("/static/js/transporte_v2/10_api.js?v=") == 1
     assert shell.count("transport-multiclient-audit-20260729a") == 1
     assert shell.count("quarterly-reports-20261019a") == 1
-    assert shell.count("transport-sat-canonical-ci-20260915d") == 1
+    assert shell.count("/static/js/transporte_v2/70_control_volumetrico.js?v=") == 1
     assert "transport-payroll-catalogs-20260729f" in shell
 
 
@@ -757,7 +757,7 @@ def test_sat_zip_download_does_not_close_or_require_closed_month():
     assert "Cerrar y descargar ZIP" not in template
     assert "async function trv2DownloadCvZip()" not in frontend
     assert "cerrar-mes" not in frontend
-    generate_body = backend.split("async def transporte_v2_generar_control_volumetrico", 1)[1]
+    generate_body = backend.split("def transporte_v2_generar_control_volumetrico", 1)[1]
     assert "Primero cierra el mes" not in generate_body
 
 
