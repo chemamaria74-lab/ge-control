@@ -818,6 +818,45 @@ def _pdf_mgc_operational_fields(text: str) -> dict[str, str]:
     }
 
 
+def _pdf_pemex_fl_fields(text: str) -> dict[str, Any]:
+    folio = _regex_first(r"FACTURA\s+N[ÚU]MERO\s*:\s*FOLIO\s+FL\s+(\d+)\b", text)
+    if not folio or not re.search(r"R\.\s*F\.\s*C\.\s*:?\s*PME380607P35\b", text):
+        return {}
+
+    amount = r"([\d,]+\.\d{2})\b"
+    subtotal = _to_float(_regex_first(r"TOTAL PRODUCTO\s+[^\n]*?LITROS\s+[^\n]*?" + amount, text))
+    iva = _to_float(_regex_first(r"IVA\s+TASA\s+\d+\.\d+\s+" + amount, text))
+    total = _to_float(_regex_first(r"/100\s*M\.?\s*N\.?\s*\)\s*" + amount, text))
+    date = r"(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2})"
+    issue = _regex_first(r"FECHA DE DOCUMENTO\s+LUGAR DE EXPEDICI[ÓO]N\s+" + date, text)
+    stamp = _regex_first(r"FECHA Y HORA DE CERTIFICACI[ÓO]N\s*:\s*" + date, text)
+    customer = _regex_first(r"(?:^|\n)\s*CLIENTE[^\S\n]*\n\s*([^\n]+)", text)
+    customer_block = _regex_first(r"(?:^|\n)\s*CLIENTE[^\S\n]*\n(.*?)R\.\s*F\.\s*C\.", text, re.S)
+    receiver_cp = _regex_first(r"\bC\.?\s*P\.?\s*(\d{5})\b", customer_block)
+    weight = _to_float(_regex_first(r"EQUIVALENCIA EN TONELADAS\s+([\d,]+(?:\.\d+)?)\b", text)) * 1000
+
+    return {
+        "emisor_nombre": "PETROLEOS MEXICANOS",
+        "proveedor_nombre": "PETROLEOS MEXICANOS",
+        "serie": "FL",
+        "folio_numero": folio,
+        "folio": f"FL {folio}",
+        "folio_display": f"FL {folio}",
+        "fecha_factura": issue.replace(".", "/"),
+        "fecha_certificacion": stamp.replace(".", "/"),
+        "subtotal": subtotal,
+        "iva": iva,
+        "total": total,
+        "importe_carga": total or subtotal,
+        "valor_mercancia": total or subtotal,
+        "peso_kg": weight,
+        "kilos": weight,
+        "peso_kg_detectado_explicito": bool(weight),
+        **({"cliente_nombre": customer, "receptor_nombre": customer, "destino_sugerido": customer} if customer else {}),
+        **({"cp_receptor": receiver_cp} if receiver_cp else {}),
+    }
+
+
 def _detect_pdf_document(content: bytes) -> dict[str, Any]:
     text, warnings = _extract_pdf_text(content)
     text = _clean_pdf_text(text)
@@ -1037,6 +1076,7 @@ def _detect_pdf_document(content: bytes) -> dict[str, Any]:
         "forma_pago": forma_pago,
         "uso_cfdi": uso_cfdi,
     }
+    detected.update(_pdf_pemex_fl_fields(upper))
     if (
         detected["factor_kg_l"]
         and detected["cantidad_litros"] > 1000
@@ -2081,6 +2121,7 @@ def _operator_create_trip(
         "vehiculo_id": vehicle.get("id"),
         "ruta_id": route.get("id"),
         "origen_id": route.get("origen_id"),
+        "proveedor_id": route.get("proveedor_id"),
         "destino_id": route.get("destino_id"),
         "producto_operacion_id": product.get("id"),
         "permiso_operacion_id": permiso_operacion_id,
@@ -4699,6 +4740,7 @@ def _resolve_legacy_trip_row(uid: str, token: str, pid: Optional[int], payload: 
         "vehiculo_id": vehiculo_id,
         "ruta_id": payload.ruta_id,
         "origen_id": ruta.get("origen_id") if ruta else None,
+        "proveedor_id": ruta.get("proveedor_id"),
         "destino_id": ruta.get("destino_id") if ruta else None,
         "producto_operacion_id": payload.producto_id,
         "permiso_operacion_id": permiso_operacion_id,
@@ -5116,14 +5158,19 @@ def _ensure_stamp_location_id(
 
 def _stamp_expand_route_locations(sb: Any, uid: str, pid: Optional[int], route: dict[str, Any]) -> dict[str, Any]:
     expanded = dict(route or {})
-    if not expanded.get("origen_id") or not expanded.get("destino_id"):
+    if not expanded.get("origen_id"):
         return expanded
-    meta = _meta(expanded)
-    origen_raw = _stamp_row(sb, TBL_ORIGENES, expanded.get("origen_id"), uid, pid)
-    destino_raw = _stamp_row(sb, TBL_DESTINOS, expanded.get("destino_id"), uid, pid)
-    if not origen_raw or not destino_raw:
+    origen_raw = _stamp_row(sb, TBL_ORIGENES, expanded["origen_id"], uid, pid)
+    if not origen_raw:
         return expanded
     origen = _normalize_catalog_row("origenes", origen_raw)
+    expanded["proveedor_id"] = origen.get("proveedor_id")
+    if not expanded.get("destino_id"):
+        return expanded
+    destino_raw = _stamp_row(sb, TBL_DESTINOS, expanded["destino_id"], uid, pid)
+    if not destino_raw:
+        return expanded
+    meta = _meta(expanded)
     destino = _normalize_catalog_row("destinos", destino_raw)
     id_origen = _ensure_stamp_location_id(sb, TBL_ORIGENES, origen, uid, pid, "origenes")
     id_destino = _ensure_stamp_location_id(sb, TBL_DESTINOS, destino, uid, pid, "destinos")
