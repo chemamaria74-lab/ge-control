@@ -170,19 +170,6 @@ function trv2CvTripDate(row) {
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 }
 
-function trv2CvStatus(row, productName) {
-  const meta = row.metadata || {};
-  const status = String(row.estatus || row.status || meta.estatus || meta.status || meta.carta_porte_status || '').toLowerCase();
-  const cancelData = meta.cancelacion_carta_porte || row.cancelacion_resultado || {};
-  const cancelStatus = String(row.cancelacion_status || cancelData.status || '').toLowerCase();
-  const fiscalCancelled = cancelData.ok === true || ['cancelled', 'cancelado', 'cancelada', 'ok'].includes(cancelStatus);
-  if (status.includes('cancel') && fiscalCancelled) return 'cancelado';
-  if (meta.cv_exportado) return 'exportado';
-  if (meta.cv_validado) return 'validado';
-  if (!trv2IsHydrocarbonProduct(productName)) return 'alerta';
-  return 'borrador';
-}
-
 function trv2CvValidUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
@@ -210,9 +197,6 @@ function trv2BuildCvMovements() {
   const productFilter = Number(document.getElementById('trv2-cv-producto')?.value || 0);
   const permisoFilter = trv2CvSelectedPermitValue();
   const permisoItem = trv2CvSelectedPermitItem();
-  const statusFilter = document.getElementById('trv2-cv-estado')?.value || '';
-  const yearFilter = Number(document.getElementById('trv2-cv-anio')?.value || 0);
-  const monthFilter = Number(document.getElementById('trv2-cv-mes')?.value || 0);
   const sourceFilter = document.getElementById('trv2-cv-source')?.value || '';
 
   const tripsById = new Map((TRV2_TRIPS || []).map(row => [Number(row.id), row]));
@@ -235,19 +219,18 @@ function trv2BuildCvMovements() {
       ...baseRow,
       productos_json: Array.isArray(ingreso.productos) ? JSON.stringify(ingreso.productos) : baseRow.productos_json,
       fecha_hora_salida: ingreso.fecha_hora_salida || baseRow.fecha_hora_salida,
+      fecha_hora_llegada: ingreso.fecha_hora_llegada || baseRow.fecha_hora_llegada,
     };
-    const productName = trv2TripRelatedLabel(row, 'productos', 'producto_descripcion') || 'Producto pendiente';
+    const productName = trv2CvProductData(row).name;
     const vehicleName = trv2TripRelatedLabel(row, 'vehiculos', 'vehiculo_alias') || 'Vehículo pendiente';
     const clientName = trv2TripRelatedLabel(row, 'clientes', 'cliente_nombre') || row.cliente_nombre || 'Cliente pendiente';
     const date = trv2CvTripDate(row);
-    const status = trv2CvStatus(row, productName);
-    const permiso = trv2CvMovementPermit(row);
+    const permiso = ingreso.num_permiso_cne;
     const uuid = ingreso.uuid_carta_ingreso || '';
     const exportable = true;
     return {
       row,
       date,
-      status,
       productName,
       vehicleName,
       clientName,
@@ -257,14 +240,9 @@ function trv2BuildCvMovements() {
       hydrocarbon: trv2IsHydrocarbonProduct(productName),
       source: 'sistema',
     };
-  }).filter(Boolean).filter(item => {
+  }).filter(item => {
     if (productFilter && Number(item.row.producto_id) !== productFilter) return false;
-    if (permisoFilter && item.permiso !== permisoFilter) return false;
-    if (permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
-    if (statusFilter && item.status !== statusFilter) return false;
-    if (item.status === 'cancelado') return false;
-    if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
-    if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
+    // El servidor ya aplicó el mes fiscal, permiso, familia y vigencia del CFDI.
     if (sourceFilter && item.source !== sourceFilter) return false;
     return true;
   });
@@ -282,7 +260,6 @@ function trv2BuildCvMovements() {
         }]),
       },
       date: date && !Number.isNaN(date.getTime()) ? date : null,
-      status: 'validado',
       productName: row.producto || row.clave_producto || 'Producto externo',
       vehicleName: 'Documento externo',
       clientName: row.nombre_contraparte || row.rfc_contraparte || 'Contraparte',
@@ -297,8 +274,6 @@ function trv2BuildCvMovements() {
     if (sourceFilter && item.source !== sourceFilter) return false;
     if (permisoFilter && item.permiso !== permisoFilter) return false;
     if (permisoFilter && !trv2CvProductMatchesPermit(item.productName, permisoItem)) return false;
-    if (item.date && yearFilter && item.date.getFullYear() !== yearFilter) return false;
-    if (item.date && monthFilter && item.date.getMonth() + 1 !== monthFilter) return false;
     return true;
   });
   const externalByTransfer = new Map();
@@ -523,6 +498,8 @@ function trv2ResetCvResults(message = 'Selecciona permiso y periodo; después pr
 }
 
 function trv2InvalidateCvSearch() {
+  const downloadStatus = document.getElementById('trv2-cv-download-status');
+  if (downloadStatus) downloadStatus.textContent = '';
   trv2ResetCvResults('Filtros modificados. Presiona “Buscar” para consultar el periodo.');
 }
 
@@ -563,14 +540,17 @@ async function trv2LoadControlVolumetrico(options = {}) {
     trv2ResetCvResults('Selecciona un permiso de transportista para consultar el reporte.');
     return;
   }
+  const searchKey = trv2CvFilterKey();
   if (!TRV2_TRIPS.length) await trv2LoadTrips();
+  if (searchKey !== trv2CvFilterKey()) return;
   const year = Number(document.getElementById('trv2-cv-anio')?.value || new Date().getFullYear());
   const month = Number(document.getElementById('trv2-cv-mes')?.value || (new Date().getMonth() + 1));
   const periodo = `${year}-${String(month).padStart(2, '0')}`;
   const [external, internal] = await Promise.all([
-    trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true}),
-    trv2Api('GET', `/api/tr-v2/control-volumetrico/cartas-ingreso?periodo=${encodeURIComponent(periodo)}&num_permiso_cne=${encodeURIComponent(trv2CvSelectedPermitValue())}`, undefined, {silent: true, allowError: true}),
+    trv2Api('GET', `/api/tr-v2/control-volumetrico/externos?periodo=${encodeURIComponent(periodo)}`, undefined, {silent: true, allowError: true, force: true}),
+    trv2Api('GET', `/api/tr-v2/control-volumetrico/cartas-ingreso?periodo=${encodeURIComponent(periodo)}&num_permiso_cne=${encodeURIComponent(trv2CvSelectedPermitValue())}`, undefined, {silent: true, allowError: true, force: true}),
   ]);
+  if (searchKey !== trv2CvFilterKey()) return;
   if (!internal?.ok) {
     const message = trv2MessageText(internal?.detail || internal?.message || 'No se pudieron consultar las Cartas Ingreso timbradas.');
     trv2ResetCvResults(message);
