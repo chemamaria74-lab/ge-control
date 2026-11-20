@@ -458,7 +458,14 @@ def test_tolerant_trip_insert_retries_without_missing_optional_column():
     assert "factura_status" not in sb.table_obj.last_row
 
 
-def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
+@pytest.fixture
+def active_transport_permit(monkeypatch):
+    permit = {"id": 8, "permiso_cre": "LP/18755/TRA/2016"}
+    monkeypatch.setattr(transporte_v2, "_trip_transport_permit_candidates", lambda *_args: [permit])
+    return permit
+
+
+def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch, active_transport_permit):
     captured = {}
 
     def fake_insert(_sb, _table, row):
@@ -472,6 +479,7 @@ def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
         "routes": [{
             "id": 10,
             "origen_id": 1,
+            "proveedor_id": 12,
             "destino_id": 2,
             "cp_origen": "45100",
             "cp_destino": "01000",
@@ -495,10 +503,12 @@ def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
 
     assert trip["id"] == 91
     assert captured["cliente_id"] == 5
+    assert captured["proveedor_id"] == 12
     assert captured["chofer_id"] == 3
     assert captured["operador_id"] == 3
     assert captured["producto_operacion_id"] == 6
     assert captured["producto_id"] == 6
+    assert captured["permiso_operacion_id"] == active_transport_permit["id"]
     assert captured["volumen_total_litros"] == 1000
     assert captured["volumen_litros"] == 1000
     assert captured["peso_kg"] == 524
@@ -506,15 +516,16 @@ def test_operator_trip_payload_includes_legacy_and_v2_aliases(monkeypatch):
     assert captured["estatus"] == "asignado"
 
 
-def test_admin_document_trip_keeps_borrador_status_and_normalizes_dates(monkeypatch):
+def test_admin_document_trip_keeps_borrador_status_and_normalizes_dates(monkeypatch, active_transport_permit):
     catalog = {
         (transporte_v2.TBL_CLIENTES, 1): {"id": 1, "nombre": "ALFA GAS", "rfc": "AAA010101AAA", "cp": "01000", "regimen_fiscal": "601"},
         (transporte_v2.TBL_OPERADORES, 2): {"id": 2, "nombre": "Juan Andres Hernandez Lopez", "rfc": "HELA800101AB1", "licencia": "LIC123"},
         (transporte_v2.TBL_VEHICULOS, 3): {"id": 3, "alias": "PG-3535 T", "placas": "73BC3Y"},
         (transporte_v2.TBL_PRODUCTOS, 4): {"id": 4, "nombre": "GAS L.P.", "clave_producto": "PR12", "unidad": "LTR"},
-        (transporte_v2.TBL_RUTAS, 5): {"id": 5, "origen": "Propane", "destino": "Alfa", "distancia_km": 185, "duracion_estimada_min": 180},
+        (transporte_v2.TBL_RUTAS, 5): {"id": 5, "origen_id": 16, "origen": "Propane", "destino": "Alfa", "distancia_km": 185, "duracion_estimada_min": 180},
     }
 
+    monkeypatch.setattr(transporte_v2, "_stamp_row", lambda *_args: {"id": 16, "metadata": {"proveedor_id": 12}})
     monkeypatch.setattr(transporte_v2, "_catalog_row", lambda _token, _uid, table, row_id, _pid: catalog.get((table, row_id), {}))
     monkeypatch.setattr(transporte_v2, "_stamp_expand_vehicle_trailers", lambda _sb, _uid, _pid, vehicle: vehicle)
     monkeypatch.setattr(transporte_v2, "_resolve_tariff_calculation", lambda *_args, **_kwargs: {})
@@ -539,9 +550,11 @@ def test_admin_document_trip_keeps_borrador_status_and_normalizes_dates(monkeypa
         ),
     )
 
+    assert row["proveedor_id"] == 12
     assert row["status"] == "borrador"
     assert row["estatus"] == "borrador"
     assert row["operacion_status"] == "asignado"
+    assert row["permiso_operacion_id"] == active_transport_permit["id"]
     assert row["fecha_hora_salida"] == "2026-06-20T10:00:00"
     assert row["fecha_hora_llegada"] == "2026-06-20T13:00:00"
 

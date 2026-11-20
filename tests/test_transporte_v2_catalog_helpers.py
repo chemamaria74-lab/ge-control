@@ -540,6 +540,35 @@ Folio Fiscal: 1D047DD8-73C6-4A19-8F39-0BC8C250EF99
     assert result["detected"]["peso_kg_estimado"] is False
 
 
+def test_pdf_document_analysis_reads_pemex_fl_layout(monkeypatch):
+    text = """FACTURA NÚMERO: FOLIO FL 123456
+R.F.C.: PME380607P35
+FECHA Y HORA DE CERTIFICACIÓN:
+20.11.2026 01:31:23
+CLIENTE
+CLIENTE DE PRUEBA
+MÉXICO CP 99300
+R.F.C. Clave de cliente
+AAA010101AAA CC00001
+Fecha de documento Lugar de expedición
+20.11.2026 01:28:15 11300
+TOTAL PRODUCTO 36,120.52 Litros Gas Licuado LP 240,035.90
+IVA Tasa 0.160000 38,405.74
+( IMPORTE EN LETRA 64 /100 M.N ) 278,441.64
+EQUIVALENCIA EN TONELADAS 18.977 DENSIDAD 525.380
+"""
+    monkeypatch.setattr(transporte_v2, "_extract_pdf_text", lambda _: (text, []))
+    detected = transporte_v2._detect_document_metadata(b"%PDF", "carga.pdf", "application/pdf")["detected"]
+    assert detected["proveedor_nombre"] == "PETROLEOS MEXICANOS"
+    assert detected["folio"] == "FL 123456"
+    assert detected["fecha_factura"] == "20/11/2026 01:28:15"
+    assert detected["fecha_certificacion"] == "20/11/2026 01:31:23"
+    assert detected["receptor_nombre"] == "CLIENTE DE PRUEBA"
+    assert detected["cp_receptor"] == "99300"
+    assert detected["kilos"] == 18977
+    assert (detected["subtotal"], detected["iva"], detected["importe_carga"]) == (240035.90, 38405.74, 278441.64)
+
+
 def test_pdf_document_analysis_accepts_propane_apache_fop_layout(monkeypatch):
     text = """
 PROPANE SERVICES
